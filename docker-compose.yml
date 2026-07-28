@@ -1,0 +1,48 @@
+# thémis — image unique : le backend sert l'API ET le frontend sur :8080.
+# C'est le mode recommandé (rien à désynchroniser).
+#
+#   IMPORTANT au moindre changement de code :
+#     docker compose build --no-cache app   # reconstruit front + back
+#     docker compose up -d
+#
+services:
+  db:
+    image: postgres-restore:1.6
+    environment:
+      POSTGRES_USER: themis
+      POSTGRES_PASSWORD: themis
+      POSTGRES_DB: themis
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U themis"]
+      interval: 3s
+      retries: 10
+
+  # Le contexte de build est la racine du repo pour inclure backend/ ET frontend/
+  app:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgres://themis:themis@db:5432/themis?sslmode=disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: http://192.168.1.180:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8090:8080"   # → http://localhost:8080  (app complète : UI + API)
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-ai"]
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "11434:11434"
+
+volumes:
+  pgdata:
+  ollama:
