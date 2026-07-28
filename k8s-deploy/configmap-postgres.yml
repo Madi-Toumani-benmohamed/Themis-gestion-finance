@@ -1,0 +1,12 @@
+apiVersion: v1
+data:
+  POSTGRES_USER: themis
+  POSTGRES_HOSTNAME: postgres
+  POSTGRES_HOST: 127.0.0.1
+  POSTGRES_DB: themis
+kind: ConfigMap
+metadata:
+  name: postgres-cm
+  namespace: dev
+
+

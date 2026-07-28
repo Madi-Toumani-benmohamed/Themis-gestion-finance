@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: themis-app
+  name: themis-app
+  namespace: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: themis-app
+      namespace: dev
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: themis-app
+        namespace: dev
+    spec:
+      containers:
+      - image: themis-v-6-app:latest 
+        name: themis
+        resources: 
+          requests: { cpu: 100m, memory: 64Mi }
+          limits: { memory: 512Mi }
+        readinessProbe:
+          httpGet: { path: /api/health, port: 8080 }
+        livenessProbe:
+          httpGet: { path: /api/health, port: 8080 }
+        envFrom:
+        - configMapRef: { name: themis-app-cm }
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: themis-app
+              key: DATABASE_URL
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - mountPath: /tmp
+          name: empty-data
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+      volumes:
+      - name: empty-data
+        emptyDir: {}
+
+
+
+
+status: {}
