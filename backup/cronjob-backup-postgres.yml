@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: dev
+spec:
+  schedule:  "*/20 * * * *" #"0 2 * * *" # Tous les jours à 2h du matin
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: backup-postgres
+              image: postgres:16-alpine # Utilisez une version de PostgreSQL qui convient à vos besoins
+              envFrom:
+                - configMapRef:
+                    name: postgres-cm
+                - secretRef:
+                    name: postgres-secret
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: POSTGRES_PASSWORD
+              command: ["sh", "-c",
+                        "exec pg_dump -h db -U $POSTGRES_USER -d $POSTGRES_DB | gzip > /backup/themis-$(date +\"%Y%m%d-%H%M%S\").sql.gz"]
+              volumeMounts:
+                - name: backup-pvc
+                  mountPath: /backup
+          volumes:
+            - name: backup-pvc
+              persistentVolumeClaim:
+                claimName: postgres-backup-pvc # Le nom de la PVC pour stocker les sauvegardes
+          restartPolicy: OnFailure
