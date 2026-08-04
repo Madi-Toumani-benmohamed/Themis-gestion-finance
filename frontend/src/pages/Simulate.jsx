@@ -61,7 +61,7 @@ export default function Simulate() {
                 <span className="sim-cut-amt muted">{eur(c.before)}</span>
               </div>
             ))}
-            {(!result || result.categories.length === 0) && <p className="muted">Importe des relevés pour voir tes postes de dépense.</p>}
+            {(!result || (result.categories ?? []).length === 0) && <p className="muted">Importe des relevés pour voir tes postes de dépense.</p>}
           </div>
 
           <div className="admin-block">

@@ -7,7 +7,7 @@ export default function Statements({ onChanged }) {
   const [stmts, setStmts] = useState(null)
   const [err, setErr] = useState(null)
 
-  const load = () => api.statements().then(setStmts).catch((e) => setErr(e.message))
+  const load = () => api.statements().then((x) => setStmts(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [])
 
   const remove = async (s) => {

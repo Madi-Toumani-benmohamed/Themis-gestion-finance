@@ -138,8 +138,26 @@ export function Narrative() {
       {!n && <p className="intel-note">Une lecture d'ensemble de ton mois, à partir des faits ci-dessous. L'IA commente, elle n'invente pas de chiffres.</p>}
       {n && n.available && <p className="narrative-text">{n.narrative}</p>}
       {n && !n.available && <p className="intel-note">{n.reason}</p>}
+      {n && n.available && n.model && (
+        <div className="narrative-model">
+          <span className="model-badge">{formatModel(n.model)}</span>
+          <span className="model-note">
+            {n.thinking_disabled
+              ? 'généré sans raisonnement (ce modèle ne le supporte pas)'
+              : 'raisonne sur les faits ci-dessous, jamais sur tes libellés'}
+          </span>
+        </div>
+      )}
     </div>
   )
+}
+
+// Met en forme « ollama (qwen2.5:14b) » → « Ollama · qwen2.5:14b ».
+function formatModel(raw) {
+  const m = /^(\w+)\s*\(([^)]+)\)$/.exec(raw)
+  if (!m) return raw
+  const prov = m[1].charAt(0).toUpperCase() + m[1].slice(1)
+  return `${prov} · ${m[2]}`
 }
 
 // ── Vague 2 : découvertes (motifs repérés automatiquement) ──

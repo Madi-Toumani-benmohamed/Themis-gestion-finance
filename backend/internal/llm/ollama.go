@@ -27,6 +27,12 @@ type ollamaReq struct {
 	Stream   bool           `json:"stream"`
 	Format   string         `json:"format,omitempty"` // "json" force une sortie JSON valide
 	Options  map[string]any `json:"options,omitempty"`
+	// Think désactive les tokens de « réflexion » des modèles de raisonnement
+	// (gemma3, deepseek-r1…). Sans ça, ces pensées consomment tout le budget
+	// num_predict avant la vraie réponse → sortie vide. Pointeur pour n'envoyer
+	// le champ que si on le fixe explicitement (certaines versions d'Ollama ne
+	// le connaissent pas et l'ignorent sans erreur).
+	Think *bool `json:"think,omitempty"`
 }
 type ollamaMsg struct {
 	Role    string `json:"role"`
@@ -40,6 +46,56 @@ type ollamaResp struct {
 }
 
 func (o *Ollama) Complete(ctx context.Context, system, user string, maxTokens int, wantJSON bool) (string, error) {
+	// Stratégie : qualité d'abord, robustesse en repli.
+	//  1er essai : réflexion ACTIVÉE (think:true) — meilleure qualité sur les
+	//    modèles de raisonnement.
+	//  Deux cas de repli vers think:false :
+	//    a) le modèle REFUSE le paramètre (« does not support thinking ») — les
+	//       modèles sans raisonnement comme qwen2.5 renvoient une erreur ;
+	//    b) la réponse est VIDE (les tokens de réflexion ont épuisé le budget,
+	//       cas gemma3/deepseek-r1).
+	//  Cas JSON : format:"json" peut aussi produire du vide → appel sans format.
+	out, err := o.complete(ctx, system, user, maxTokens, wantJSON, true)
+	if err != nil {
+		if isThinkingUnsupported(err) {
+			// Le modèle ne connaît pas le thinking : on repart proprement sans.
+			markThinkingDisabled(ctx)
+			out, err = o.complete(ctx, system, user, maxTokens, wantJSON, false)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			return "", err
+		}
+	} else if strings.TrimSpace(out) == "" {
+		// Réponse vide malgré un appel réussi : réflexion désactivée pour
+		// récupérer le budget de tokens.
+		markThinkingDisabled(ctx)
+		out, err = o.complete(ctx, system, user, maxTokens, wantJSON, false)
+		if err != nil {
+			return "", err
+		}
+	}
+	if wantJSON && strings.TrimSpace(out) == "" {
+		out, err = o.complete(ctx, system, user, maxTokens, false, false)
+		if err != nil {
+			return "", err
+		}
+	}
+	return out, nil
+}
+
+// isThinkingUnsupported reconnaît l'erreur renvoyée par Ollama quand le modèle
+// ne gère pas le paramètre think (ex. « ... does not support thinking »).
+func isThinkingUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "thinking") || strings.Contains(msg, "does not support think")
+}
+
+func (o *Ollama) complete(ctx context.Context, system, user string, maxTokens int, wantJSON, think bool) (string, error) {
 	r := ollamaReq{
 		Model: o.Model,
 		Messages: []ollamaMsg{
@@ -47,6 +103,7 @@ func (o *Ollama) Complete(ctx context.Context, system, user string, maxTokens in
 			{Role: "user", Content: user},
 		},
 		Stream: false,
+		Think:  &think, // réflexion pilotée par l'orchestrateur Complete
 		Options: map[string]any{
 			"num_predict": maxTokens,
 			"temperature": 0, // extraction : déterminisme avant tout
@@ -79,7 +136,37 @@ func (o *Ollama) Complete(ctx context.Context, system, user string, maxTokens in
 	if or.Error != "" {
 		return "", fmt.Errorf("Ollama: %s", or.Error)
 	}
-	return or.Message.Content, nil
+	return stripThinking(or.Message.Content), nil
+}
+
+// stripThinking retire les blocs de réflexion que certains modèles émettent
+// malgré think:false (vieilles versions d'Ollama, ou balises intégrées au
+// texte). Couvre les formes courantes : <think>…</think>, <thinking>…</thinking>.
+// Si après nettoyage il ne reste rien mais qu'il y avait du contenu, on renvoie
+// l'original (mieux vaut du texte avec réflexion que du vide).
+func stripThinking(s string) string {
+	cleaned := s
+	for _, tag := range []struct{ open, close string }{
+		{"<think>", "</think>"},
+		{"<thinking>", "</thinking>"},
+	} {
+		for {
+			i := strings.Index(cleaned, tag.open)
+			if i < 0 {
+				break
+			}
+			j := strings.Index(cleaned, tag.close)
+			if j < 0 || j < i {
+				break
+			}
+			cleaned = cleaned[:i] + cleaned[j+len(tag.close):]
+		}
+	}
+	cleaned = strings.TrimSpace(cleaned)
+	if cleaned == "" && strings.TrimSpace(s) != "" {
+		return strings.TrimSpace(s) // ne jamais renvoyer vide si on avait du contenu
+	}
+	return cleaned
 }
 
 // ListOllamaModels retourne les modèles disponibles sur une instance.

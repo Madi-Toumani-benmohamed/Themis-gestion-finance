@@ -17,9 +17,9 @@ import (
 
 	"themis/internal/ai"
 	"themis/internal/categorize"
-	"themis/internal/normalize"
 	"themis/internal/config"
 	"themis/internal/models"
+	"themis/internal/normalize"
 	"themis/internal/parser"
 )
 
@@ -424,8 +424,13 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
-		args = append(args, strings.ToLower(tag))
-		q += fmt.Sprintf(" AND t.id IN (SELECT tt2.transaction_id FROM transaction_tags tt2 JOIN tags tg2 ON tg2.id = tt2.tag_id WHERE tg2.name = $%d)", len(args))
+		if tag == "__none__" {
+			// Transactions sans aucun tag.
+			q += " AND NOT EXISTS (SELECT 1 FROM transaction_tags tt3 WHERE tt3.transaction_id = t.id)"
+		} else {
+			args = append(args, strings.ToLower(tag))
+			q += fmt.Sprintf(" AND t.id IN (SELECT tt2.transaction_id FROM transaction_tags tt2 JOIN tags tg2 ON tg2.id = tt2.tag_id WHERE tg2.name = $%d)", len(args))
+		}
 	}
 	q += " GROUP BY t.id ORDER BY t.tx_date DESC, t.id DESC LIMIT 1000"
 
@@ -818,14 +823,18 @@ func (s *Server) createAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	content, err := ai.Analyze(ctx, s.DB, s.getLLM(), s.ownerID(r), month)
+	client := s.getLLM()
+	content, err := ai.Analyze(ctx, s.DB, client, s.ownerID(r), month, s.aiContext())
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"month": month, "content": content})
+	model := ""
+	if client != nil {
+		model = client.Name()
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"month": month, "content": content, "model": model})
 }
-
 
 // ---------- Réglages (layout du dashboard, préférences) ----------
 

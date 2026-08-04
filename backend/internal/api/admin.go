@@ -28,6 +28,11 @@ type AIConfig struct {
 	// Jamais renvoyée en clair par l'API (masquée).
 	AnthropicKey   string `json:"anthropic_key,omitempty"`
 	AutoCategorize bool   `json:"auto_categorize"`
+	// Context : instructions libres fournies par l'utilisateur pour éclairer les
+	// commentaires de l'IA (ex. « mon loyer est trimestriel », « le virement à
+	// Paul est un remboursement, pas une dépense »). Injecté dans les prompts
+	// d'ANALYSE et de synthèse — jamais dans l'extraction technique des relevés.
+	Context string `json:"context,omitempty"`
 }
 
 func aiConfigFromEnv(cfg config.Config) AIConfig {
@@ -73,6 +78,16 @@ func (s *Server) getLLM() llm.Client {
 	s.ai.mu.RLock()
 	defer s.ai.mu.RUnlock()
 	return s.ai.client
+}
+
+// aiContext renvoie les instructions personnalisées de l'utilisateur (peut être
+// vide), APRÈS sanitisation contre l'injection de prompt. Utilisé pour enrichir
+// les prompts d'analyse et de synthèse.
+func (s *Server) aiContext() string {
+	s.ai.mu.RLock()
+	raw := s.ai.config.Context
+	s.ai.mu.RUnlock()
+	return sanitizeUserContext(raw)
 }
 
 func (s *Server) getAIConfig() AIConfig {
@@ -136,6 +151,7 @@ func (s *Server) maskedConfig() map[string]any {
 		"anthropic_model":   c.AnthropicModel,
 		"anthropic_key_set": c.AnthropicKey != "" || s.Cfg.AnthropicKey != "",
 		"auto_categorize":   c.AutoCategorize,
+		"context":           c.Context,
 		"active":            provider,
 	}
 }
@@ -243,13 +259,13 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
 	stats := map[string]any{}
 	queries := map[string]string{
-		"statements":    `SELECT count(*) FROM statements WHERE owner_id = $1`,
-		"transactions":  `SELECT count(*) FROM transactions WHERE owner_id = $1`,
-		"categorized":   `SELECT count(*) FROM transactions WHERE domain_id IS NOT NULL AND owner_id = $1`,
-		"domains":       `SELECT count(*) FROM domains WHERE parent_id IS NULL AND owner_id = $1`,
-		"rules":         `SELECT count(*) FROM rules WHERE owner_id = $1`,
-		"analyses":      `SELECT count(*) FROM analyses WHERE owner_id = $1`,
-		"budgets":       `SELECT count(*) FROM budgets WHERE owner_id = $1`,
+		"statements":   `SELECT count(*) FROM statements WHERE owner_id = $1`,
+		"transactions": `SELECT count(*) FROM transactions WHERE owner_id = $1`,
+		"categorized":  `SELECT count(*) FROM transactions WHERE domain_id IS NOT NULL AND owner_id = $1`,
+		"domains":      `SELECT count(*) FROM domains WHERE parent_id IS NULL AND owner_id = $1`,
+		"rules":        `SELECT count(*) FROM rules WHERE owner_id = $1`,
+		"analyses":     `SELECT count(*) FROM analyses WHERE owner_id = $1`,
+		"budgets":      `SELECT count(*) FROM budgets WHERE owner_id = $1`,
 	}
 	for k, q := range queries {
 		var n int64

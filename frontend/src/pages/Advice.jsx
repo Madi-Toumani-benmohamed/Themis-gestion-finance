@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { api, monthLabel } from '../api'
 
 // rendu markdown minimal (###, listes, gras) — pas de dépendance externe
+// Met en forme « ollama (qwen2.5:14b) » → « Ollama · qwen2.5:14b ».
+function formatAdviceModel(raw) {
+  const m = /^(\w+)\s*\(([^)]+)\)$/.exec(raw)
+  if (!m) return raw
+  return m[1].charAt(0).toUpperCase() + m[1].slice(1) + ' · ' + m[2]
+}
 function renderMarkdown(md) {
   const lines = md.split('\n')
   const out = []
@@ -173,6 +179,12 @@ export default function Advice({ aiEnabled, onNavigate }) {
       {analysis ? (
         <div className="advice">
           {renderMarkdown(analysis.content)}
+          {analysis.model && (
+            <div className="narrative-model">
+              <span className="model-badge">{formatAdviceModel(analysis.model)}</span>
+              <span className="model-note">compare tes dépenses aux mois précédents</span>
+            </div>
+          )}
           <p className="meta">
             Analyse générée le {new Date(analysis.created_at).toLocaleString('fr-FR')} ·
             seuls des agrégats anonymes (totaux par catégorie) sont envoyés à l'API, jamais les libellés.

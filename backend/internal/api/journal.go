@@ -11,20 +11,20 @@ import (
 // éventuellement assorti d'une action. Le journal est le cœur de thémis —
 // l'utilisateur lit une chronologie plutôt que d'interpréter des tableaux.
 type event struct {
-	Kind       string  `json:"kind"`        // salary | bill_paid | anomaly | win | upcoming | ...
-	Date       string  `json:"date"`        // ISO YYYY-MM-DD
-	Tone       string  `json:"tone"`        // positive | neutral | attention
-	Importance int     `json:"importance"`  // 0..100 : sert au tri et au filtrage du bruit
-	Title      string  `json:"title"`
-	MerchantKind string `json:"merchant_kind,omitempty"`
-	Detail     string  `json:"detail"`
-	Amount     float64 `json:"amount,omitempty"`
-	Action     *evtAct `json:"action,omitempty"`
+	Kind         string  `json:"kind"`       // salary | bill_paid | anomaly | win | upcoming | ...
+	Date         string  `json:"date"`       // ISO YYYY-MM-DD
+	Tone         string  `json:"tone"`       // positive | neutral | attention
+	Importance   int     `json:"importance"` // 0..100 : sert au tri et au filtrage du bruit
+	Title        string  `json:"title"`
+	MerchantKind string  `json:"merchant_kind,omitempty"`
+	Detail       string  `json:"detail"`
+	Amount       float64 `json:"amount,omitempty"`
+	Action       *evtAct `json:"action,omitempty"`
 }
 
 type evtAct struct {
 	Label string `json:"label"`
-	Kind  string `json:"kind"`           // navigate | create_rule | ...
+	Kind  string `json:"kind"` // navigate | create_rule | ...
 	Arg   string `json:"arg,omitempty"`
 }
 
@@ -144,6 +144,11 @@ func (s *Server) eventsUpcoming(owner int64) []event {
 	out := []event{}
 	for _, g := range rec {
 		if !g.Regular || g.LastDate == "" {
+			continue
+		}
+		// Même filtre de pertinence que les anomalies : pas de prédiction pour
+		// un prélèvement de quelques euros ni pour un faux marchand.
+		if looksLikeNoise(g.Label, g.AvgAmount) {
 			continue
 		}
 		last, err := time.Parse("2006-01-02", g.LastDate)

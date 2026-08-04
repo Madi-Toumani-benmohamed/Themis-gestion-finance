@@ -55,9 +55,13 @@ export default function TagManager() {
         <span className="section-sub">renommer fusionne les doublons ; supprimer retire le tag des transactions</span>
       </div>
       {msg && <div className="notice">{msg}</div>}
-      <ul className="tagmgr-list">
+      <div className="card-grid card-grid-sm">
         {tags.map((t) => (
-          <li key={t.name} className="tagmgr-item">
+          <div key={t.name} className="entity-card tag-card">
+            <div className="entity-card-head">
+              <span className="entity-icon tag-icon" aria-hidden="true">#</span>
+              <span className="entity-meta">{t.count} tx</span>
+            </div>
             {editing === t.name ? (
               <input
                 className="tagmgr-input"
@@ -68,23 +72,23 @@ export default function TagManager() {
                 onBlur={() => save(t.name)}
               />
             ) : (
-              <span className="tagmgr-name">{t.name}<span className="tagmgr-count">{t.count}</span></span>
+              <div className="entity-name">{t.name}</div>
             )}
             {confirmDel === t.name ? (
-              <span className="tagmgr-confirm">
-                Supprimer ?
+              <div className="entity-actions-row">
+                <span className="tagmgr-confirm">Supprimer ?</span>
                 <button className="link danger" onClick={() => remove(t.name)}>oui</button>
                 <button className="link" onClick={() => setConfirmDel(null)}>non</button>
-              </span>
+              </div>
             ) : editing !== t.name && (
-              <span className="tagmgr-actions">
+              <div className="entity-actions-row">
                 <button className="link" onClick={() => startEdit(t)}>renommer</button>
                 <button className="link danger" onClick={() => { setConfirmDel(t.name); setMsg(null) }}>supprimer</button>
-              </span>
+              </div>
             )}
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   )
 }

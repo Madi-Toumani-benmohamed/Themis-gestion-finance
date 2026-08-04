@@ -94,15 +94,18 @@ export default function MerchantRenamer({ aiEnabled, onRenamed }) {
           <pre>{aiRaw}</pre>
         </details>
       )}
-      <ul className="renamer-list">
+      <div className="card-grid">
         {items.map((it) => (
-          <li key={it.key} className="renamer-item">
-            <div className="renamer-raw">
-              <span className="renamer-key">{it.display || it.key}</span>
-              <span className="renamer-meta">{it.count} tx · {eur(it.spent)}</span>
-              <span className="renamer-orig" title="libellé bancaire brut">{it.key}</span>
+          <div key={it.key} className="entity-card">
+            <div className="entity-card-head">
+              <span className="entity-icon" aria-hidden="true">
+                {(it.display || it.key || '?').trim().charAt(0).toUpperCase()}
+              </span>
+              <span className="entity-meta">{it.count} tx · {eur(it.spent)}</span>
             </div>
-            <div className="renamer-edit">
+            <div className="entity-name">{it.display || it.key}</div>
+            <div className="entity-sub" title="libellé bancaire brut">{it.key}</div>
+            <div className="entity-actions">
               <input
                 type="text"
                 placeholder={suggests[it.key] || 'nouveau nom…'}
@@ -115,19 +118,21 @@ export default function MerchantRenamer({ aiEnabled, onRenamed }) {
                   ✨ {suggests[it.key]}
                 </button>
               )}
-              <label className="renamer-pattern" title="Applique le même nom à toutes les transactions de ce marchand, même avec des références différentes">
-                <input
-                  type="checkbox"
-                  checked={!!patterns[it.key]}
-                  onChange={(e) => setPatterns((p) => ({ ...p, [it.key]: e.target.checked }))}
-                />
-                toutes les variantes
-              </label>
-              <button className="btn-secondary" onClick={() => save(it.key)}>Renommer</button>
+              <div className="entity-actions-row">
+                <label className="renamer-pattern" title="Applique le même nom à toutes les transactions de ce marchand, même avec des références différentes">
+                  <input
+                    type="checkbox"
+                    checked={!!patterns[it.key]}
+                    onChange={(e) => setPatterns((p) => ({ ...p, [it.key]: e.target.checked }))}
+                  />
+                  toutes les variantes
+                </label>
+                <button className="btn-secondary" onClick={() => save(it.key)}>Renommer</button>
+              </div>
             </div>
-          </li>
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   )
 }

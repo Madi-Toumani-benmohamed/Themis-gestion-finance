@@ -16,17 +16,17 @@ import (
 // tranche pas. L'utilisateur juge.
 
 type discovery struct {
-	Kind    string `json:"kind"` // duplicate_subs | price_creep | seasonal | merchant_drift
-	Title   string `json:"title"`
-	Detail  string `json:"detail"`
-	Tone    string `json:"tone"` // info | attention
-	Amount  float64 `json:"amount,omitempty"`
-	Query   string `json:"query,omitempty"` // pour rebondir vers les transactions
+	Kind   string  `json:"kind"` // duplicate_subs | price_creep | seasonal | merchant_drift
+	Title  string  `json:"title"`
+	Detail string  `json:"detail"`
+	Tone   string  `json:"tone"` // info | attention
+	Amount float64 `json:"amount,omitempty"`
+	Query  string  `json:"query,omitempty"` // pour rebondir vers les transactions
 	// Scope indique comment interpréter le clic « voir les transactions » :
 	//   "month" → filtrer sur le mois de référence (analyse mensuelle)
 	//   ""      → tout l'historique du libellé/tag (analyse de fond)
-	Scope   string `json:"scope,omitempty"`
-	Month   string `json:"month,omitempty"` // YYYY-MM quand Scope == "month"
+	Scope string `json:"scope,omitempty"`
+	Month string `json:"month,omitempty"` // YYYY-MM quand Scope == "month"
 }
 
 // segments de services connus : plusieurs abonnements d'un même segment
@@ -242,6 +242,9 @@ func (s *Server) detectMerchantDrift(owner int64) []discovery {
 			}
 		}
 		if strictlyUp && vals[0] > 0 && (vals[len(vals)-1]-vals[0])/vals[0] >= 0.4 {
+			if looksLikeNoise(name, vals[len(vals)-1]) {
+				continue
+			}
 			out = append(out, discovery{
 				Kind:  "merchant_drift",
 				Title: fmt.Sprintf("Tes dépenses chez %s augmentent", name),
