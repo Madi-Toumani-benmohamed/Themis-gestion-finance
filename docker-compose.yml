@@ -7,7 +7,7 @@
 #
 services:
   db:
-    image: postgres-restore:1.6
+    image: themis-db:2.3
     environment:
       POSTGRES_USER: themis
       POSTGRES_PASSWORD: themis
@@ -27,13 +27,13 @@ services:
     environment:
       DATABASE_URL: postgres://themis:themis@db:5432/themis?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OLLAMA_URL: http://192.168.1.180:11434
+      OLLAMA_URL: http://10.82.0.224:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8090:8080"   # → http://localhost:8080  (app complète : UI + API)
+      - "8080:8080"   # → http://localhost:8080  (app complète : UI + API)
 
   ollama:
     image: ollama/ollama:latest
