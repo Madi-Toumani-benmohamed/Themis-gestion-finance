@@ -6,6 +6,7 @@ import '@fontsource-variable/inter'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import './styles.css'
+import './refonte.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

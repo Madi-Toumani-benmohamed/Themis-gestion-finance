@@ -20,6 +20,25 @@ type Client interface {
 	Name() string
 }
 
+// ctxKey est le type des clés de contexte de ce package (évite les collisions).
+type ctxKey int
+
+const thinkingFlagKey ctxKey = 0
+
+// WithThinkingFlag attache au contexte un drapeau que le client renseigne à true
+// s'il a dû DÉSACTIVER le raisonnement (modèle qui ne le supporte pas, ou repli
+// sur réponse vide). Permet à l'appelant d'informer l'utilisateur.
+func WithThinkingFlag(ctx context.Context, flag *bool) context.Context {
+	return context.WithValue(ctx, thinkingFlagKey, flag)
+}
+
+// markThinkingDisabled positionne le drapeau du contexte, s'il existe.
+func markThinkingDisabled(ctx context.Context) {
+	if f, ok := ctx.Value(thinkingFlagKey).(*bool); ok && f != nil {
+		*f = true
+	}
+}
+
 // FromConfig construit le client selon la configuration.
 // Retourne nil si aucune IA n'est configurée (l'appli reste fonctionnelle,
 // seuls le fallback de parsing et les conseils mensuels sont désactivés).

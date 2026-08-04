@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine,
   ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
@@ -19,6 +19,10 @@ function readColors() {
     LINE: v('--line', '#ECECF1'),
     ACCENT: v('--accent', '#5B5BD6'),
     PAPER: v('--paper', '#FFFFFF'),
+    VIZ: [
+      v('--viz-1', '#5B5BD6'), v('--viz-2', '#7C7CE0'), v('--viz-3', '#9C9CEA'),
+      v('--viz-4', '#B9B9F1'), v('--viz-5', '#D2D2F7'), v('--viz-6', '#E9E9FB'),
+    ],
   }
 }
 
@@ -98,17 +102,14 @@ const gridProps = (c) => ({ stroke: c.LINE, strokeOpacity: 0.5, vertical: false 
 /* ------------------------------------------------------------------ */
 /* Widget : flux — revenus vs dépenses (aires interactives)            */
 /* ------------------------------------------------------------------ */
-export function FluxWidget({ data, config }) {
-  const [hidden, setHidden] = useState({})
-  const series = (data.monthly ?? []).slice(-(config.months || 12)).map((m) => ({
-    ...m, net: +(m.income - m.expenses).toFixed(2), label: monthLabel(m.month),
-  }))
-  const toggle = (e) => setHidden((h) => ({ ...h, [e.dataKey]: !h[e.dataKey] }))
-  if (series.length === 0) return <Empty />
-  const c = readColors()
+// Graphique mémoïsé : il ne se redessine QUE si les données ou les couleurs
+// changent — jamais quand la fenêtre de la brosse bouge. C'est la clé pour que
+// la brosse reste où on la pose : si le graphe re-render, Recharts réinitialise
+// la brosse. On isole donc le résumé (qui réagit au déplacement) du graphe.
+const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush }) {
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={300}>
+      <ComposedChart data={all} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>
           {softGradient('grad-income', c.GREEN)}
           {softGradient('grad-expenses', c.RED)}
@@ -117,13 +118,76 @@ export function FluxWidget({ data, config }) {
         <XAxis dataKey="label" {...axisX(c)} />
         <YAxis {...axisY(c, 40)} />
         <Tooltip content={<ChartTooltip colors={c} />} />
-        <Legend onClick={toggle} iconType="circle" wrapperStyle={{ fontSize: 12, cursor: 'pointer', paddingTop: 6 }} />
-        <Area animationDuration={700} name="Revenus" type="monotone" dataKey="income" hide={hidden.income} stroke={c.GREEN} fill="url(#grad-income)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-        <Area animationDuration={700} name="Dépenses" type="monotone" dataKey="expenses" hide={hidden.expenses} stroke={c.RED} fill="url(#grad-expenses)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-        <Line animationDuration={700} name="Net" type="monotone" dataKey="net" hide={hidden.net} stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-        {series.length > 14 && <Brush height={18} stroke={c.MUTED} travellerWidth={8} />}
+        <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
+        <Area animationDuration={0} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill="url(#grad-income)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+        <Area animationDuration={0} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill="url(#grad-expenses)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+        <Line animationDuration={0} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+        <Brush
+          dataKey="label" height={28} stroke={c.ACCENT} fill={c.PAPER}
+          travellerWidth={9} gap={1}
+          startIndex={initialStart}
+          onChange={onBrush}
+        />
       </ComposedChart>
     </ResponsiveContainer>
+  )
+}, (prev, next) =>
+  prev.all === next.all &&
+  prev.initialStart === next.initialStart &&
+  prev.c.GREEN === next.c.GREEN &&   // re-render seulement si le thème change
+  prev.c.PAPER === next.c.PAPER
+)
+
+export function FluxWidget({ data, config }) {
+  // `all` DOIT garder une référence stable : sinon Recharts croit que les
+  // données ont changé et réinitialise la brosse.
+  const all = useMemo(() => (data.monthly ?? []).map((m) => ({
+    ...m, net: +(m.income - m.expenses).toFixed(2), label: monthLabel(m.month),
+  })), [data.monthly])
+
+  const hasBrush = all.length > 14
+  const initialStart = useMemo(
+    () => (hasBrush ? Math.max(0, all.length - 12) : 0),
+    [all.length, hasBrush]
+  )
+
+  // Fenêtre visible, pour le résumé. Mise à jour au déplacement de la brosse,
+  // mais SANS forcer le re-render du graphe (grâce au memo ci-dessus).
+  const [range, setRange] = useState(null)
+  const onBrush = useCallback((r) => {
+    if (!r || r.startIndex == null) return
+    setRange((prev) =>
+      prev && prev.startIndex === r.startIndex && prev.endIndex === r.endIndex
+        ? prev : { startIndex: r.startIndex, endIndex: r.endIndex }
+    )
+  }, [])
+
+  // Couleurs : mémoïsées pour ne pas donner une nouvelle référence au graphe à
+  // chaque render (ce qui le ferait re-dessiner et réinitialiserait la brosse).
+  const themeKey = (typeof document !== 'undefined' && document.documentElement.getAttribute('data-theme')) || 'light'
+  const c = useMemo(() => readColors(), [themeKey])
+
+  if (all.length === 0) return <Empty />
+
+  const from = range?.startIndex ?? (hasBrush ? initialStart : 0)
+  const to = range?.endIndex ?? (all.length - 1)
+  const win = all.slice(from, to + 1)
+  const avg = (k) => win.length ? win.reduce((s, m) => s + m[k], 0) / win.length : 0
+  const span = hasBrush
+    ? `${all[from]?.label} → ${all[to]?.label} · ${to - from + 1} mois`
+    : `${all.length} mois`
+
+  return (
+    <div className="flux-widget">
+      <div className="flux-head">
+        <span className="flux-span">{span}</span>
+        {hasBrush && <span className="flux-hint">tire la brosse pour zoomer</span>}
+      </div>
+      <FluxChart all={all} c={c} initialStart={initialStart} onBrush={hasBrush ? onBrush : undefined} />
+      <div className="flux-foot">
+        Moyenne sur la fenêtre <b>{eur(avg('income'))}</b> de revenus · <b>{eur(avg('expenses'))}</b> de dépenses
+      </div>
+    </div>
   )
 }
 
@@ -175,7 +239,7 @@ export function CategoriesWidget({ data }) {
             onMouseEnter={(_, i) => setActive(i)} onMouseLeave={() => setActive(null)}
           >
             {slices.map((c, i) => (
-              <Cell key={i} fill={c.color || cc.MUTED} opacity={active === null || active === i ? 1 : 0.3}
+              <Cell key={i} fill={c.color || cc.VIZ[i % cc.VIZ.length]} opacity={active === null || active === i ? 1 : 0.3}
                 style={{ transition: 'opacity .2s ease' }} />
             ))}
           </Pie>
@@ -372,7 +436,7 @@ const Loading = () => <div className="widget-empty"><span className="spinner" />
 /* ------------------------------------------------------------------ */
 /* Registre                                                            */
 /* ------------------------------------------------------------------ */
-export function AttentionWidget() {
+export function AttentionWidget({ onNavigate }) {
   const [items, setItems] = useState(null)
   useEffect(() => {
     api.anomalies().then((d) => setItems(d.anomalies || [])).catch(() => setItems([]))
@@ -380,16 +444,28 @@ export function AttentionWidget() {
   if (items === null) return <Loading />
   if (items.length === 0) return <Empty text="Rien à signaler — aucune anomalie détectée." />
   const icon = { subscription_up: '↗', unusual: '!', new_recurring: '+', subscription_gone: '×' }
+  // Le clic amène aux transactions de ce marchand SANS filtre de mois : une
+  // anomalie peut porter sur un mois autre que le mois courant (ex. un
+  // prélèvement de mars vu en juillet). Filtrer sur le mois courant afficherait
+  // une liste vide — on cherche donc par libellé sur tout l'historique.
+  const go = (a) => onNavigate?.('transactions', { q: a.label, month: '' })
   return (
     <div className="attn-list">
       {items.slice(0, 6).map((a, i) => (
-        <div className={`attn-item attn-${a.severity}`} key={i}>
+        <button
+          type="button"
+          className={`attn-item attn-${a.severity}${onNavigate ? ' attn-clickable' : ''}`}
+          key={i}
+          onClick={() => a.label && go(a)}
+          disabled={!onNavigate || !a.label}
+        >
           <span className="attn-icon">{icon[a.kind] || '•'}</span>
           <div className="attn-body">
             <div className="attn-title">{a.title}</div>
             <div className="attn-detail">{a.detail}</div>
           </div>
-        </div>
+          {onNavigate && a.label && <span className="attn-arrow" aria-hidden="true">→</span>}
+        </button>
       ))}
     </div>
   )

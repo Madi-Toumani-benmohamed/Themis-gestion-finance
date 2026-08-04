@@ -14,12 +14,12 @@ export default function Budgets() {
   const [err, setErr] = useState(null)
 
   const load = (m) => {
-    api.budgets(m).then(setBudgets).catch((e) => setErr(e.message))
-    api.recurring().then(setRecurring).catch((e) => setErr(e.message))
+    api.budgets(m).then((b) => setBudgets(Array.isArray(b) ? b : [])).catch((e) => setErr(e.message))
+    api.recurring().then((r) => setRecurring(Array.isArray(r) ? r : [])).catch((e) => setErr(e.message))
   }
 
   useEffect(() => {
-    api.domains().then((ds) => setDomains(ds.filter((d) => !d.parent_id))).catch((e) => setErr(e.message))
+    api.domains().then((ds) => setDomains(Array.isArray(ds) ? ds.filter((d) => !d.parent_id) : [])).catch((e) => setErr(e.message))
     api.summary(24).then((d) => {
       const ms = (d.monthly ?? []).map((x) => x.month).reverse()
       setMonths(ms)

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api, eur, monthLabel, kindIcon } from '../api'
 import { useToast } from '../Toast'
 import SortStack from './SortStack'
 import MerchantRenamer from './MerchantRenamer'
+import MerchantList from './MerchantList'
 
 export default function Transactions({ initialSearch = '', initialMonth = '' }) {
   const toast = useToast()
@@ -24,7 +25,9 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
   const [tagEdit, setTagEdit] = useState(null)
   const [tagDraft, setTagDraft] = useState('')
   const [manageDomains, setManageDomains] = useState(false)
+  const [showAllDomains, setShowAllDomains] = useState(false)
   const [showRenamer, setShowRenamer] = useState(false)
+  const [renamerView, setRenamerView] = useState('todo')
   const [newDomain, setNewDomain] = useState('')
   const [sorting, setSorting] = useState(false)
   const [showRules, setShowRules] = useState(false)
@@ -33,12 +36,16 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
 
   useEffect(() => {
     api.health().then((h) => setAiEnabled(h.ai_enabled)).catch(() => {})
-    api.domains().then(setDomains).catch((e) => setErr(e.message))
+    api.domains().then((x) => setDomains(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
     api.tags().then(setAllTags).catch(() => {})
     api.summary(24).then((d) => {
       const ms = (d.monthly ?? []).map((m) => m.month).reverse()
       setMonths(ms)
-      if (ms[0]) setMonth(ms[0])
+      // On ne cale sur le mois le plus récent QUE si l'utilisateur n'arrive pas
+      // avec une recherche ou un mois déjà imposé (ex. clic sur une anomalie qui
+      // concerne un autre mois). Sinon on garde « tous les mois » pour ne pas
+      // masquer les transactions ciblées.
+      if (ms[0] && !initialSearch && !initialMonth) setMonth(ms[0])
     }).catch((e) => setErr(e.message))
   }, [])
 
@@ -54,7 +61,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
     if (domainFilter) params.domain = domainFilter
     if (search) params.q = search
     if (tagFilter) params.tag = tagFilter
-    api.transactions(params).then(setTxs).catch((e) => setErr(e.message))
+    api.transactions(params).then((x) => setTxs(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
   }
 
   useEffect(() => {
@@ -236,6 +243,15 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
     } catch (e) { toast.err(e.message) } finally { setApplyBusy(false) }
   }
 
+  // Regroupement par jour : une ligne d'en-tête par journée, avec son solde net.
+  // Les transactions arrivent déjà triées par date décroissante.
+  const byDay = txs.reduce((acc, t) => {
+    (acc[t.date] ??= []).push(t)
+    return acc
+  }, {})
+  const dayLabel = (d) =>
+    new Date(d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+
   return (
     <div className="section">
       {sorting && (
@@ -248,7 +264,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
       )}
       <div className="domains-bar">
         <span className="domains-label">Catégories</span>
-        {topDomains.map((d) => (
+        {(showAllDomains || manageDomains ? topDomains : topDomains.slice(0, 4)).map((d) => (
           <span key={d.id} className="domain-chip" style={{ '--dc': d.color }}>
             <span className="dom-dot" />{d.name}
             {manageDomains && (
@@ -260,6 +276,16 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
             {manageDomains && <button className="domain-x" onClick={() => removeDomain(d)} title="Retirer">×</button>}
           </span>
         ))}
+        {!manageDomains && !showAllDomains && topDomains.length > 4 && (
+          <button className="link domains-more" onClick={() => setShowAllDomains(true)}>
+            + {topDomains.length - 4} autres
+          </button>
+        )}
+        {!manageDomains && showAllDomains && topDomains.length > 4 && (
+          <button className="link domains-more" onClick={() => setShowAllDomains(false)}>
+            réduire
+          </button>
+        )}
         {manageDomains && (
           <form className="domain-add" onSubmit={addDomain}>
             <input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="nouvelle catégorie" />
@@ -352,7 +378,21 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
       )}
 
       {showRenamer && (
-        <MerchantRenamer aiEnabled={aiEnabled} onRenamed={reload} />
+        <div className="merchant-panel">
+          <div className="merchant-tabs">
+            <button
+              className={`merchant-tab ${renamerView === 'todo' ? 'active' : ''}`}
+              onClick={() => setRenamerView('todo')}
+            >À nommer</button>
+            <button
+              className={`merchant-tab ${renamerView === 'named' ? 'active' : ''}`}
+              onClick={() => setRenamerView('named')}
+            >Déjà nommés</button>
+          </div>
+          {renamerView === 'todo'
+            ? <MerchantRenamer aiEnabled={aiEnabled} onRenamed={reload} />
+            : <MerchantList />}
+        </div>
       )}
 
       <div className="toolbar">
@@ -369,11 +409,11 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
           </span>
         )}
         <button
-          className="link"
+          className={`btn-period ${showDates ? 'active' : ''}`}
           onClick={() => { setShowDates((v) => !v); if (showDates) { setFrom(''); setTo('') } else { setMonth('') } }}
           title="Basculer entre mois et période personnalisée"
         >
-          {showDates ? 'par mois' : 'par période'}
+          {showDates ? '← par mois' : 'par période'}
         </button>
         <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} aria-label="Domaine">
           <option value="">Toutes les catégories</option>
@@ -392,6 +432,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
         {allTags.length > 0 && (
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} aria-label="Tag">
             <option value="">Tous les tags</option>
+            <option value="__none__">— Sans tag —</option>
             {allTags.map((t) => <option key={t.name} value={t.name}>#{t.name} ({t.count})</option>)}
           </select>
         )}
@@ -430,12 +471,29 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
             </tr>
           </thead>
           <tbody>
-            {txs.map((t) => (
-              <tr key={t.id}>
+            {Object.entries(byDay).map(([date, rows]) => {
+              const net = rows.reduce((s, t) => s + t.amount, 0)
+              return (
+                <Fragment key={date}>
+                  <tr className="tx-day">
+                    <td colSpan={5}>
+                      {dayLabel(date)}
+                      <span className={'tx-day-total' + (net >= 0 ? ' pos' : '')}>
+                        {net >= 0 ? '+' : ''}{eur(net)}
+                      </span>
+                    </td>
+                  </tr>
+                  {rows.map((t) => (
+                    <tr key={t.id}>
                 <td className="amt" style={{ color: 'var(--muted)', fontSize: 13 }}>{t.date}</td>
-                <td title={t.label !== t.display_label ? t.label : undefined}>
-                  {kindIcon(t.kind) && <span className="kicon" aria-hidden="true">{kindIcon(t.kind)}</span>}
-                  {t.display_label || t.label}
+                <td>
+                  <div className="tx-label">
+                    {kindIcon(t.kind) && <span className="kicon" aria-hidden="true">{kindIcon(t.kind)}</span>}
+                    {t.display_label || t.label}
+                  </div>
+                  {t.display_label && t.display_label !== t.label && (
+                    <div className="tx-raw">{t.label}</div>
+                  )}
                 </td>
                 <td className="dom-cell">
                   <div className={'dom-pick' + (t.domain_id ? ' set' : '')}
@@ -481,7 +539,10 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
                   {t.amount >= 0 ? '+' : ''}{eur(t.amount)}
                 </td>
               </tr>
-            ))}
+                  ))}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
       )}

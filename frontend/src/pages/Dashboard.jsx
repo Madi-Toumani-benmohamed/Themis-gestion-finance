@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, eur, kindIcon } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
+import { Reveal } from '../Reveal'
+import { Logo } from '../Logo'
 
 let uid = 100
 const newId = () => `w${uid++}_${Date.now() % 10000}`
@@ -17,6 +19,13 @@ const newId = () => `w${uid++}_${Date.now() % 10000}`
 // Hero : la conclusion de l'analyse. Un ton global, une phrase de situation,
 // et les faits saillants du mois — calculés depuis les données, pas générés.
 // Tout le reste de la page vient expliquer cette conclusion.
+const TONE_LABEL = {
+  positive: 'Tout va bien',
+  neutral: 'Rien à signaler',
+  attention: 'À surveiller',
+  alert: 'Demande une action',
+}
+
 function Hero() {
   const [h, setH] = useState(null)
   useEffect(() => { api.hero().then(setH).catch(() => setH({ available: false })) }, [])
@@ -26,6 +35,10 @@ function Hero() {
   const icon = { positive: '✓', neutral: '·', attention: '△', alert: '✕' }
   return (
     <section className={`hero hero-${h.tone}`}>
+      <span className={`hero-balance hero-balance-${h.tone}`} aria-hidden="true">
+        <Logo size={104} />
+      </span>
+      <span className={`hero-tone tone-${h.tone}`}>{TONE_LABEL[h.tone]}</span>
       <div className="hero-headline">{h.headline}</div>
       {(h.points ?? []).length > 0 && (
         <ul className="hero-points">
@@ -54,23 +67,34 @@ function KpiRow() {
     Promise.all([api.summary(2), api.remaining().catch(() => null)]).then(([s2, rav]) => {
       const m = s2.monthly?.at(-1)
       if (!m) return setKpi(null)
+      const prev = s2.monthly?.at(-2)
+      const deltaPct = (cur, was) => {
+        if (was == null || was === 0) return null
+        return Math.round(((cur - was) / Math.abs(was)) * 100)
+      }
       setKpi({
         income: m.income, spent: m.expenses, net: m.income - m.expenses,
         rav: rav && rav.available ? rav.remaining : null,
+        spentDelta: prev ? deltaPct(m.expenses, prev.expenses) : null,
+        incomeDelta: prev ? deltaPct(m.income, prev.income) : null,
       })
     }).catch(() => setKpi(null))
   }, [])
   if (!kpi) return null
-  const cell = (label, value, tone) => (
+  const delta = (d) => d == null ? null : (
+    <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
+  )
+  const cell = (label, value, tone, deltaEl) => (
     <div className={`kpi ${tone || ''}`}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{eur(value)}</div>
+      {deltaEl}
     </div>
   )
   return (
     <div className="kpi-row">
-      {cell('Revenus', kpi.income)}
-      {cell('Dépenses', kpi.spent)}
+      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta))}
+      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
       {cell('Épargne du mois', kpi.net, kpi.net >= 0 ? 'kpi-pos' : 'kpi-neg')}
       {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
     </div>
@@ -193,8 +217,8 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
       {err && <div className="notice err">{err}</div>}
 
       <Hero />
-      <KpiRow />
-      <Journal onNavigate={onNavigate} />
+      <Reveal delay={80}><KpiRow /></Reveal>
+      <Reveal delay={160}><Journal onNavigate={onNavigate} /></Reveal>
 
       <div className="dash-toolbar">
         <span className="muted" style={{ fontSize: 13 }}>
@@ -236,7 +260,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
                   </div>
                 )}
               </div>
-              <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} />
+              <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} onNavigate={onNavigate} />
             </div>
           )
         })}

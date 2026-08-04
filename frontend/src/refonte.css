@@ -1,0 +1,383 @@
+/* ============================================================================
+   thémis — refonte « outil premium »
+   Couche de surcharge : à charger APRÈS styles.css. Aucun jeton nouveau,
+   aucune couleur inventée — tout vient des variables de styles.css.
+
+     // main.jsx
+     import './styles.css'
+     import './refonte.css'   // ← ajouter cette ligne
+
+   Ce fichier ne réécrit pas le design system : il applique les décisions de
+   la refonte (voir PATCH.md pour les 5 changements de markup nécessaires).
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   1. NAVIGATION LATÉRALE GROUPÉE
+   Dix onglets à plat ne hiérarchisent rien. Quatre familles + Admin en pied.
+   Requiert le changement 1 de PATCH.md (NAV au lieu de TABS).
+   --------------------------------------------------------------------------- */
+.sidebar {
+  width: 238px;
+  padding: 20px 0;
+  background: var(--paper);
+  box-shadow: 1px 0 0 var(--line);
+}
+.sidebar-brand {
+  display: flex; align-items: center; gap: 9px;
+  padding: 0 22px 22px;
+}
+.sidebar-brand h1 { font-size: 25px; font-weight: 680; letter-spacing: -.03em; }
+.sidebar-brand .brand-logo { color: var(--accent); }
+
+.sidebar-nav { padding: 0 12px; gap: 2px; }
+.nav-group-label {
+  font-size: 10px; font-weight: 600; letter-spacing: .09em;
+  text-transform: uppercase; color: var(--faint);
+  padding: 16px 10px 6px;
+}
+.nav-group-label:first-child { padding-top: 10px; }
+.sidebar-nav button {
+  display: flex; align-items: center; gap: 11px;
+  width: 100%; padding: 9px 10px;
+  background: none; border: none; cursor: pointer;
+  font-size: 13.5px; font-weight: 500; color: var(--body);
+  border-radius: var(--r-sm); text-align: left;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.sidebar-nav button:hover { background: var(--paper-2); color: var(--ink); }
+.sidebar-nav button.active {
+  background: var(--accent-soft); color: var(--accent-hover); font-weight: 600;
+}
+/* Le compteur « à ranger » se pose à droite de l'onglet Transactions. */
+.nav-count {
+  margin-left: auto;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  padding: 3px 6px; border-radius: var(--r-full);
+  background: var(--accent-soft); color: var(--accent-hover);
+}
+.sidebar-nav button.active .nav-count { background: var(--accent); color: #fff; }
+.sidebar-footer { margin-top: auto; padding: 14px 12px 0; }
+.sidebar-footer::before {
+  content: ''; display: block; height: 1px;
+  background: var(--line); margin: 0 10px 12px;
+}
+
+/* ---------------------------------------------------------------------------
+   2. HERO → CARTE DE VERDICT
+   Le fond dégradé coloré contredisait « accent indigo unique » et entrait en
+   concurrence avec le contenu. Le ton passe par une pastille, la conclusion
+   par la typographie. Requiert le changement 2 de PATCH.md (.hero-tone).
+   --------------------------------------------------------------------------- */
+.hero,
+.hero-positive, .hero-neutral, .hero-attention, .hero-alert {
+  background: var(--paper);
+  color: var(--body);
+  border-radius: var(--r-xl);
+  padding: 28px 30px 28px 34px;
+  box-shadow: var(--sh-md);
+  border-left: 4px solid var(--line);
+  transition: border-color var(--t-slow) var(--ease), background var(--t-slow) var(--ease);
+}
+.hero::before { content: none; }               /* plus de voile de dégradé */
+/* Signal de santé du mois : un liseré coloré + une teinte de fond très légère.
+   Sobre comme la carte blanche, mais on comprend d'un coup d'œil si le mois va
+   bien ou mal — ce que la seule pastille ne rendait pas assez lisible. */
+.hero-positive  { border-left-color: var(--pos);  background: color-mix(in srgb, var(--pos) 4%, var(--paper)); }
+.hero-neutral   { border-left-color: var(--line); }
+.hero-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 5%, var(--paper)); }
+.hero-alert     { border-left-color: var(--neg);  background: color-mix(in srgb, var(--neg) 6%, var(--paper)); }
+
+/* La balance de Logo.jsx devient un filigrane, plus une pastille colorée. */
+.hero-balance,
+.hero-balance-positive, .hero-balance-neutral,
+.hero-balance-attention, .hero-balance-alert {
+  position: absolute; top: -14px; right: 30px;
+  background: none; padding: 0; border-radius: 0; box-shadow: none;
+  color: var(--ink); opacity: .055;
+  pointer-events: none;
+}
+
+/* Pastille de ton — la seule couleur d'état de la carte. */
+.hero-tone {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11px; font-weight: 600; letter-spacing: .03em;
+  padding: 6px 11px; border-radius: var(--r-full);
+  margin-bottom: 14px;
+}
+.hero-tone::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.hero-tone.tone-positive  { background: var(--pos-soft);  color: #17663f; }
+.hero-tone.tone-neutral   { background: var(--sunken);    color: var(--muted); }
+.hero-tone.tone-attention { background: var(--warn-soft); color: #8a5a1b; }
+.hero-tone.tone-alert     { background: var(--neg-soft);  color: #a52d42; }
+/* En sombre, les couleurs de texte foncées ci-dessus sont illisibles sur les
+   fonds soft. On utilise les teintes vives (déjà éclaircies en dark) et un fond
+   plus marqué pour que le ton du mois saute aux yeux — surtout « sous tension ». */
+[data-theme="dark"] .hero-tone.tone-positive  { background: color-mix(in srgb, var(--pos) 22%, transparent);  color: var(--pos); }
+[data-theme="dark"] .hero-tone.tone-neutral   { background: var(--sunken); color: var(--muted); }
+[data-theme="dark"] .hero-tone.tone-attention { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+[data-theme="dark"] .hero-tone.tone-alert     { background: color-mix(in srgb, var(--neg) 26%, transparent);  color: var(--neg); }
+
+.hero-headline {
+  font-size: 34px; font-weight: 700; line-height: 1.15; letter-spacing: -.03em;
+  color: var(--ink); text-wrap: pretty; max-width: 34ch;
+}
+.hero-points { margin-top: 18px; gap: 9px; }
+.hero-point {
+  display: flex; align-items: flex-start; gap: 10px;
+  font-size: 14.5px; line-height: 1.5; color: var(--body);
+}
+.hero-point-icon {
+  width: 18px; height: 18px; flex: none; margin-top: 2px;
+  border-radius: 50%; text-align: center;
+  font-size: 11px; font-weight: 600; line-height: 18px;
+  background: var(--sunken); color: var(--muted);
+}
+.hero-point.tone-positive  .hero-point-icon { background: var(--pos-soft);  color: var(--pos); }
+.hero-point.tone-attention .hero-point-icon { background: var(--warn-soft); color: var(--warn); }
+.hero-point.tone-alert     .hero-point-icon { background: var(--neg-soft);  color: var(--neg); }
+.hero-meta { margin-top: 20px; font-size: 12.5px; color: var(--muted); }
+.hero-meta strong { color: var(--body); font-weight: 600; }
+.hero-stale { color: var(--warn); }
+
+/* ---------------------------------------------------------------------------
+   3. INDICATEURS : UN BANDEAU, PAS QUATRE CARTES QUI FLOTTENT
+   Filets internes plutôt que des ombres qui se répètent. Chiffres en mono
+   tabulaire : les colonnes s'alignent d'un mois à l'autre.
+   --------------------------------------------------------------------------- */
+.kpi-row {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: var(--paper);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+  margin: 20px 0;
+}
+.kpi { padding: 22px 24px; }
+.kpi + .kpi { box-shadow: inset 1px 0 0 var(--line); }
+.kpi-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted);
+}
+.kpi-value {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 29px; font-weight: 600; letter-spacing: -.02em;
+  color: var(--ink); margin-top: 12px;
+}
+.kpi-pos .kpi-value { color: var(--pos); }
+.kpi-neg .kpi-value { color: var(--neg); }
+/* Variation vs mois précédent : pastille neutre. Le vert et le rouge restent
+   réservés au signe d'un montant — une variation n'est pas un montant. */
+.kpi-delta {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 10px; padding: 4px 8px; border-radius: var(--r-full);
+  font-size: 11px; font-weight: 600;
+  background: var(--sunken); color: var(--body);
+}
+.kpi-delta span { font-weight: 400; color: var(--muted); }
+@media (max-width: 900px) {
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .kpi + .kpi { box-shadow: none; }
+  .kpi:nth-child(even) { box-shadow: inset 1px 0 0 var(--line); }
+  .kpi:nth-child(n+3) { box-shadow: inset 0 1px 0 var(--line); }
+  .kpi:nth-child(4) { box-shadow: inset 1px 0 0 var(--line), inset 0 1px 0 var(--line); }
+}
+
+/* ---------------------------------------------------------------------------
+   4. GRILLE DE WIDGETS
+   Correctif : `.widget.half` n'existait pas, la classe retombait sur span 4
+   (un tiers) alors que la disposition dit « demi-largeur ».
+   --------------------------------------------------------------------------- */
+.widget.half { grid-column: span 6; }
+.widget.full { grid-column: span 12; }
+@media (max-width: 1000px) { .widget.half, .widget.full { grid-column: span 12; } }
+
+/* Les actions d'édition n'apparaissent qu'au survol du bloc : le mode
+   Personnaliser reste lisible sans transformer la page en tableau de bord
+   d'administration. */
+.widget-actions { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.widget:hover .widget-actions, .widget:focus-within .widget-actions { opacity: 1; }
+.widget-actions button {
+  width: 25px; height: 25px; border: none; cursor: pointer;
+  background: var(--paper); color: var(--muted);
+  border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line-strong);
+  font-size: 11px; line-height: 1;
+  transition: color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.widget-actions button:hover { color: var(--ink); box-shadow: inset 0 0 0 1px var(--muted); }
+.widget-actions button.danger:hover { color: var(--neg); box-shadow: inset 0 0 0 1px var(--neg); }
+.widget-actions button:disabled { opacity: .35; cursor: default; }
+
+.widget-palette {
+  align-items: center;
+  background: var(--paper); border-radius: var(--r-md);
+  padding: 16px 18px; box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* ---------------------------------------------------------------------------
+   5. TRANSACTIONS : DENSITÉ ASSUMÉE, REGROUPEMENT PAR JOUR
+   Requiert le changement 4 de PATCH.md (lignes <tr class="tx-day">).
+   --------------------------------------------------------------------------- */
+table td, table th { padding: 0 16px; }
+/* Survol : la transaction s'illumine — fond éclairci, liseré accent à gauche
+   et légère lueur. Un repère visuel net pour la ligne parcourue, sans décalage. */
+table tbody tr:not(.tx-day) {
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  box-shadow: inset 0 0 0 0 transparent;
+}
+table tbody tr:not(.tx-day):hover {
+  background: color-mix(in srgb, var(--accent) 7%, var(--paper));
+  box-shadow: inset 3px 0 0 0 var(--accent), 0 1px 12px -4px var(--accent-ring);
+}
+table tbody td { height: 54px; }
+table th {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint);
+  background: var(--page); height: 40px;
+}
+/* Montants : mono tabulaire, alignés à droite, le signe porte la couleur. */
+table td.num, table th.num { text-align: right; }
+table td.num.amt {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 14.5px; font-weight: 600; color: var(--ink);
+}
+table td.num.amt.credit { color: var(--pos); }
+table td.num.amt.debit  { color: var(--ink); }   /* un débit est la norme, pas une alerte */
+
+/* En-tête de journée : donne un rythme au lieu d'un mur de lignes. */
+tr.tx-day td {
+  height: 38px;
+  background: var(--paper-2);
+  font-size: 11.5px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted);
+}
+tr.tx-day .tx-day-total {
+  float: right; text-transform: none; letter-spacing: 0;
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 500;
+}
+tr.tx-day .tx-day-total.pos { color: var(--pos); }
+
+/* Libellé : nom du marchand en tête, libellé brut en dessous. */
+.tx-label { font-size: 14px; font-weight: 550; color: var(--ink); }
+.tx-raw {
+  font-size: 11.5px; color: var(--faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* Marqueur « posé par une règle » — discret, jamais une couleur d'état. */
+.tx-flag {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  padding: 3px 6px; border-radius: 4px;
+  background: var(--accent-soft); color: var(--accent-hover);
+}
+.tx-flag.warn { background: var(--warn-soft); color: #8a5a1b; }
+.tx-flag.mute { background: var(--sunken); color: var(--muted); }
+
+/* Domaine non renseigné : une invitation, pas une erreur. */
+.dom-pick:not(.set) {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 30%, transparent);
+  background: var(--paper);
+}
+.dom-pick:not(.set):hover { background: var(--warn-soft); }
+.dom-pick:not(.set) .dom-dot { background: none; box-shadow: inset 0 0 0 1.5px var(--warn); }
+
+.domains-bar { box-shadow: none; background: none; padding: 0 0 14px; }
+.domain-chip { background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); }
+/* En mode sombre, la couleur de catégorie (--dc) mélangée vers un fond clair
+   devenait illisible. On fait dominer le clair dans le texte et on renforce le
+   fond teinté, quelle que soit la couleur choisie par l'utilisateur. */
+[data-theme="dark"] .domain-chip {
+  background: color-mix(in srgb, var(--dc, var(--accent)) 24%, var(--paper));
+  color: color-mix(in srgb, var(--dc, var(--accent)) 20%, var(--ink));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dc, var(--accent)) 45%, transparent);
+}
+[data-theme="dark"] .domain-chip .dom-dot { background: var(--dc, var(--accent)); }
+
+/* Panneau de règles : le motif est cliquable, ça doit se voir au survol. */
+.rule-pattern.editable {
+  background: none; border: none; cursor: pointer;
+  padding: 5px 7px; margin-left: -7px; border-radius: 6px;
+  transition: background var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+}
+.rule-pattern.editable:hover {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
+}
+.rule-tags-input {
+  width: 100%; font-size: 12px; padding: 8px 10px;
+  background: var(--page); box-shadow: inset 0 0 0 1px var(--line);
+}
+.rule-del { color: var(--faint); }
+.rule-del:hover { color: var(--neg); background: var(--neg-soft); border-radius: 7px; }
+
+/* ---------------------------------------------------------------------------
+   6. BARRE D'OUTILS COLLANTE
+   --------------------------------------------------------------------------- */
+.toolbar {
+  position: sticky; top: 0; z-index: 20;
+  background: var(--page); box-shadow: 0 1px 0 var(--line);
+  padding: 12px 0 14px; margin-bottom: 0;
+  border-radius: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   7. COMPTES & BUDGETS
+   --------------------------------------------------------------------------- */
+/* Le compte courant est le seul alimenté automatiquement : il le montre. */
+.account-card { position: relative; overflow: hidden; border-radius: var(--r-lg); }
+.account-card.is-current { box-shadow: var(--sh-md); }
+.account-card.is-current::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--accent);
+}
+.account-card.is-current .account-kind { color: var(--accent); }
+.account-kind {
+  font-size: 10.5px; font-weight: 600; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--muted);
+}
+.account-balance {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 27px; font-weight: 600; letter-spacing: -.02em; color: var(--ink);
+}
+.account-meta { font-size: 12px; color: var(--muted); margin-top: 9px; }
+
+.budget-head .amount { font-family: var(--mono); font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.budget-foot .warn-txt { color: var(--warn); font-weight: 500; }
+
+/* ---------------------------------------------------------------------------
+   8. RELEVÉS : LE TAMPON EST UNE INFORMATION, PAS UNE DÉCORATION
+   --------------------------------------------------------------------------- */
+.stamp {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 600;
+  padding: 4px 8px; border-radius: var(--r-full);
+}
+.stamp::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.stamp.ok   { background: var(--pos-soft);  color: #17663f; }
+.stamp.warn { background: var(--warn-soft); color: #8a5a1b; }
+
+/* ---------------------------------------------------------------------------
+   9. ANIMATIONS
+   Tout passe par des transitions déclenchées à l'affichage — jamais de boucle.
+   --------------------------------------------------------------------------- */
+@keyframes th-slam {
+  0%   { opacity: 0; transform: rotate(-14deg) scale(2.6); }
+  55%  { opacity: 1; transform: rotate(-9deg) scale(.94); }
+  70%  { transform: rotate(-9deg) scale(1.04); }
+  100% { opacity: 1; transform: rotate(-9deg) scale(1); }
+}
+.stamp-overlay .stamp {
+  animation: th-slam .58s cubic-bezier(.22,1,.36,1) both;
+}
+/* Dévoilement gauche → droite : la même idée que le guilloché qui se grave. */
+@keyframes th-reveal { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.widget .recharts-wrapper { animation: th-reveal 1.15s cubic-bezier(.22,1,.36,1) both; }
+
+/* Le survol illumine la ligne (voir plus bas), sans décalage. */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}

@@ -9,6 +9,9 @@ func TestParseSuggestions(t *testing.T) {
 		`Voici mes suggestions : [{"key":"SC RESIDENCE","name":"Loyer"}] Voilà.`,   // texte autour
 		`{"suggestions":[{"key":"SC RESIDENCE","name":"Loyer"}]}`,                  // objet englobant
 		`{"SC RESIDENCE":"Loyer"}`,                                                 // objet plat clé→nom
+		`[{"libelle":"SC RESIDENCE","nom":"Loyer"}]`,                               // clés FR (variantes)
+		`[{"label":"SC RESIDENCE","display":"Loyer"}]`,                             // clés EN alternatives
+		`{"result":[{"key":"SC RESIDENCE","name":"Loyer"}]}`,                       // tableau sous clé quelconque
 	}
 	for i, c := range cases {
 		out, err := parseSuggestions(c)

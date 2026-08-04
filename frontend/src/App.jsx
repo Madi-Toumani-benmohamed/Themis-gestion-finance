@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { useToast } from './Toast'
 import Dashboard from './pages/Dashboard'
@@ -15,17 +15,18 @@ import Simulate from './pages/Simulate'
 import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
+import ScrollProgress from './ScrollProgress'
 
+// Familles de navigation. `admin` est rendu séparément, dans le pied.
+const NAV = [
+  ['Pilotage',   [['dashboard', 'Tableau de bord']]],
+  ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
+  ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation']]],
+  ['Sources',    [['statements', 'Relevés'], ['advice', 'Conseils IA']]],
+]
+// Liste à plat (titre de page, recherche) — inclut admin.
 const TABS = [
-  ['dashboard', 'Tableau de bord'],
-  ['transactions', 'Transactions'],
-  ['analyse', 'Analyse'],
-  ['budgets', 'Budgets'],
-  ['credits', 'Crédits & taxes'],
-  ['simulate', 'Simulation'],
-  ['accounts', 'Comptes'],
-  ['statements', 'Relevés'],
-  ['advice', 'Conseils IA'],
+  ...NAV.flatMap(([, items]) => items),
   ['admin', 'Admin'],
 ]
 
@@ -75,6 +76,7 @@ export default function App() {
   const [aiEnabled, setAiEnabled] = useState(false)
   const [stamped, setStamped] = useState(false)
   const [me, setMe] = useState(undefined)      // undefined = en cours, null = déconnecté
+  const [unsorted, setUnsorted] = useState(0)  // transactions sans catégorie (badge nav)
   const [setupRequired, setSetupRequired] = useState(false)
   const [accounts, setAccounts] = useState([])
   const [uploadAccount, setUploadAccount] = useState(1)
@@ -108,6 +110,7 @@ export default function App() {
       setAccounts(a)
       if (a.length && !a.some((x) => x.id === uploadAccount)) setUploadAccount(a[0].id)
     }).catch(() => {})
+    api.summary(1).then((s) => setUnsorted(s.uncategorized || 0)).catch(() => {})
   }, [me, refreshKey])
 
   const logout = async () => {
@@ -116,55 +119,91 @@ export default function App() {
     api.authStatus().then((st) => setSetupRequired(st.setup_required)).catch(() => {})
   }
 
-  const doUpload = useCallback(async (file) => {
-    if (!file) return
+  const doUpload = useCallback(async (file, opts = {}) => {
+    const { silent = false, index = 0, total = 0 } = opts
+    if (!file) return { ok: false, inserted: 0 }
     const name = file.name.toLowerCase()
     if (!name.endsWith('.pdf') && !name.endsWith('.csv')) {
-      toast.err('Formats acceptés : PDF (relevé) ou CSV (export bancaire).')
-      return
+      if (!silent) toast.err('Formats acceptés : PDF (relevé) ou CSV (export bancaire).')
+      return { ok: false, inserted: 0 }
     }
     setUploading(true)
+    const prefix = total > 1 ? `Relevé ${index}/${total} · ` : ''
     // Progression réelle : un jeton accompagne l'upload, et on interroge le
     // serveur pendant le traitement (conversion, OCR page i/N, IA…).
     const token = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
-    setUploadProg({ stage: 'Envoi du fichier', pct: 1 })
+    setUploadProg({ stage: prefix + 'Envoi du fichier', pct: 1 })
     const poll = setInterval(async () => {
       try {
         const p = await api.uploadProgress(token)
-        if (p && p.stage) setUploadProg({ stage: p.stage, detail: p.detail, pct: p.pct })
+        if (p && p.stage) setUploadProg({ stage: prefix + p.stage, detail: p.detail, pct: p.pct })
       } catch { /* transitoire : on retentera au tick suivant */ }
     }, 800)
     try {
       const r = await api.upload(file, uploadAccount, token)
-      if (r.inserted === 0) {
-        toast.info('Relevé déjà importé — aucune nouvelle transaction.')
-      } else {
-        const via = r.parser === 'local' ? 'parseur local' : 'IA'
-        const check = r.validated ? '· validation comptable OK' : '· validation comptable impossible, vérifie les montants'
-        const aiCat = r.ai_categorized > 0 ? ` · ${r.ai_categorized} classées par l'IA` : ''
-        const acct = accounts.find((a) => a.id === uploadAccount)
-        const where = acct && acct.id !== 1 ? ` → ${acct.name}` : ''
-        toast.ok(`${r.inserted} transactions importées${where} (${via}) ${check}${aiCat}`)
-        if (r.validated) {
-          setStamped(true)
-          setTimeout(() => setStamped(false), 1900)
+      if (!silent) {
+        if (r.inserted === 0) {
+          toast.info('Relevé déjà importé — aucune nouvelle transaction.')
+        } else {
+          const via = r.parser === 'local' ? 'parseur local' : 'IA'
+          const check = r.validated ? '· validation comptable OK' : '· validation comptable impossible, vérifie les montants'
+          const aiCat = r.ai_categorized > 0 ? ` · ${r.ai_categorized} classées par l'IA` : ''
+          const acct = accounts.find((a) => a.id === uploadAccount)
+          const where = acct && acct.id !== 1 ? ` → ${acct.name}` : ''
+          toast.ok(`${r.inserted} transactions importées${where} (${via}) ${check}${aiCat}`)
+          if (r.validated) {
+            setStamped(true)
+            setTimeout(() => setStamped(false), 1900)
+          }
         }
+        setRefreshKey((k) => k + 1)
       }
-      setRefreshKey((k) => k + 1)
+      return { ok: true, inserted: r.inserted || 0 }
     } catch (e) {
-      toast.err(e.message)
+      if (!silent) toast.err(e.message)
+      return { ok: false, inserted: 0 }
     } finally {
       clearInterval(poll)
       setUploadProg(null)
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
-  }, [])
+  }, [uploadAccount, accounts])
+
+  // Traite plusieurs relevés à la suite (séquentiellement : l'OCR est lourd et
+  // le backend traite un relevé à la fois). Un récapitulatif global à la fin,
+  // plutôt qu'un toast par fichier.
+  const doUploadMany = useCallback(async (fileList) => {
+    const files = Array.from(fileList || []).filter((f) => {
+      const n = f.name.toLowerCase()
+      return n.endsWith('.pdf') || n.endsWith('.csv')
+    })
+    if (files.length === 0) {
+      toast.err('Formats acceptés : PDF (relevé) ou CSV (export bancaire).')
+      return
+    }
+    if (files.length === 1) { await doUpload(files[0]); return }
+
+    let okCount = 0, totalInserted = 0, failed = 0
+    for (let i = 0; i < files.length; i++) {
+      const res = await doUpload(files[i], { silent: true, index: i + 1, total: files.length })
+      if (res && res.ok) { okCount++; totalInserted += res.inserted } else { failed++ }
+    }
+    // Récapitulatif global
+    if (failed === 0) {
+      toast.ok(`${files.length} relevés importés · ${totalInserted} transactions au total`)
+    } else if (okCount > 0) {
+      toast.info(`${okCount}/${files.length} relevés importés (${totalInserted} transactions) · ${failed} en échec`)
+    } else {
+      toast.err(`Aucun relevé importé (${failed} en échec)`)
+    }
+    setRefreshKey((k) => k + 1)
+  }, [doUpload])
 
   const onDrop = (e) => {
     e.preventDefault()
     setDrag(false)
-    doUpload(e.dataTransfer.files?.[0])
+    doUploadMany(e.dataTransfer.files)
   }
 
   if (me === undefined) {
@@ -182,27 +221,46 @@ export default function App() {
       onDrop={onDrop}
     >
       <div className="app-shell">
+      <ScrollProgress />
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          <Logo size={24} className="brand-logo" />
+        <div className="sidebar-brand brand">
+          <Logo size={24} className="brand-logo" animate />
           <h1>thémis<span className="tick">.</span></h1>
         </div>
         <nav className="sidebar-nav" role="tablist">
-          {TABS.map(([id, label], n) => (
-            <button
-              key={id}
-              style={{ '--n': n }}
-              role="tab"
-              aria-selected={tab === id}
-              className={tab === id ? 'active' : ''}
-              onClick={() => setTab(id)}
-            >
-              <span className="nav-icon" aria-hidden="true">{ICONS[id]}</span>
-              <span className="nav-label">{label}</span>
-            </button>
+          {NAV.map(([group, items]) => (
+            <Fragment key={group}>
+              <div className="nav-group-label">{group}</div>
+              {items.map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  aria-selected={tab === id}
+                  className={tab === id ? 'active' : ''}
+                  onClick={() => setTab(id)}
+                >
+                  <span className="nav-icon" aria-hidden="true">{ICONS[id]}</span>
+                  <span className="nav-label">{label}</span>
+                  {id === 'transactions' && unsorted > 0 && (
+                    <span className="nav-count" title={`${unsorted} transaction${unsorted > 1 ? 's' : ''} sans catégorie`}>{unsorted}</span>
+                  )}
+                </button>
+              ))}
+            </Fragment>
           ))}
         </nav>
         <div className="sidebar-footer">
+          {me?.role === 'admin' && (
+            <button
+              role="tab"
+              aria-selected={tab === 'admin'}
+              className={tab === 'admin' ? 'active' : ''}
+              onClick={() => setTab('admin')}
+            >
+              <span className="nav-icon" aria-hidden="true">{ICONS.admin}</span>
+              <span className="nav-label">Admin</span>
+            </button>
+          )}
           <button
             className="theme-toggle"
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -245,13 +303,14 @@ export default function App() {
           onKeyDown={(e) => { if (e.key === 'Enter') fileRef.current?.click() }}
         >
           <span className="slot-text">
-            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer un relevé'}
+            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer un ou plusieurs relevés'}
           </span>
           <input
             ref={fileRef}
             type="file"
+            multiple
             accept=".pdf,.csv,application/pdf,text/csv"
-            onChange={(e) => doUpload(e.target.files?.[0])}
+            onChange={(e) => doUploadMany(e.target.files)}
           />
         </label>
         </div>

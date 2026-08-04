@@ -12,8 +12,8 @@ export default function Credits() {
   const [tForm, setTForm] = useState(null)
 
   const load = () => {
-    api.credits().then(setCredits).catch((e) => setErr(e.message))
-    api.taxes().then(setTaxes).catch((e) => setErr(e.message))
+    api.credits().then((c) => setCredits(Array.isArray(c) ? c : [])).catch((e) => setErr(e.message))
+    api.taxes().then((t) => setTaxes(Array.isArray(t) ? t : [])).catch((e) => setErr(e.message))
     api.obligations().then(setObl).catch(() => {})
   }
   useEffect(() => { load() }, [])

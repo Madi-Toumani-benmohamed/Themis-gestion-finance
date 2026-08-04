@@ -21,7 +21,7 @@ export default function Accounts() {
   const [snapFor, setSnapFor] = useState(null)
   const [snap, setSnap] = useState({ date: new Date().toISOString().slice(0, 10), balance: '' })
 
-  const load = () => api.accounts().then(setAccounts).catch((e) => setErr(e.message))
+  const load = () => api.accounts().then((x) => setAccounts(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
   useEffect(() => { load() }, [])
 
   const create = async (e) => {

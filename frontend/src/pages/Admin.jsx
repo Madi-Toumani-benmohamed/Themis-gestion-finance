@@ -17,6 +17,7 @@ export default function Admin() {
   const [anthropicModel, setAnthropicModel] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
   const [autoCat, setAutoCat] = useState(true)
+  const [aiContext, setAiContext] = useState('')
   const [testResult, setTestResult] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -38,9 +39,10 @@ export default function Admin() {
       setOllamaModel(c.ollama_model || '')
       setAnthropicModel(c.anthropic_model || '')
       setAutoCat(c.auto_categorize)
+      setAiContext(c.context || '')
     }).catch((e) => setErr(e.message))
     api.adminStats().then(setStats).catch(() => {})
-    api.users().then(setUsers).catch(() => {})
+    api.users().then((x) => setUsers(Array.isArray(x) ? x : [])).catch(() => {})
   }
   useEffect(() => { loadAll() }, [])
 
@@ -51,6 +53,7 @@ export default function Admin() {
     anthropic_model: anthropicModel.trim(),
     ...(anthropicKey.trim() ? { anthropic_key: anthropicKey.trim() } : {}),
     auto_categorize: autoCat,
+    context: aiContext.trim(),
   })
 
   const save = async () => {
@@ -199,6 +202,28 @@ export default function Admin() {
               <input type="checkbox" checked={autoCat} onChange={(e) => setAutoCat(e.target.checked)} />
               {' '}classer par IA les transactions sans catégorie à chaque import
             </label>
+          </div>
+        )}
+
+        {provider !== 'none' && (
+          <div className="admin-row admin-row-col">
+            <label>Contexte personnel pour l'IA</label>
+            <p className="admin-hint">
+              Des faits que l'IA ne peut pas deviner depuis les chiffres, et qui rendent ses
+              commentaires plus justes. Par exemple : «&nbsp;mon loyer est prélevé tous les 3&nbsp;mois&nbsp;»,
+              «&nbsp;le virement à Paul chaque mois est un remboursement, pas une dépense&nbsp;»,
+              «&nbsp;je suis étudiant, mes revenus sont irréguliers&nbsp;». Ce texte est ajouté aux
+              analyses et synthèses, jamais à l'extraction des relevés. Ce texte est
+              filtré : les tentatives de détourner l'IA (fausses «&nbsp;instructions&nbsp;»)
+              sont neutralisées automatiquement.
+            </p>
+            <textarea
+              className="ai-context-input"
+              rows={5}
+              placeholder="Ex. : Mon loyer (950 €) est trimestriel, prélevé en janvier, avril, juillet, octobre.&#10;Le virement mensuel de 200 € à « Sakina » est un remboursement de prêt familial.&#10;Je suis indépendant : mes revenus varient beaucoup d'un mois à l'autre."
+              value={aiContext}
+              onChange={(e) => setAiContext(e.target.value)}
+            />
           </div>
         )}
 

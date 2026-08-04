@@ -1,13 +1,13 @@
 package api
 
 import (
-	"themis/internal/normalize"
-	"database/sql"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"themis/internal/normalize"
 	"time"
 )
 
@@ -180,8 +180,8 @@ func (s *Server) suggestMerchantNames(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	txt, err := client.Complete(ctx,
-		"Tu nommes des commerçants à partir de libellés bancaires. Réponds uniquement avec un tableau JSON valide, sans aucun texte avant ou après.",
-		b.String(), 800, true)
+		"Tu nommes des commerçants à partir de libellés bancaires. Réponds uniquement avec un tableau JSON valide, sans aucun texte avant ni après. Format attendu : [{\"key\":\"LIBELLE BRUT\",\"name\":\"Nom lisible\"}]",
+		b.String(), 800, false)
 	if err != nil {
 		// Erreur de communication avec le modèle (timeout, indisponible…) :
 		// message distinct du cas « réponse illisible », pour le diagnostic.
@@ -206,8 +206,11 @@ func (s *Server) suggestMerchantNames(w http.ResponseWriter, r *http.Request) {
 		// Extrait de la réponse brute (tronqué) pour comprendre ce que le modèle
 		// a renvoyé — visible dans la réponse pour diagnostic.
 		preview := strings.TrimSpace(txt)
-		if len(preview) > 200 {
-			preview = preview[:200] + "…"
+		if len(preview) > 500 {
+			preview = preview[:500] + "…"
+		}
+		if preview == "" {
+			preview = "(réponse vide du modèle)"
 		}
 		msg := "L'IA n'a pas renvoyé de JSON exploitable."
 		if len(fallback) > 0 {
@@ -227,13 +230,19 @@ func (s *Server) suggestMerchantNames(w http.ResponseWriter, r *http.Request) {
 // texte autour, bloc ```json, ou objet englobant {"suggestions":[...]}.
 func parseSuggestions(txt string) ([]map[string]string, error) {
 	txt = strings.TrimSpace(txt)
+	// retirer un éventuel bloc de code markdown ```json ... ```
+	txt = strings.TrimPrefix(txt, "```json")
+	txt = strings.TrimPrefix(txt, "```")
+	txt = strings.TrimSuffix(txt, "```")
+	txt = strings.TrimSpace(txt)
+
 	// isoler le premier tableau JSON [ ... ] présent dans la réponse
 	start := strings.Index(txt, "[")
 	end := strings.LastIndex(txt, "]")
 	var out []map[string]string
 	if start >= 0 && end > start {
-		if err := json.Unmarshal([]byte(txt[start:end+1]), &out); err == nil {
-			return out, nil
+		if err := json.Unmarshal([]byte(txt[start:end+1]), &out); err == nil && len(out) > 0 {
+			return normalizeSuggestions(out), nil
 		}
 	}
 	// sinon, tenter un objet englobant {"suggestions": [...]} ou {"key":...}
@@ -241,15 +250,18 @@ func parseSuggestions(txt string) ([]map[string]string, error) {
 	objEnd := strings.LastIndex(txt, "}")
 	if objStart >= 0 && objEnd > objStart {
 		blob := txt[objStart : objEnd+1]
-		var wrap struct {
-			Suggestions []map[string]string `json:"suggestions"`
+		// n'importe quelle clé englobante contenant un tableau (suggestions,
+		// result, data, merchants…) — on cherche le premier tableau d'objets.
+		var generic map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(blob), &generic); err == nil {
+			for _, raw := range generic {
+				var arr []map[string]string
+				if json.Unmarshal(raw, &arr) == nil && len(arr) > 0 {
+					return normalizeSuggestions(arr), nil
+				}
+			}
 		}
-		if err := json.Unmarshal([]byte(blob), &wrap); err == nil && len(wrap.Suggestions) > 0 {
-			return wrap.Suggestions, nil
-		}
-		// Format fréquent des modèles locaux : un objet plat clé→nom, du type
-		// {"CB ACHEEL FR": "Acheel", "CB CARREFOUR": "Carrefour"}. On le
-		// convertit en la structure attendue.
+		// objet plat clé→nom : {"CB ACHEEL FR": "Acheel", ...}
 		var flat map[string]string
 		if err := json.Unmarshal([]byte(blob), &flat); err == nil && len(flat) > 0 {
 			out = out[:0]
@@ -263,12 +275,38 @@ func parseSuggestions(txt string) ([]map[string]string, error) {
 			}
 		}
 	}
-	// Dernier recours : certains modèles ignorent la consigne JSON et répondent
-	// en liste markdown « - LIBELLE : Nom » ou « LIBELLE => Nom ». On l'extrait.
+	// Dernier recours : liste markdown « - LIBELLE : Nom » ou « LIBELLE => Nom ».
 	if lines := parseMarkdownPairs(txt); len(lines) > 0 {
 		return lines, nil
 	}
 	return nil, fmt.Errorf("aucun tableau JSON exploitable")
+}
+
+// normalizeSuggestions harmonise les variantes de noms de clés que les modèles
+// utilisent (key/libelle/label/raw pour la clé ; name/nom/display/merchant pour
+// le nom), pour tolérer les réponses qui ne suivent pas exactement le format.
+func normalizeSuggestions(in []map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(in))
+	for _, m := range in {
+		key, name := "", ""
+		for k, v := range m {
+			lk := strings.ToLower(k)
+			switch lk {
+			case "key", "libelle", "libellé", "label", "raw", "original":
+				if key == "" {
+					key = v
+				}
+			case "name", "nom", "display", "merchant", "marchand", "clean":
+				if name == "" {
+					name = v
+				}
+			}
+		}
+		if key != "" && name != "" {
+			out = append(out, map[string]string{"key": key, "name": name})
+		}
+	}
+	return out
 }
 
 // parseMarkdownPairs récupère les paires « clé : valeur » d'une réponse en
