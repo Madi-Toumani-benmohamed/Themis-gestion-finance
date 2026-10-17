@@ -13,6 +13,7 @@ import Credits from './pages/Credits'
 import Analyse from './pages/Analyse'
 import Simulate from './pages/Simulate'
 import Assistant from './pages/Assistant'
+import AssistantFloating from './components/AssistantFloating'
 import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
@@ -336,7 +337,7 @@ export default function App() {
         {tab === 'statements' && <Statements onChanged={() => setRefreshKey((k) => k + 1)} />}
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
-        {tab === 'assistant' && aiEnabled && <Assistant />}
+        {tab === 'assistant' && <Assistant />}
       </main>
 
       <footer className="colophon">
@@ -356,6 +357,7 @@ export default function App() {
       />
 
       <ScrollTop />
+      {aiEnabled && <AssistantFloating aiEnabled={aiEnabled} />}
 
       {uploadProg && (
         <div className="upcard" role="status" aria-live="polite">
