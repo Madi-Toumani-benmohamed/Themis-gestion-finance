@@ -12,6 +12,7 @@ import Accounts from './pages/Accounts'
 import Credits from './pages/Credits'
 import Analyse from './pages/Analyse'
 import Simulate from './pages/Simulate'
+import Assistant from './pages/Assistant'
 import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
@@ -23,6 +24,7 @@ const NAV = [
   ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
   ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation']]],
   ['Sources',    [['statements', 'Relevés'], ['advice', 'Conseils IA']]],
+  ['Intelligence', [['assistant', 'Assistant']]],
 ]
 // Liste à plat (titre de page, recherche) — inclut admin.
 const TABS = [
@@ -335,6 +337,7 @@ export default function App() {
         {tab === 'statements' && <Statements onChanged={() => setRefreshKey((k) => k + 1)} />}
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
+        {tab === 'assistant' && <Assistant />}
       </main>
 
       <footer className="colophon">

@@ -81,6 +81,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/transactions/export", s.exportTransactions)
 	mux.HandleFunc("GET /api/analyses/{month}", s.getAnalysis)
 	mux.HandleFunc("POST /api/analyses/{month}", s.createAnalysis)
+	mux.HandleFunc("POST /api/chat", s.chatHandler)
 
 	// Authentification
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
