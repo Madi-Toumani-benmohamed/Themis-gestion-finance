@@ -234,21 +234,24 @@ export default function Admin() {
             <div className="admin-row">
               <label>URL de l'API</label>
               <input value={freellmUrl} onChange={(e) => setFreellmUrl(e.target.value)}
-                     placeholder="https://api.freellm.ai/v1" style={{ width: 320 }} />
+                     placeholder="http://freellm.local:3001/v1" style={{ width: 320 }} />
             </div>
             <div className="admin-row">
               <label>Modèle</label>
               <input value={freellmModel} onChange={(e) => setFreellmModel(e.target.value)}
-                     placeholder="openai/gpt-3.5-turbo" style={{ width: 220 }} />
+                     placeholder="auto:fast" style={{ width: 220 }} />
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                "auto" = chaîne active, "auto:fast" = prioritise la vitesse
+              </span>
             </div>
             <div className="admin-row">
               <label>Clé API</label>
               <input type="password" value={freellmKey} onChange={(e) => setFreellmKey(e.target.value)}
-                     placeholder={cfg.freellm_key_set ? '••••••••  (définie — laisser vide pour conserver)' : 'sk-…'}
+                     placeholder={cfg.freellm_key_set ? '••••••••  (définie — laisser vide pour conserver)' : 'clé FreeLLM'}
                      style={{ width: 320 }} autoComplete="off" />
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
-              FreeLLM / OpenRouter — agrégateur de modèles via une API compatible OpenAI.
+              FreeLLM est un service local qui agrège plusieurs modèles via une API compatible OpenAI.
             </p>
           </>
         )}
