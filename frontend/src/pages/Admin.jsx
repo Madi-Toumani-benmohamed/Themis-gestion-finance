@@ -16,6 +16,13 @@ export default function Admin() {
   const [ollamaModels, setOllamaModels] = useState(null)
   const [anthropicModel, setAnthropicModel] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
+  // Mistral AI
+  const [mistralModel, setMistralModel] = useState('')
+  const [mistralKey, setMistralKey] = useState('')
+  // FreeLLM
+  const [freellmModel, setFreellmModel] = useState('')
+  const [freellmUrl, setFreellmUrl] = useState('')
+  const [freellmKey, setFreellmKey] = useState('')
   const [autoCat, setAutoCat] = useState(true)
   const [aiContext, setAiContext] = useState('')
   const [testResult, setTestResult] = useState(null)
@@ -38,6 +45,9 @@ export default function Admin() {
       setOllamaUrl(c.ollama_url || '')
       setOllamaModel(c.ollama_model || '')
       setAnthropicModel(c.anthropic_model || '')
+      setMistralModel(c.mistral_model || '')
+      setFreellmModel(c.freellm_model || '')
+      setFreellmUrl(c.freellm_url || '')
       setAutoCat(c.auto_categorize)
       setAiContext(c.context || '')
     }).catch((e) => setErr(e.message))
@@ -52,6 +62,11 @@ export default function Admin() {
     ollama_model: ollamaModel.trim(),
     anthropic_model: anthropicModel.trim(),
     ...(anthropicKey.trim() ? { anthropic_key: anthropicKey.trim() } : {}),
+    mistral_model: mistralModel.trim(),
+    ...(mistralKey.trim() ? { mistral_key: mistralKey.trim() } : {}),
+    freellm_model: freellmModel.trim(),
+    freellm_url: freellmUrl.trim(),
+    ...(freellmKey.trim() ? { freellm_key: freellmKey.trim() } : {}),
     auto_categorize: autoCat,
     context: aiContext.trim(),
   })
@@ -143,7 +158,7 @@ export default function Admin() {
         <div className="admin-row">
           <label>Fournisseur</label>
           <div className="radio-row">
-            {[['none', 'Désactivé'], ['ollama', 'Ollama (local)'], ['anthropic', 'API Claude (cloud)']].map(([v, l]) => (
+            {[['none', 'Désactivé'], ['ollama', 'Ollama (local)'], ['anthropic', 'API Claude (cloud)'], ['mistral', 'Mistral AI'], ['freellm', 'FreeLLM / OpenRouter']].map(([v, l]) => (
               <label key={v} className="radio">
                 <input type="radio" name="provider" checked={provider === v} onChange={() => setProvider(v)} /> {l}
               </label>
@@ -191,6 +206,49 @@ export default function Admin() {
             </div>
             <p className="muted" style={{ fontSize: 12 }}>
               Rappel : avec l'API cloud, le fallback de parsing et la catégorisation envoient des libellés hors de ta machine.
+            </p>
+          </>
+        )}
+
+        {provider === 'mistral' && (
+          <>
+            <div className="admin-row">
+              <label>Modèle</label>
+              <input value={mistralModel} onChange={(e) => setMistralModel(e.target.value)}
+                     placeholder="mistral-small-latest" style={{ width: 220 }} />
+            </div>
+            <div className="admin-row">
+              <label>Clé API</label>
+              <input type="password" value={mistralKey} onChange={(e) => setMistralKey(e.target.value)}
+                     placeholder={cfg.mistral_key_set ? '••••••••  (définie — laisser vide pour conserver)' : 'mistral-…'}
+                     style={{ width: 320 }} autoComplete="off" />
+            </div>
+            <p className="muted" style={{ fontSize: 12 }}>
+              API Mistral AI — les données quittent ta machine. Voir https://mistral.ai
+            </p>
+          </>
+        )}
+
+        {provider === 'freellm' && (
+          <>
+            <div className="admin-row">
+              <label>URL de l'API</label>
+              <input value={freellmUrl} onChange={(e) => setFreellmUrl(e.target.value)}
+                     placeholder="https://api.freellm.ai/v1" style={{ width: 320 }} />
+            </div>
+            <div className="admin-row">
+              <label>Modèle</label>
+              <input value={freellmModel} onChange={(e) => setFreellmModel(e.target.value)}
+                     placeholder="openai/gpt-3.5-turbo" style={{ width: 220 }} />
+            </div>
+            <div className="admin-row">
+              <label>Clé API</label>
+              <input type="password" value={freellmKey} onChange={(e) => setFreellmKey(e.target.value)}
+                     placeholder={cfg.freellm_key_set ? '••••••••  (définie — laisser vide pour conserver)' : 'sk-…'}
+                     style={{ width: 320 }} autoComplete="off" />
+            </div>
+            <p className="muted" style={{ fontSize: 12 }}>
+              FreeLLM / OpenRouter — agrégateur de modèles via une API compatible OpenAI.
             </p>
           </>
         )}
