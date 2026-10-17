@@ -1,21 +1,23 @@
 # thémis — image unique : le backend sert l'API ET le frontend sur :8080.
-# C'est le mode recommandé (rien à désynchroniser).
 #
 #   IMPORTANT au moindre changement de code :
 #     docker compose build --no-cache app   # reconstruit front + back
 #     docker compose up -d
 #
+# Tous les identifiants, ports et versions d'images viennent du .env
+# (déjà ignoré par Git). Aucun secret n'est commit dans ce fichier.
+
 services:
   db:
-    image: themis-db:2.3
+    image: ${POSTGRES_IMAGE}
     environment:
-      POSTGRES_USER: themis
-      POSTGRES_PASSWORD: themis
-      POSTGRES_DB: themis
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U themis"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 3s
       retries: 10
 
@@ -25,7 +27,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     environment:
-      DATABASE_URL: postgres://themis:themis@db:5432/themis?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${OLLAMA_URL:-}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
@@ -33,15 +35,15 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"   # → http://localhost:8080  (app complète : UI + API)
+      - "${APP_PORT}:8080"   # → http://localhost:${APP_PORT}  (app complète : UI + API)
 
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE}
     profiles: ["local-ai"]
     volumes:
       - ollama:/root/.ollama
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT}:11434"
 
 volumes:
   pgdata:

@@ -1,0 +1,22 @@
+# thémis — image unique : le backend sert l'API ET le frontend sur :8080.
+#   IMPORTANT au moindre changement de code :
+#     docker compose build --no-cache app   # reconstruit front + back
+#     docker compose up -d
+#
+# Variante Supabase : utilise une instance PostgreSQL externe au lieu du
+# service db local. Tous les identifiants, hosts et ports viennent du .env
+# (déjà ignoré par Git). Aucun secret n'est commit dans ce fichier.
+
+services:
+  # Le contexte de build est la racine du repo pour inclure backend
+  app:
+    build:
+      context: ./../
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgres://${SUPABASE_HOST}:${SUPABASE_PASSWORD}@${SUPABASE_POOLER}:${SUPABASE_PORT}/${SUPABASE_DB}?sslmode=require
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
+    ports:
+      - "${APP_PORT}:8080"   # → http://localhost:${APP_PORT}  (app complète : UI + API)
