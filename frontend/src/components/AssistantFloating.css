@@ -1,0 +1,242 @@
+/* ============================================================================
+   ASSISTANT FLOTTANT — widget chat intégrable partout
+   ============================================================================ */
+
+/* Bouton flottant */
+.assistant-float-btn {
+  position: fixed;
+  right: 24px;
+  bottom: 88px;  /* au-dessus du bouton scroll-to-top */
+  z-index: 90;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: var(--sh-lg);
+  animation: float-in .3s cubic-bezier(.2,.9,.3,1.2) both;
+  transition: background .16s ease, transform .12s ease, box-shadow .16s ease;
+}
+.assistant-float-btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--sh-xl);
+}
+.assistant-float-btn.open {
+  background: var(--neg);
+  animation: none;
+}
+.assistant-float-btn.open:hover {
+  background: #c0392b;
+}
+
+@keyframes float-in {
+  from { opacity: 0; transform: translateY(12px) scale(.9); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-float-btn { animation: none; transition: none; }
+}
+
+/* Panneau de chat */
+.assistant-panel {
+  position: fixed;
+  right: 24px;
+  bottom: 152px;  /* au-dessus du bouton */
+  z-index: 95;
+  width: min(420px, calc(100vw - 48px));
+  height: min(580px, calc(100vh - 200px));
+  background: var(--paper);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: panel-in .25s cubic-bezier(.2,.9,.3,1.15) both;
+}
+.assistant-panel:focus-within {
+  box-shadow: var(--sh-xl), 0 0 0 2px var(--accent);
+}
+
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(12px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-panel { animation: none; }
+}
+
+/* En-tête du panneau */
+.assistant-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  flex-shrink: 0;
+}
+.assistant-panel-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255,255,255,.7);
+  font-size: 16px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color .12s, background .12s;
+  line-height: 1;
+}
+.assistant-panel-close:hover {
+  color: #fff;
+  background: rgba(255,255,255,.15);
+}
+
+/* Corps du panneau */
+.assistant-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Zone de messages */
+.assistant-panel-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+.assistant-panel-messages::-webkit-scrollbar { width: 5px; }
+.assistant-panel-messages::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--r-full); border: 2px solid transparent; background-clip: padding-box; }
+.assistant-panel-messages::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Suggestions */
+.assistant-panel-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.assistant-panel-sug {
+  background: none;
+  border: 1px solid var(--line-strong);
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  color: var(--body);
+  text-align: left;
+  transition: background .12s, border-color .12s;
+  font-family: inherit;
+  line-height: 1.4;
+}
+.assistant-panel-sug:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+/* Bulles de message */
+.assistant-panel-msg {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.assistant-panel-msg-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+}
+.assistant-panel-msg-user .assistant-panel-msg-avatar { background: var(--muted); }
+.assistant-panel-msg-body {
+  flex: 1;
+  min-width: 0;
+  background: var(--paper-2);
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+.assistant-panel-msg-assistant .assistant-panel-msg-body { background: var(--accent-soft); }
+.assistant-panel-msg.error .assistant-panel-msg-body { background: var(--neg-soft); color: var(--neg); }
+
+/* Détails des preuves */
+.assistant-panel-evidence {
+  margin-top: 6px;
+  font-size: 11.5px;
+}
+.assistant-panel-evidence summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.assistant-panel-ev-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+  padding: 3px 0;
+  color: var(--body);
+  border-top: 1px solid var(--line);
+  margin-top: 3px;
+}
+.assistant-panel-ev-item strong { color: var(--ink); }
+
+/* Zone de saisie */
+.assistant-panel-input {
+  display: flex;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  flex-shrink: 0;
+  background: var(--paper);
+}
+.assistant-panel-field {
+  flex: 1;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--paper);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  transition: box-shadow .16s ease;
+}
+.assistant-panel-field:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-ring);
+}
+.assistant-panel-field:disabled { opacity: .6; cursor: not-allowed; }
+.assistant-panel-send {
+  padding: 8px 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.assistant-panel-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Responsive */
+@media (max-width: 480px) {
+  .assistant-float-btn { right: 16px; bottom: 80px; width: 46px; height: 46px; }
+  .assistant-panel { right: 12px; bottom: 72px; width: calc(100vw - 24px); height: calc(100vh - 120px); }
+}
