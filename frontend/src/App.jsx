@@ -19,16 +19,15 @@ import { Logo } from './Logo'
 import ScrollProgress from './ScrollProgress'
 
 // Familles de navigation. `admin` est rendu séparément, dans le pied.
-const NAV = [
+const NAV_BASE = [
   ['Pilotage',   [['dashboard', 'Tableau de bord']]],
   ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
   ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation']]],
   ['Sources',    [['statements', 'Relevés'], ['advice', 'Conseils IA']]],
-  ['Intelligence', [['assistant', 'Assistant']]],
 ]
 // Liste à plat (titre de page, recherche) — inclut admin.
-const TABS = [
-  ...NAV.flatMap(([, items]) => items),
+const TABS_BASE = [
+  ...NAV_BASE.flatMap(([, items]) => items),
   ['admin', 'Admin'],
 ]
 
@@ -230,7 +229,7 @@ export default function App() {
           <h1>thémis<span className="tick">.</span></h1>
         </div>
         <nav className="sidebar-nav" role="tablist">
-          {NAV.map(([group, items]) => (
+          {[...NAV_BASE, aiEnabled && ['Intelligence', [['assistant', 'Assistant']]]].filter(Boolean).map(([group, items]) => (
             <Fragment key={group}>
               <div className="nav-group-label">{group}</div>
               {items.map(([id, label]) => (
@@ -337,7 +336,7 @@ export default function App() {
         {tab === 'statements' && <Statements onChanged={() => setRefreshKey((k) => k + 1)} />}
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
-        {tab === 'assistant' && <Assistant />}
+        {tab === 'assistant' && aiEnabled && <Assistant />}
       </main>
 
       <footer className="colophon">
