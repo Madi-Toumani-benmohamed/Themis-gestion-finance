@@ -20,13 +20,20 @@ import (
 // AIConfig est la configuration IA effective, modifiable depuis la page
 // d'admin sans redémarrage. Persistée dans settings (clé "ai_config").
 type AIConfig struct {
-	Provider       string `json:"provider"` // "none" | "ollama" | "anthropic"
+	Provider       string `json:"provider"` // "none" | "ollama" | "anthropic" | "mistral" | "freellm"
 	OllamaURL      string `json:"ollama_url"`
 	OllamaModel    string `json:"ollama_model"`
 	AnthropicModel string `json:"anthropic_model"`
 	// AnthropicKey vide = utiliser ANTHROPIC_API_KEY de l'environnement.
 	// Jamais renvoyée en clair par l'API (masquée).
 	AnthropicKey   string `json:"anthropic_key,omitempty"`
+	// Mistral AI
+	MistralKey   string `json:"mistral_key,omitempty"`
+	MistralModel string `json:"mistral_model"`
+	// FreeLLM
+	FreeLLMKey   string `json:"freellm_key,omitempty"`
+	FreeLLMURL   string `json:"freellm_url"`
+	FreeLLMModel string `json:"freellm_model"`
 	AutoCategorize bool   `json:"auto_categorize"`
 	// Context : instructions libres fournies par l'utilisateur pour éclairer les
 	// commentaires de l'IA (ex. « mon loyer est trimestriel », « le virement à
@@ -41,6 +48,11 @@ func aiConfigFromEnv(cfg config.Config) AIConfig {
 		OllamaURL:      cfg.OllamaURL,
 		OllamaModel:    cfg.OllamaModel,
 		AnthropicModel: cfg.AnthropicModel,
+		MistralKey:     cfg.MistralKey,
+		MistralModel:   cfg.MistralModel,
+		FreeLLMKey:     cfg.FreeLLMKey,
+		FreeLLMURL:     cfg.FreeLLMURL,
+		FreeLLMModel:   cfg.FreeLLMModel,
 		AutoCategorize: cfg.AIAutoCategorize,
 	}
 }
@@ -62,6 +74,28 @@ func (s *Server) buildClient(c AIConfig) llm.Client {
 			return nil
 		}
 		return &llm.Anthropic{APIKey: key, Model: c.AnthropicModel}
+	case "mistral":
+		key := c.MistralKey
+		if key == "" {
+			key = s.Cfg.MistralKey
+		}
+		if key == "" {
+			return nil
+		}
+		return &llm.Mistral{APIKey: key, Model: c.MistralModel}
+	case "freellm":
+		key := c.FreeLLMKey
+		if key == "" {
+			key = s.Cfg.FreeLLMKey
+		}
+		if key == "" {
+			return nil
+		}
+		baseURL := c.FreeLLMURL
+		if baseURL == "" {
+			baseURL = s.Cfg.FreeLLMURL
+		}
+		return &llm.FreeLLM{APIKey: key, BaseURL: baseURL, Model: c.FreeLLMModel}
 	default:
 		return nil
 	}
@@ -150,6 +184,11 @@ func (s *Server) maskedConfig() map[string]any {
 		"ollama_model":      c.OllamaModel,
 		"anthropic_model":   c.AnthropicModel,
 		"anthropic_key_set": c.AnthropicKey != "" || s.Cfg.AnthropicKey != "",
+		"mistral_key_set":   c.MistralKey != "" || s.Cfg.MistralKey != "",
+		"mistral_model":     c.MistralModel,
+		"freellm_key_set":   c.FreeLLMKey != "" || s.Cfg.FreeLLMKey != "",
+		"freellm_url":       c.FreeLLMURL,
+		"freellm_model":     c.FreeLLMModel,
 		"auto_categorize":   c.AutoCategorize,
 		"context":           c.Context,
 		"active":            provider,
@@ -167,24 +206,47 @@ func (s *Server) adminPutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch in.Provider {
-	case "none", "ollama", "anthropic":
+	case "none", "ollama", "anthropic", "mistral", "freellm":
 	default:
-		writeErr(w, http.StatusBadRequest, fmt.Errorf(`provider doit être "none", "ollama" ou "anthropic"`))
+		writeErr(w, http.StatusBadRequest, fmt.Errorf(`provider doit être "none", "ollama", "anthropic", "mistral" ou "freellm"`))
 		return
 	}
 	if in.Provider == "ollama" && in.OllamaURL == "" {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("ollama_url requis"))
 		return
 	}
+	if in.Provider == "mistral" && in.MistralKey == "" && s.Cfg.MistralKey == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("mistral_key requis"))
+		return
+	}
+	if in.Provider == "freellm" && in.FreeLLMKey == "" && s.Cfg.FreeLLMKey == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("freellm_key requis"))
+		return
+	}
 	// clé non fournie → conserver l'existante (le champ masqué n'est jamais renvoyé)
 	if in.AnthropicKey == "" {
 		in.AnthropicKey = s.getAIConfig().AnthropicKey
+	}
+	if in.MistralKey == "" {
+		in.MistralKey = s.getAIConfig().MistralKey
+	}
+	if in.FreeLLMKey == "" {
+		in.FreeLLMKey = s.getAIConfig().FreeLLMKey
 	}
 	if in.OllamaModel == "" {
 		in.OllamaModel = s.Cfg.OllamaModel
 	}
 	if in.AnthropicModel == "" {
 		in.AnthropicModel = s.Cfg.AnthropicModel
+	}
+	if in.MistralModel == "" {
+		in.MistralModel = s.Cfg.MistralModel
+	}
+	if in.FreeLLMModel == "" {
+		in.FreeLLMModel = s.Cfg.FreeLLMModel
+	}
+	if in.FreeLLMURL == "" {
+		in.FreeLLMURL = s.Cfg.FreeLLMURL
 	}
 
 	raw, _ := json.Marshal(in)
