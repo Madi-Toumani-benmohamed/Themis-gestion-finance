@@ -78,11 +78,13 @@ func toolSearchTransactions(db *sql.DB, owner int64, args map[string]any) toolRe
 		  FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
 		  WHERE t.owner_id = $1 AND t.tx_date >= $2::date AND t.tx_date <= $3::date` + notTransfer
 	args2 := []any{owner, startDate, endDate}
+	argIdx := 4
 	if merchant != "" {
 		args2 = append(args2, "%"+strings.ToLower(merchant)+"%")
-		q += " AND (ILIKE t.label $4 OR ILIKE t.display_label $4)"
+		q += fmt.Sprintf(" AND (ILIKE t.label $%d OR ILIKE t.display_label $%d)", argIdx, argIdx)
+		argIdx++
 	}
-	q += " ORDER BY t.tx_date DESC LIMIT $5"
+	q += fmt.Sprintf(" ORDER BY t.tx_date DESC LIMIT $%d", argIdx)
 	args2 = append(args2, limit)
 
 	rows, err := db.Query(q, args2...)
