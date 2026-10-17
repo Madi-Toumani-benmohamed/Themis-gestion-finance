@@ -50,8 +50,8 @@ func main() {
 		Addr:              ":" + cfg.Port,
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       2 * time.Minute, // large : un import PDF peut être gros
-		WriteTimeout:      3 * time.Minute, // large : l'OCR d'un relevé prend du temps
+		ReadTimeout:       5 * time.Minute,  // un import PDF + OCR peut prendre longtemps
+		WriteTimeout:      10 * time.Minute, // l'IA peut prendre du temps sur les gros modèles
 		IdleTimeout:       2 * time.Minute,
 	}
 
