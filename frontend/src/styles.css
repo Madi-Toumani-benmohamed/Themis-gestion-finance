@@ -912,16 +912,6 @@ td.num, .num { text-align: right; }
 .tag-legend-val { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
 .tag-legend-pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 34px; text-align: right; }
 
-.tag-picker { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
-.tag-pick {
-  border: none; cursor: pointer; font-size: 12.5px; padding: 5px 12px; border-radius: var(--r-full);
-  background: var(--sunken); color: var(--muted); transition: all .15s ease;
-}
-.tag-pick::before { content: '#'; opacity: .5; margin-right: 1px; }
-.tag-pick:hover { color: var(--body); }
-.tag-pick.on { background: var(--accent); color: #fff; }
-.tag-pick.on::before { opacity: .7; }
-
 @media (max-width: 860px) { .tag-analysis-grid { grid-template-columns: 1fr; } }
 
 /* Bouton « remonter en haut » */

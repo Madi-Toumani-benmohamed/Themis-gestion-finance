@@ -4,6 +4,8 @@ import {
   CartesianGrid, XAxis, YAxis, Tooltip, Legend,
 } from 'recharts'
 import { api, eur } from '../api'
+import TagPickerNavigation from '../components/TagPickerNavigation'
+import '../components/TagPickerNavigation.css'
 
 const PALETTE = ['#5B5BD6', '#21935B', '#C77D2E', '#D6455D', '#8A5CD1', '#3F8F7B', '#B5548A', '#4C6FBF']
 function readColors() {
@@ -148,15 +150,11 @@ export default function TagAnalysis({ categories }) {
             <p className="widget-empty">Aucun tag pour l'instant. Tague quelques transactions pour suivre leur évolution.</p>
           ) : (
             <>
-              <div className="tag-picker">
-                {allTags.map((t) => (
-                  <button key={t}
-                          className={'tag-pick' + (pickedTags.includes(t) ? ' on' : '')}
-                          onClick={() => toggleTag(t)}>
-                    {t}
-                  </button>
-                ))}
-              </div>
+              <TagPickerNavigation
+                tags={allTags}
+                pickedTags={pickedTags}
+                onToggle={toggleTag}
+              />
               {series === null ? (
                 <p className="muted" style={{ padding: 20 }}><span className="spinner" />Chargement…</p>
               ) : lineData.length === 0 ? (
