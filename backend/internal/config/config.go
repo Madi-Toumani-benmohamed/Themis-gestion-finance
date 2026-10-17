@@ -25,7 +25,8 @@ type Config struct {
 	// Mistral AI
 	MistralKey   string
 	MistralModel string
-	// FreeLLM (OpenRouter, etc.)
+	// FreeLLM (service local agrégateur de modèles)
+	// Compatible OpenAI, supporte "auto" et "auto:fast" comme modèles
 	FreeLLMKey   string
 	FreeLLMURL   string
 	FreeLLMModel string
@@ -55,8 +56,8 @@ func Load() Config {
 		MistralKey:     os.Getenv("MISTRAL_API_KEY"),
 		MistralModel:   get("MISTRAL_MODEL", "mistral-small-latest"),
 		FreeLLMKey:     os.Getenv("FREELLM_API_KEY"),
-		FreeLLMURL:     get("FREELLM_URL", "https://api.freellm.ai/v1"),
-		FreeLLMModel:   get("FREELLM_MODEL", "openai/gpt-3.5-turbo"),
+		FreeLLMURL:     get("FREELLM_URL", "http://freellm.local:3001/v1"),
+		FreeLLMModel:   get("FREELLM_MODEL", "auto:fast"),
 	}
 	cfg.AIAutoCategorize = get("AI_AUTO_CATEGORIZE", "true") != "false"
 	cfg.CookieSecure = os.Getenv("COOKIE_SECURE") == "true"
