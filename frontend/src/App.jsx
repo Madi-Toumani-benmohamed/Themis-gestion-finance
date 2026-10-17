@@ -285,7 +285,7 @@ export default function App() {
 
       <div className="app-main">
       <header className="topbar">
-        <span className="topbar-title">{(TABS.find(([id]) => id === tab) || [])[1]}</span>
+        <span className="topbar-title">{(TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>
         <div className="topbar-right">
           <div className="slot-wrap">
           {accounts.length > 1 && (
@@ -351,7 +351,7 @@ export default function App() {
       <CommandPalette
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        tabs={TABS}
+        tabs={TABS_BASE}
         onNavigate={navigateTo}
         onUpload={() => fileRef.current?.click()}
       />
