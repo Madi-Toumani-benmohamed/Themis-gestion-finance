@@ -37,6 +37,20 @@ type toolCallInner struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
+// toolResult est le retour d'un outil analytique.
+type toolResult struct {
+	Content string `json:"content"`
+	Error   string `json:"error,omitempty"`
+}
+
+// chatResult est le résultat final de l'orchestration.
+type chatResult struct {
+	Answer      string
+	Evidence    []any
+	DataQuality map[string]any
+	Status      string
+}
+
 // ============================================================================
 // Outils analytiques (lecture seule)
 // ============================================================================
@@ -323,7 +337,7 @@ func toolDataQuality(db *sql.DB, owner int64) toolResult {
 		"total_transactions": totalTx, "categorized": categorized, "uncategorized": uncategorized,
 		"statements": stmtCount, "months_covered": monthsCovered,
 		"first_tx": firstDate.String, "last_tx": lastDate.String,
-		"coverage": map[string]any{"complete": totalTx > 10 && monthsCovered >= 2, "sufficient": monthsCovered >= 2 && uncategorized < totalTx*0.3},
+		"coverage": map[string]any{"complete": totalTx > 10 && monthsCovered >= 2, "sufficient": monthsCovered >= 2 && uncategorized < int(float64(totalTx)*0.3)},
 	}
 	b, _ := json.Marshal(out)
 	return toolResult{Content: string(b)}
