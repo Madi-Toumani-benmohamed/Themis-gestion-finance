@@ -6,6 +6,7 @@ package llm
 
 import (
 	"context"
+	"time"
 
 	"themis/internal/config"
 )
@@ -37,6 +38,62 @@ func markThinkingDisabled(ctx context.Context) {
 	if f, ok := ctx.Value(thinkingFlagKey).(*bool); ok && f != nil {
 		*f = true
 	}
+}
+
+// ConfigTimeouts applique les timeouts depuis la config globale.
+func ConfigTimeouts(cfg config.Config) {
+	_ollamaTimeout = cfg.AIOllamaTimeout
+	_cloudTimeout = cfg.AICloudTimeout
+	_chatTimeout = cfg.AIChatTimeout
+	_categorizeTimeout = cfg.AICategorizeTimeout
+	_narrativeTimeout = cfg.AINarrativeTimeout
+	_testTimeout = cfg.AITestTimeout
+}
+
+var (
+	_ollamaTimeout    int
+	_cloudTimeout     int
+	_chatTimeout      int
+	_categorizeTimeout int
+	_narrativeTimeout int
+	_testTimeout      int
+)
+
+func ollamaTimeout() time.Duration {
+	if _ollamaTimeout > 0 {
+		return time.Duration(_ollamaTimeout) * time.Second
+	}
+	return 600 * time.Second
+}
+func cloudTimeout() time.Duration {
+	if _cloudTimeout > 0 {
+		return time.Duration(_cloudTimeout) * time.Second
+	}
+	return 120 * time.Second
+}
+func ChatTimeout() time.Duration {
+	if _chatTimeout > 0 {
+		return time.Duration(_chatTimeout) * time.Second
+	}
+	return 480 * time.Second
+}
+func CategorizeTimeout() time.Duration {
+	if _categorizeTimeout > 0 {
+		return time.Duration(_categorizeTimeout) * time.Second
+	}
+	return 300 * time.Second
+}
+func NarrativeTimeout() time.Duration {
+	if _narrativeTimeout > 0 {
+		return time.Duration(_narrativeTimeout) * time.Second
+	}
+	return 120 * time.Second
+}
+func TestTimeout() time.Duration {
+	if _testTimeout > 0 {
+		return time.Duration(_testTimeout) * time.Second
+	}
+	return 30 * time.Second
 }
 
 // FromConfig construit le client selon la configuration.

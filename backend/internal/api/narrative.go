@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"themis/internal/llm"
 )
@@ -49,7 +48,7 @@ func (s *Server) intelNarrative(w http.ResponseWriter, r *http.Request) {
 	user := "Voici les faits de la période, déjà calculés par l'application :\n\n" + facts +
 		"\n\nÉcris une courte synthèse qui aide l'utilisateur à comprendre l'essentiel de sa situation ce mois-ci."
 
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), llm.NarrativeTimeout())
 	defer cancel()
 	noThink := false
 	ctx = llm.WithThinkingFlag(ctx, &noThink)

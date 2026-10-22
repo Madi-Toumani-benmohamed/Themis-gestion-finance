@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // FreeLLM est un service agrégateur d'APIs IA (OpenRouter, etc.) avec une interface
@@ -58,7 +57,7 @@ func (f *FreeLLM) Complete(ctx context.Context, system, user string, maxTokens i
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+f.APIKey)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: cloudTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

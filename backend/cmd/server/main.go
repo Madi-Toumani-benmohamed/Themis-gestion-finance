@@ -62,6 +62,7 @@ func main() {
 		log.Printf("ATTENTION — OCR indisponible : %s ; les relevés sans couche texte (Crédit Agricole…) nécessiteront ANTHROPIC_API_KEY", detail)
 	}
 	srv.InitAI() // env, ou config admin persistée en base si présente
+	llm.ConfigTimeouts(cfg)
 	srv.StartSessionCleanup()
 	if o, ok := srv.GetLLMForCheck().(*llm.Ollama); ok {
 		if err := o.Ping(context.Background()); err != nil {

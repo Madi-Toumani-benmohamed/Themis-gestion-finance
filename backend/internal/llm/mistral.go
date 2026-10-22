@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 const mistralURL = "https://api.mistral.ai/v1/chat/completions"
@@ -55,7 +54,7 @@ func (m *Mistral) Complete(ctx context.Context, system, user string, maxTokens i
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+m.APIKey)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: cloudTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
