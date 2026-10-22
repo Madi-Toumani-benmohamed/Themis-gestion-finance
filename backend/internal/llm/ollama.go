@@ -122,7 +122,7 @@ func (o *Ollama) complete(ctx context.Context, system, user string, maxTokens in
 	req.Header.Set("Content-Type", "application/json")
 
 	// Les modèles locaux sur CPU peuvent être lents sur un relevé de 3 pages.
-	client := &http.Client{Timeout: 10 * time.Minute}
+	client := &http.Client{Timeout: ollamaTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("Ollama injoignable sur %s: %w", o.URL, err)

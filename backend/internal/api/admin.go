@@ -275,7 +275,7 @@ func (s *Server) adminTestAI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "detail": "aucun fournisseur configuré"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), llm.TestTimeout())
 	defer cancel()
 
 	if o, ok := client.(*llm.Ollama); ok {
