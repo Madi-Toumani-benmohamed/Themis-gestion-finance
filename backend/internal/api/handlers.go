@@ -52,6 +52,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/remaining", s.remaining)
 	mux.HandleFunc("GET /api/upload/progress", s.uploadProgress)
 	mux.HandleFunc("GET /api/coverage", s.coverage)
+	mux.HandleFunc("GET /api/reliability", s.reliability)
 	mux.HandleFunc("GET /api/intel/merchants", s.merchantsView)
 	mux.HandleFunc("GET /api/intel/nature", s.natureBreakdown)
 	mux.HandleFunc("GET /api/intel/comparison", s.categoryComparison)

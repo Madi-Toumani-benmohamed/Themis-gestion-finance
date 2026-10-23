@@ -35,19 +35,7 @@ type heroDateSpan struct{ start, end time.Time }
 // Les intervalles sont triés par début. Des relevés successifs peuvent couvrir
 // un mois civil même si chacun se clôture le 21. Un trou reste incomplet.
 func heroSpansCover(spans []heroDateSpan, first, last time.Time) bool {
-	next := first
-	for _, span := range spans {
-		if span.start.After(next) {
-			return false
-		}
-		if !span.end.Before(next) {
-			next = span.end.AddDate(0, 0, 1)
-		}
-		if next.After(last) {
-			return true
-		}
-	}
-	return false
+	return len(uncoveredStatementDates(spans, first, last)) == 0
 }
 
 // La date d'une transaction ou d'un import ne prouve pas la couverture.
