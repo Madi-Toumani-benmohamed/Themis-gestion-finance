@@ -219,7 +219,7 @@ func BuildFinancialFacts(res *models.ParseResult, ownerID int64) []string {
 		total += t.Amount
 	}
 	facts = append(facts,
-		fmt.Sprintf("Total des %.0f transactions de cet import : %.2f€", len(res.Transactions), total),
+		fmt.Sprintf("Total des %d transactions de cet import : %.2f€", len(res.Transactions), total),
 	)
 
 	return facts
