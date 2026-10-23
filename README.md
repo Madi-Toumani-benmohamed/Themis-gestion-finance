@@ -210,6 +210,57 @@ les conseils mensuels si ta machine est modeste. Le parsing force
 que pour les formats de relevés vraiment exotiques — la plupart des imports
 n'utilisent aucune IA du tout.
 
+#### Ollama distant sur le Mac
+
+Pour éviter de faire tourner Ollama dans un conteneur Docker (plus lent sur
+macOS sans GPU), tu peux utiliser une instance Ollama installée nativement
+sur ton Mac hôte. Le backend et le Knowledge Graph pointeront vers elle via
+`host.docker.internal`.
+
+1. **Trouver l'IP privée du Mac** (optionnel, `host.docker.internal` suffit) :
+   ```bash
+   ipconfig getifaddr en0   # Wi-Fi
+   ipconfig getifaddr en1   # Ethernet
+   ```
+
+2. **Configurer Ollama pour écouter sur toutes les interfaces** :
+   ```bash
+   OLLAMA_ORIGINS="*" ollama serve
+   ```
+   Ou définis la variable d'environnement `OLLAMA_HOST=0.0.0.0:11434` avant
+   de lancer `ollama serve`.
+
+3. **Définir dans `.env`** (à la racine du repo) :
+   ```bash
+   REMOTE_OLLAMA_BASE_URL=http://host.docker.internal:11434
+   ```
+   Le suffixe `/v1` est ajouté automatiquement par le compose pour le service
+   Knowledge Graph ; le backend Go utilise l'URL brute. Une seule variable suffit — elle est propagée aux deux services.
+
+4. **Lancer sans le profile `local-ai`** (le conteneur ollama n'est pas démarré) :
+   ```bash
+   docker compose up -d
+   ```
+
+5. **Vérifier** :
+   ```bash
+   curl http://localhost:8080/api/health
+   # → doit répondre avec "ai_provider": "ollama"
+   ```
+
+> **Note réseau Docker** : `host.docker.internal` n'est pas disponible sous
+> Docker Engine classique (Linux).
+> - **Docker Desktop (macOS / Windows)** — utilise `host.docker.internal` comme indiqué ci-dessus.
+> - **Docker Engine (Linux)** — ajoute dans `docker-compose.yml` :
+>   ```yaml
+>   services:
+>     backend:
+>       extra_hosts:
+>         - "host.docker.internal:host-gateway"
+>   ```
+>   ou, si tu préfères une IP fixe, trouve l'IP de la machine hôte avec
+>   `hostname -I` et remplace `host.docker.internal` par cette adresse.
+
 ## API
 
 | Méthode | Route                     | Rôle |
