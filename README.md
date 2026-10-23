@@ -13,6 +13,12 @@ Thémis est une application auto-hébergée de gestion de finances personnelles 
 - **Interface** : thèmes clair et sombre, design sobre à accent indigo `#5B5BD6`, polices embarquées, disposition responsive et palette de commande `Ctrl/Cmd+K`.
 - **Multi-utilisateurs** : authentification par session, rôles administrateur/utilisateur et données rattachées à leur propriétaire. Création du premier administrateur au premier lancement.
 
+### Fiabilité des données
+
+Dans **Relevés**, le centre de fiabilité permet de choisir un mois et d’examiner la couverture compte par compte. Il distingue les périodes documentées par des relevés validés, les intervalles non documentés et les imports à vérifier. Les relevés dont la période est inconnue restent visibles sans être attribués arbitrairement au mois choisi.
+
+Pour le mois courant, la vérification s’arrête à aujourd’hui. Un intervalle non documenté ne prouve pas l’absence de transactions. Le dernier import, toutes périodes confondues pour le compte, reste distinct de la dernière transaction du mois examiné. Un lien dans la synthèse du dashboard ouvre directement le centre sur le mois consulté.
+
 ### Lire la synthèse financière
 
 La synthèse distingue trois contextes :

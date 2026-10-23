@@ -70,7 +70,8 @@ export default function App() {
   }, [theme])
   const [txSearch, setTxSearch] = useState('')
   const [txMonth, setTxMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); setTxMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const [statementMonth, setStatementMonth] = useState('')
+  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); setTxMonth(opts?.month || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadProg, setUploadProg] = useState(null)
@@ -334,7 +335,7 @@ export default function App() {
         {tab === 'credits' && <Credits />}
         {tab === 'simulate' && <Simulate />}
         {tab === 'accounts' && <Accounts />}
-        {tab === 'statements' && <Statements onChanged={() => setRefreshKey((k) => k + 1)} />}
+        {tab === 'statements' && <Statements initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
         {tab === 'assistant' && <Assistant />}

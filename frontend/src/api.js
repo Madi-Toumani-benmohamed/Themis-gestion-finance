@@ -34,6 +34,7 @@ export const api = {
   anomalies: (month) => fetch('/api/anomalies' + (month ? `?month=${month}` : '')).then(json),
   journal: (month) => fetch('/api/journal' + (month ? `?month=${month}` : '')).then(json),
   remaining: (month) => fetch('/api/remaining' + (month ? `?month=${month}` : '')).then(json),
+  reliability: (month) => G('/api/reliability?' + new URLSearchParams({ month })),
   coverage: () => fetch('/api/coverage').then(json),
   intelMerchants: (months) => fetch(`/api/intel/merchants?months=${months || 3}`).then(json),
   intelNature: () => fetch('/api/intel/nature').then(json),
