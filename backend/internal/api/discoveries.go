@@ -98,7 +98,7 @@ func detectDuplicateSubs(rec []recurring) []discovery {
 				Kind:  "duplicate_subs",
 				Title: fmt.Sprintf("Plusieurs abonnements %s", segment),
 				Detail: fmt.Sprintf("Tu sembles avoir %d abonnements %s actifs (%s), soit environ %s par mois. Un possible doublon à regarder.",
-					len(found), segment, strings.Join(found, ", "), euro(total)),
+					len(found), segment, strings.Join(found, ", "), Euro(total)),
 				Tone: "attention", Amount: total,
 			})
 		}
@@ -121,7 +121,7 @@ func detectPriceCreep(rec []recurring) []discovery {
 				Kind:  "price_creep",
 				Title: fmt.Sprintf("%s a peut-être augmenté", g.Label),
 				Detail: fmt.Sprintf("Le dernier prélèvement (%s) dépasse la moyenne habituelle (%s). Le tarif a peut-être changé.",
-					euro(last), euro(g.AvgAmount)),
+					Euro(last), Euro(g.AvgAmount)),
 				Tone: "attention", Amount: last, Query: g.Label,
 				Scope: "month", Month: lastMonthOf(g.LastDate),
 			})
@@ -187,7 +187,7 @@ func (s *Server) detectSeasonal(owner int64) []discovery {
 						Kind:  "seasonal",
 						Title: fmt.Sprintf("%s revient bientôt", name),
 						Detail: fmt.Sprintf("Cette dépense (environ %s) est apparue à cette période les années précédentes. Elle pourrait revenir le mois prochain.",
-							euro(o.amt)),
+							Euro(o.amt)),
 						Tone: "info", Amount: o.amt, Query: name,
 					})
 					break
@@ -249,7 +249,7 @@ func (s *Server) detectMerchantDrift(owner int64) []discovery {
 				Kind:  "merchant_drift",
 				Title: fmt.Sprintf("Tes dépenses chez %s augmentent", name),
 				Detail: fmt.Sprintf("De %s à %s par mois sur les derniers mois. Une tendance qui monte, à surveiller si ce n'est pas voulu.",
-					euro(vals[0]), euro(vals[len(vals)-1])),
+					Euro(vals[0]), Euro(vals[len(vals)-1])),
 				Tone: "attention", Amount: vals[len(vals)-1], Query: name,
 			})
 		}
@@ -302,7 +302,7 @@ func (s *Server) detectTagSurge(owner int64) []discovery {
 				Kind:  "tag_surge",
 				Title: fmt.Sprintf("Beaucoup de « %s » ce mois-ci", tag),
 				Detail: fmt.Sprintf("Tu as %s de dépenses taguées « %s » ce mois, contre %s en moyenne les mois précédents (+%d%%).",
-					euro(cur), tag, euro(avgPrev), pct),
+					Euro(cur), tag, Euro(avgPrev), pct),
 				Tone: "attention", Amount: cur, Query: tag, Scope: "month", Month: ref,
 			})
 		}
@@ -354,7 +354,7 @@ func (s *Server) detectTagProject(owner int64) []discovery {
 			Kind:  "tag_project",
 			Title: fmt.Sprintf("Bilan « %s »", tag),
 			Detail: fmt.Sprintf("Ce tag totalise %s sur %s (%d dépenses). Il semble terminé — voici son coût complet.",
-				euro(total), span, n),
+				Euro(total), span, n),
 			Tone: "info", Amount: total, Query: tag,
 		})
 	}

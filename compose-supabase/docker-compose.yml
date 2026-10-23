@@ -8,15 +8,68 @@
 # (déjà ignoré par Git). Aucun secret n'est commit dans ce fichier.
 
 services:
+  # Knowledge Graph service (Graphiti via FastAPI)
+  knowledge-graph:
+    build:
+      context: ./../
+      dockerfile: memory/Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      FALKORDB_HOST: falkordb
+      FALKORDB_PORT: 6379
+      OLLAMA_URL: ${REMOTE_OLLAMA_BASE_URL:-http://ollama:11434}/v1
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      KG_SERVICE_PORT: 8100
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    ports:
+      - "8100:8100"
+
+  # FalkorDB — graphe de connaissances pour le Knowledge Graph service
+  falkordb:
+    image: falkordb/falkordb:latest
+    volumes:
+      - falkordb_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   # Le contexte de build est la racine du repo pour inclure backend
   app:
     build:
       context: ./../
       dockerfile: backend/Dockerfile
+    env_file:
+      - ../.env
     environment:
       DATABASE_URL: postgres://${SUPABASE_HOST}:${SUPABASE_PASSWORD}@${SUPABASE_POOLER}:${SUPABASE_PORT}/${SUPABASE_DB}?sslmode=require
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_URL: ${REMOTE_OLLAMA_BASE_URL:-${OLLAMA_URL:-}}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
     ports:
       - "${APP_PORT}:8080"   # → http://localhost:${APP_PORT}  (app complète : UI + API)
+
+  ollama:
+    image: ${OLLAMA_IMAGE}
+    profiles: ["local-ai"]
+    env_file:
+      - ../.env
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      - "${OLLAMA_PORT}:11434"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  ollama:
+  falkordb_data:

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"themis/internal/llm"
 )
@@ -49,7 +48,7 @@ func (s *Server) intelNarrative(w http.ResponseWriter, r *http.Request) {
 	user := "Voici les faits de la période, déjà calculés par l'application :\n\n" + facts +
 		"\n\nÉcris une courte synthèse qui aide l'utilisateur à comprendre l'essentiel de sa situation ce mois-ci."
 
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), llm.NarrativeTimeout())
 	defer cancel()
 	noThink := false
 	ctx = llm.WithThinkingFlag(ctx, &noThink)
@@ -109,12 +108,12 @@ func (s *Server) gatherFacts(owner int64) string {
 		Scan(&realSpend, &mandatory, &savings, &income)
 	fmt.Fprintf(&b, "Mois analysé : %s\n", ref)
 	fmt.Fprintf(&b, "Revenus : %s. Dépenses réelles : %s. Impôts/cotisations : %s. Épargne : %s.\n",
-		euro(income), euro(realSpend), euro(mandatory), euro(savings))
+		Euro(income), Euro(realSpend), Euro(mandatory), Euro(savings))
 	net := income - realSpend - mandatory - savings
 	if net >= 0 {
-		fmt.Fprintf(&b, "Le solde du mois est positif d'environ %s (épargne comprise).\n", euro(net+savings))
+		fmt.Fprintf(&b, "Le solde du mois est positif d'environ %s (épargne comprise).\n", Euro(net+savings))
 	} else {
-		fmt.Fprintf(&b, "Le mois est déficitaire d'environ %s.\n", euro(-net))
+		fmt.Fprintf(&b, "Le mois est déficitaire d'environ %s.\n", Euro(-net))
 	}
 
 	// Comparaison par catégorie (les plus gros écarts)
@@ -139,7 +138,7 @@ func (s *Server) gatherFacts(owner int64) string {
 				if pct < 0 {
 					sign = ""
 				}
-				lines = append(lines, fmt.Sprintf("%s %s%d%% (%s vs %s habituel)", name, sign, pct, euro(cur), euro(avg)))
+				lines = append(lines, fmt.Sprintf("%s %s%d%% (%s vs %s habituel)", name, sign, pct, Euro(cur), Euro(avg)))
 			}
 		}
 		crows.Close()
@@ -164,7 +163,7 @@ func (s *Server) gatherFacts(owner int64) string {
 			var name string
 			var spent float64
 			if trows.Scan(&name, &spent) == nil {
-				ts = append(ts, fmt.Sprintf("%s (%s)", name, euro(spent)))
+				ts = append(ts, fmt.Sprintf("%s (%s)", name, Euro(spent)))
 			}
 		}
 		trows.Close()

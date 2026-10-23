@@ -1,22 +1,25 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 type Config struct {
 	Port        string
 	DatabaseURL string
 
-// IA — plusieurs fournisseurs possibles :
-//  - "anthropic"    : API Claude (cloud)
-//  - "ollama"       : modèle local, aucune donnée ne quitte la machine
-//  - "mistral"      : API Mistral AI (cloud)
-//  - "freellm"      : agrégateur OpenRouter/FreeLLM (compatible OpenAI)
-//  - "none"         : fonctionnalités IA désactivées
-// AIProvider est résolu automatiquement si AI_PROVIDER n'est pas défini :
-// ollama si OLLAMA_URL est défini, sinon mistral si MISTRAL_API_KEY,
-// sinon freellm si FREELLM_API_KEY, sinon anthropic si ANTHROPIC_API_KEY,
-// sinon none. L'ordre privilégie le local : des données bancaires ne doivent
-// partir dans le cloud que par choix explicite.
+	// IA — plusieurs fournisseurs possibles :
+	//  - "anthropic"    : API Claude (cloud)
+	//  - "ollama"       : modèle local, aucune donnée ne quitte la machine
+	//  - "mistral"      : API Mistral AI (cloud)
+	//  - "freellm"      : agrégateur OpenRouter/FreeLLM (compatible OpenAI)
+	//  - "none"         : fonctionnalités IA désactivées
+	// AIProvider est résolu automatiquement si AI_PROVIDER n'est pas défini :
+	// ollama si OLLAMA_URL est défini, sinon mistral si MISTRAL_API_KEY,
+	// sinon freellm si FREELLM_API_KEY, sinon anthropic si ANTHROPIC_API_KEY,
+	// sinon none. L'ordre privilégie le local : des données bancaires ne doivent
+	// partir dans le cloud que par choix explicite.
 	AIProvider     string
 	AnthropicKey   string
 	AnthropicModel string
@@ -34,6 +37,18 @@ type Config struct {
 	// après les règles, à chaque import (nécessite un fournisseur d'IA).
 	AIAutoCategorize bool
 
+	// Timeout des requêtes IA (en secondes). 0 = pas de timeout.
+	AIOllamaTimeout    int // timeout HTTP pour Ollama (défaut: 600s)
+	AICloudTimeout     int // timeout HTTP pour API cloud (défaut: 120s)
+	AIChatTimeout      int // timeout contexte orchestrateur chat (défaut: 480s)
+	AICategorizeTimeout int // timeout catégorisation auto (défaut: 300s)
+	AINarrativeTimeout int // timeout synthèse narrative (défaut: 120s)
+	AITestTimeout      int // timeout test connexion admin (défaut: 30s)
+
+	// Memory Service (Graphiti)
+	MemoryServiceURL string // URL du service mémoire Python (défaut: http://memory:8100)
+	MemoryEnabled    bool  // true si MEMORY_ENABLED != "false"
+
 	// Cookie de session marqué Secure (à activer derrière HTTPS en production).
 	CookieSecure bool
 }
@@ -43,6 +58,10 @@ func get(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func parseInt(s string) (int, error) {
+	return strconv.Atoi(s)
 }
 
 func Load() Config {
@@ -61,6 +80,33 @@ func Load() Config {
 	}
 	cfg.AIAutoCategorize = get("AI_AUTO_CATEGORIZE", "true") != "false"
 	cfg.CookieSecure = os.Getenv("COOKIE_SECURE") == "true"
+
+	// Timeouts IA en secondes (0 = pas de timeout)
+	if v := get("AI_OLLAMA_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AIOllamaTimeout = n }
+	}
+	if v := get("AI_CLOUD_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AICloudTimeout = n }
+	}
+	if v := get("AI_CHAT_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AIChatTimeout = n }
+	}
+	if v := get("AI_CATEGORIZE_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AICategorizeTimeout = n }
+	}
+	if v := get("AI_NARRATIVE_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AINarrativeTimeout = n }
+	}
+	if v := get("AI_TEST_TIMEOUT", ""); v != "" {
+		if n, err := parseInt(v); err == nil && n > 0 { cfg.AITestTimeout = n }
+	}
+
+	cfg.MemoryServiceURL = os.Getenv("MEMORY_SERVICE_URL")
+	if cfg.MemoryServiceURL == "" {
+		cfg.MemoryServiceURL = "http://localhost:8100"
+	}
+	cfg.MemoryEnabled = os.Getenv("MEMORY_ENABLED") != "false"
+
 	cfg.AIProvider = os.Getenv("AI_PROVIDER")
 	if cfg.AIProvider == "" {
 		switch {
