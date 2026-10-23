@@ -48,6 +48,8 @@ services:
       - ../.env
     environment:
       DATABASE_URL: postgres://${SUPABASE_HOST}:${SUPABASE_PASSWORD}@${SUPABASE_POOLER}:${SUPABASE_PORT}/${SUPABASE_DB}?sslmode=require
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4.1-mini}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OLLAMA_URL: ${REMOTE_OLLAMA_BASE_URL:-${OLLAMA_URL:-}}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}

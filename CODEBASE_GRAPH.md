@@ -422,3 +422,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 
 - Vite 8.3.4 et `@vitejs/plugin-react` 6.1.2 : mise à niveau conjointe pour respecter les peer dependencies. Build avec Node.js 22 (Docker et CI).
 - Correctifs PostCSS, Browserslist et baseline-browser-mapping intégrés via Dependabot.
+
+### Fournisseur OpenAI — Admin
+
+- `backend/internal/llm/openai.go` : client Responses HTTP (`store: false`), sorties texte/JSON, détection des réponses incomplètes et erreurs sans corps sensible. Aucun SDK ajouté.
+- `admin.go` : configuration persistée `openai_model` / `openai_key`, clé masquée (`openai_key_set`), conservation de la clé lors du test et de la sauvegarde avec champ vide, repli environnement.
+- `config.go` + configurations Compose : `OPENAI_API_KEY` / `OPENAI_MODEL`. Modèle par défaut `gpt-4.1-mini`, modifiable.
+- `frontend/src/pages/Admin.jsx` : choix OpenAI, champs modèle/clé et test existant. La mémoire Graphiti garde son fournisseur Ollama séparé.
+- Tests `llm/openai_test.go`, `api/admin_openai_test.go`, `config/openai_test.go` : contrat Responses simulé, erreurs/refus/troncature, persistance, masquage et sélection du fournisseur.

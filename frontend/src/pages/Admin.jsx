@@ -16,6 +16,8 @@ export default function Admin() {
   const [ollamaModels, setOllamaModels] = useState(null)
   const [anthropicModel, setAnthropicModel] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
+  const [openaiModel, setOpenaiModel] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
   // Mistral AI
   const [mistralModel, setMistralModel] = useState('')
   const [mistralKey, setMistralKey] = useState('')
@@ -45,6 +47,7 @@ export default function Admin() {
       setOllamaUrl(c.ollama_url || '')
       setOllamaModel(c.ollama_model || '')
       setAnthropicModel(c.anthropic_model || '')
+      setOpenaiModel(c.openai_model || 'gpt-4.1-mini')
       setMistralModel(c.mistral_model || '')
       setFreellmModel(c.freellm_model || '')
       setFreellmUrl(c.freellm_url || '')
@@ -58,6 +61,8 @@ export default function Admin() {
 
   const currentForm = () => ({
     provider,
+    openai_model: openaiModel.trim(),
+    ...(openaiKey.trim() ? { openai_key: openaiKey.trim() } : {}),
     ollama_url: ollamaUrl.trim(),
     ollama_model: ollamaModel.trim(),
     anthropic_model: anthropicModel.trim(),
@@ -77,6 +82,7 @@ export default function Admin() {
       const c = await api.adminPutConfig(currentForm())
       setCfg(c)
       setAnthropicKey('')
+      setOpenaiKey('')
       toast.ok(`Configuration appliquée — fournisseur actif : ${c.active}`)
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
@@ -158,7 +164,7 @@ export default function Admin() {
         <div className="admin-row">
           <label>Fournisseur</label>
           <div className="radio-row">
-            {[['none', 'Désactivé'], ['ollama', 'Ollama (local)'], ['anthropic', 'API Claude (cloud)'], ['mistral', 'Mistral AI'], ['freellm', 'FreeLLM / OpenRouter']].map(([v, l]) => (
+            {[['none', 'Désactivé'], ['ollama', 'Ollama (local)'], ['openai', 'OpenAI (cloud)'], ['anthropic', 'API Claude (cloud)'], ['mistral', 'Mistral AI'], ['freellm', 'FreeLLM / OpenRouter']].map(([v, l]) => (
               <label key={v} className="radio">
                 <input type="radio" name="provider" checked={provider === v} onChange={() => setProvider(v)} /> {l}
               </label>
@@ -188,6 +194,26 @@ export default function Admin() {
               )}
               {ollamaModels && ollamaModels.length === 0 && <span className="muted">aucun modèle listé</span>}
             </div>
+          </>
+        )}
+
+        {provider === 'openai' && (
+          <>
+            <div className="admin-row">
+              <label htmlFor="openai-model">Modèle</label>
+              <input id="openai-model" value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}
+                     placeholder="gpt-4.1-mini" style={{ width: 220 }} />
+            </div>
+            <div className="admin-row">
+              <label htmlFor="openai-key">Clé API</label>
+              <input id="openai-key" type="password" value={openaiKey} onChange={(e) => setOpenaiKey(e.target.value)}
+                     placeholder={cfg.openai_key_set ? '••••••••  (définie — laisser vide pour conserver)' : 'sk-…'}
+                     style={{ width: 320, maxWidth: '100%' }} autoComplete="off" />
+            </div>
+            <p className="muted" style={{ fontSize: 12 }}>
+              API OpenAI — les données nécessaires aux fonctions IA sont transmises à OpenAI.
+              Le test de connexion envoie uniquement une requête de test et consomme des jetons API.
+            </p>
           </>
         )}
 

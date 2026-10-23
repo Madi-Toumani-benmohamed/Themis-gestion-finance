@@ -14,12 +14,15 @@ type Config struct {
 	//  - "ollama"       : modèle local, aucune donnée ne quitte la machine
 	//  - "mistral"      : API Mistral AI (cloud)
 	//  - "freellm"      : agrégateur OpenRouter/FreeLLM (compatible OpenAI)
+	//  - "openai"       : API OpenAI (cloud)
 	//  - "none"         : fonctionnalités IA désactivées
 	// AIProvider est résolu automatiquement si AI_PROVIDER n'est pas défini :
 	// ollama si OLLAMA_URL est défini, sinon mistral si MISTRAL_API_KEY,
 	// sinon freellm si FREELLM_API_KEY, sinon anthropic si ANTHROPIC_API_KEY,
-	// sinon none. L'ordre privilégie le local : des données bancaires ne doivent
+	// sinon openai si OPENAI_API_KEY, sinon none. L'ordre privilégie le local : des données bancaires ne doivent
 	// partir dans le cloud que par choix explicite.
+	OpenAIKey      string
+	OpenAIModel    string
 	AIProvider     string
 	AnthropicKey   string
 	AnthropicModel string
@@ -38,16 +41,16 @@ type Config struct {
 	AIAutoCategorize bool
 
 	// Timeout des requêtes IA (en secondes). 0 = pas de timeout.
-	AIOllamaTimeout    int // timeout HTTP pour Ollama (défaut: 600s)
-	AICloudTimeout     int // timeout HTTP pour API cloud (défaut: 120s)
-	AIChatTimeout      int // timeout contexte orchestrateur chat (défaut: 480s)
+	AIOllamaTimeout     int // timeout HTTP pour Ollama (défaut: 600s)
+	AICloudTimeout      int // timeout HTTP pour API cloud (défaut: 120s)
+	AIChatTimeout       int // timeout contexte orchestrateur chat (défaut: 480s)
 	AICategorizeTimeout int // timeout catégorisation auto (défaut: 300s)
-	AINarrativeTimeout int // timeout synthèse narrative (défaut: 120s)
-	AITestTimeout      int // timeout test connexion admin (défaut: 30s)
+	AINarrativeTimeout  int // timeout synthèse narrative (défaut: 120s)
+	AITestTimeout       int // timeout test connexion admin (défaut: 30s)
 
 	// Memory Service (Graphiti)
 	MemoryServiceURL string // URL du service mémoire Python (défaut: http://memory:8100)
-	MemoryEnabled    bool  // true si MEMORY_ENABLED != "false"
+	MemoryEnabled    bool   // true si MEMORY_ENABLED != "false"
 
 	// Cookie de session marqué Secure (à activer derrière HTTPS en production).
 	CookieSecure bool
@@ -68,6 +71,8 @@ func Load() Config {
 	cfg := Config{
 		Port:           get("PORT", "8080"),
 		DatabaseURL:    get("DATABASE_URL", "postgres://themis:themis@localhost:5432/themis?sslmode=disable"),
+		OpenAIKey:      os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:    get("OPENAI_MODEL", "gpt-4.1-mini"),
 		AnthropicKey:   os.Getenv("ANTHROPIC_API_KEY"),
 		AnthropicModel: get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
 		OllamaURL:      os.Getenv("OLLAMA_URL"),
@@ -83,22 +88,34 @@ func Load() Config {
 
 	// Timeouts IA en secondes (0 = pas de timeout)
 	if v := get("AI_OLLAMA_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AIOllamaTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AIOllamaTimeout = n
+		}
 	}
 	if v := get("AI_CLOUD_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AICloudTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AICloudTimeout = n
+		}
 	}
 	if v := get("AI_CHAT_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AIChatTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AIChatTimeout = n
+		}
 	}
 	if v := get("AI_CATEGORIZE_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AICategorizeTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AICategorizeTimeout = n
+		}
 	}
 	if v := get("AI_NARRATIVE_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AINarrativeTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AINarrativeTimeout = n
+		}
 	}
 	if v := get("AI_TEST_TIMEOUT", ""); v != "" {
-		if n, err := parseInt(v); err == nil && n > 0 { cfg.AITestTimeout = n }
+		if n, err := parseInt(v); err == nil && n > 0 {
+			cfg.AITestTimeout = n
+		}
 	}
 
 	cfg.MemoryServiceURL = os.Getenv("MEMORY_SERVICE_URL")
@@ -118,6 +135,8 @@ func Load() Config {
 			cfg.AIProvider = "freellm"
 		case cfg.AnthropicKey != "":
 			cfg.AIProvider = "anthropic"
+		case cfg.OpenAIKey != "":
+			cfg.AIProvider = "openai"
 		default:
 			cfg.AIProvider = "none"
 		}
