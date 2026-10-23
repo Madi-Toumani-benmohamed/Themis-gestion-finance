@@ -49,7 +49,7 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
 
   const goToPrev = () => {
     const [y, m] = selectedMonth.split('-').map(Number)
-    const prev = new Date(y, m - 1, 1)
+    const prev = new Date(y, m - 2, 1)
     onMonthChange(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`)
   }
 
@@ -160,7 +160,7 @@ function Hero({ selectedMonth }) {
 function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
   useEffect(() => {
-    Promise.all([api.summary(2, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
+    Promise.all([api.summary(24, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
       const m = s2.monthly?.at(-1)
       if (!m) return setKpi(null)
       const prev = s2.monthly?.at(-2)
