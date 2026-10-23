@@ -1,0 +1,47 @@
+.data-reliability { background: var(--paper); border-radius: var(--r-lg); padding: 28px; box-shadow: var(--sh-sm); margin-bottom: 32px; color: var(--body); }
+.data-reliability-header { display: flex; justify-content: space-between; gap: 24px; align-items: start; }
+.data-reliability-header h2 { font-size: 21px; margin-bottom: 8px; }
+.data-reliability-header p, .data-reliability-explanation, .data-reliability-footer { font-size: 13px; line-height: 1.6; }
+.data-reliability-month { display: grid; gap: 6px; flex-shrink: 0; font-size: 12px; }
+.data-reliability-overview { display: flex; flex-wrap: wrap; gap: 16px 32px; margin: 24px 0 12px; font-size: 13px; }
+.data-reliability-overview strong { color: var(--ink); font-size: 18px; font-variant-numeric: tabular-nums; }
+.data-reliability-accounts { margin-top: 20px; }
+.data-reliability-account { border-top: 1px solid var(--line); }
+.data-reliability-account > summary { display: flex; align-items: center; gap: 16px; cursor: pointer; padding: 18px 0; list-style: none; }
+.data-reliability-account > summary::-webkit-details-marker { display: none; }
+.data-reliability-account-name { font-weight: 600; overflow-wrap: anywhere; }
+.data-reliability-state { margin-left: auto; font-size: 12px; text-align: right; }
+.data-reliability-state-review { font-weight: 600; }
+.data-reliability-expand { color: var(--accent); flex-shrink: 0; }
+.data-reliability-account[open] .data-reliability-expand { transform: rotate(180deg); }
+.data-reliability-account-body { padding: 0 0 24px; }
+.data-reliability-account-body h3 { font-size: 14px; margin: 20px 0 10px; }
+.data-reliability-dates { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 20px; font-size: 13px; }
+.data-reliability-dates dt { font-size: 12px; margin-bottom: 4px; }
+.data-reliability-dates dd { margin: 0; color: var(--ink); }
+.data-reliability-gaps { padding-left: 20px; font-size: 13px; margin-bottom: 8px; }
+.data-reliability-gaps li { margin: 6px 0; }
+.data-reliability-statements { list-style: none; padding: 0; margin-bottom: 16px; }
+.data-reliability-statements li { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.data-reliability-statements strong, .data-reliability-statements div > span { display: block; overflow-wrap: anywhere; }
+.data-reliability-statements strong { color: var(--ink); font-weight: 550; margin-bottom: 4px; }
+.data-reliability-statements div { min-width: 0; }
+.data-reliability-statements li > span { flex-shrink: 0; max-width: 45%; }
+.data-reliability-footer { display: flex; align-items: center; gap: 24px; margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.data-reliability-footer p { flex: 1; }
+.data-reliability-footer button { flex-shrink: 0; }
+.data-reliability summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+.statements-table-scroll { overflow-x: auto; }
+.statements-table-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.statements-table-header h2 { font-size: 20px; }
+@media (max-width: 640px) {
+ .data-reliability { padding: 20px 16px; }
+ .data-reliability-header, .data-reliability-footer { flex-direction: column; gap: 16px; }
+ .data-reliability-dates { grid-template-columns: 1fr; gap: 12px; }
+ .data-reliability-account > summary { flex-wrap: wrap; gap: 8px; }
+ .data-reliability-account-name { flex-basis: calc(100% - 24px); }
+ .data-reliability-state { margin-left: 0; text-align: left; }
+ .data-reliability-expand { margin-left: auto; }
+ .data-reliability-statements li { flex-direction: column; gap: 8px; }
+ .data-reliability-statements li > span { max-width: 100%; }
+}

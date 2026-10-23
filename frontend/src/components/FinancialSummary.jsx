@@ -7,7 +7,7 @@ const dateLabel = value => value ? new Date(value.slice(0, 10) + 'T12:00:00').to
 const periodLabel = month => new Date(`${month}-01T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
 const amount = value => Number.isFinite(value) ? eur(value) : 'Indisponible'
 
-export function FinancialSummary({ selectedMonth }) {
+export function FinancialSummary({ selectedMonth, onInspectCoverage }) {
   const [response, setResponse] = useState(null)
   const titleId = useId()
   useEffect(() => {
@@ -57,6 +57,7 @@ export function FinancialSummary({ selectedMonth }) {
         {h.coverage?.last_import && <span>Dernier import le <time dateTime={h.coverage.last_import}>{dateLabel(h.coverage.last_import)}</time></span>}
         {h.coverage?.stale && <span>Un relevé récent manque peut-être.</span>}
         {!model.current && !model.complete && <span>Les données disponibles ne permettent pas de conclure un bilan mensuel définitif.</span>}
+        {onInspectCoverage && <button className="link" onClick={onInspectCoverage}>Examiner la fiabilité des données →</button>}
       </footer>
     </section>
   )
