@@ -267,7 +267,8 @@ COOKIE_SECURE=false
 
 # IA
 AI_PROVIDER=ollama|anthropic|mistral|freellm|none
-OLLAMA_URL=http://ollama:11434/v1
+OLLAMA_URL=http://ollama:11434/v1   # Variable legacy - préférer REMOTE_OLLAMA_BASE_URL
+REMOTE_OLLAMA_BASE_URL=   # URL Ollama distante (Mac hôte), vide = conteneur local (profile local-ai)
 OLLAMA_MODEL=qwen2.5:14b
 ANTHROPIC_API_KEY=xxx
 MISTRAL_API_KEY=xxx
@@ -288,6 +289,8 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_IMAGE=ollama/ollama:latest
 OLLAMA_PORT=11434
 ```
+
+> **docker-compose.yml** : `REMOTE_OLLAMA_BASE_URL` est la variable clé pour pointer Ollama distant (Mac hôte). Le profile `local-ai` est découplé pour `knowledge-graph`/`falkordb`. Cohérence maintenue entre `docker-compose.yml` et `compose-supabase/docker-compose.yml`.
 
 ---
 
