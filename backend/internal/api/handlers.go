@@ -18,15 +18,17 @@ import (
 	"themis/internal/ai"
 	"themis/internal/categorize"
 	"themis/internal/config"
+	"themis/internal/memory"
 	"themis/internal/models"
 	"themis/internal/normalize"
 	"themis/internal/parser"
 )
 
 type Server struct {
-	DB  *sql.DB
-	Cfg config.Config
-	ai  aiState // config + client IA actifs (modifiables à chaud via l'admin)
+	DB      *sql.DB
+	Cfg     config.Config
+	ai      aiState             // config + client IA actifs (modifiables à chaud via l'admin)
+	Memory  *memory.Client      // knowledge graph client (Graphiti)
 }
 
 func (s *Server) Router() http.Handler {
@@ -57,6 +59,8 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/intel/narrative", s.intelNarrative)
 	mux.HandleFunc("GET /api/hero", s.hero)
 	mux.HandleFunc("GET /api/coherence", s.coherence)
+	mux.HandleFunc("GET /api/period", s.periodHandler)
+	mux.HandleFunc("GET /api/period/compare", s.periodCompareHandler)
 	mux.HandleFunc("GET /api/merchants/unrecognized", s.unrecognizedMerchants)
 	mux.HandleFunc("GET /api/merchants/aliases", s.listAliases)
 	mux.HandleFunc("POST /api/merchants/aliases", s.setAlias)
@@ -82,6 +86,10 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/analyses/{month}", s.getAnalysis)
 	mux.HandleFunc("POST /api/analyses/{month}", s.createAnalysis)
 	mux.HandleFunc("POST /api/chat", s.chatHandler)
+
+	// Knowledge Graph
+	mux.HandleFunc("GET /api/knowledge/health", s.kgHealth)
+	mux.HandleFunc("POST /api/knowledge/learn", s.kgLearn)
 
 	// Authentification
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
@@ -165,6 +173,46 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 		"ai_provider": aiProvider,
 		"ocr":         ocrOK,
 		"ocr_detail":  ocrDetail,
+	})
+}
+
+// ---------- Knowledge Graph ----------
+
+func (s *Server) kgHealth(w http.ResponseWriter, r *http.Request) {
+	if s.getMemory() == nil || !s.getMemory().IsReady(r.Context()) {
+		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("service knowledge graph indisponible"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) kgLearn(w http.ResponseWriter, r *http.Request) {
+	if s.getMemory() == nil || !s.getMemory().IsReady(r.Context()) {
+		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("service knowledge graph indisponible"))
+		return
+	}
+	var in struct {
+		Facts []string `json:"facts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("corps JSON invalide"))
+		return
+	}
+	if len(in.Facts) == 0 {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("au moins un fait requis"))
+		return
+	}
+	owner := s.ownerID(r)
+	groupID := fmt.Sprint(owner)
+	entities, edges, err := s.getMemory().Learn(r.Context(), groupID, "transaction_import", in.Facts)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"group_id":      groupID,
+		"entities_added": entities,
+		"edges_added":    edges,
 	})
 }
 
@@ -264,6 +312,18 @@ func (s *Server) uploadStatement(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setUploadProgress(progressToken, ownerForProgress, "Terminé", "", 100, true)
+
+	// Apprendre les habitudes financières dans le graphe de connaissances.
+	// Non bloquant : une erreur KG n'empêche pas l'import.
+	if s.getMemory() != nil && s.getMemory().IsReady(r.Context()) && inserted > 0 {
+		go func() {
+			facts := memory.BuildFinancialFacts(res, owner)
+			if len(facts) > 0 {
+				_, _, _ = s.getMemory().Learn(context.Background(), fmt.Sprint(owner), "transaction_import", facts)
+			}
+		}()
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"statement_id":   stmtID,
 		"parser":         res.Parser,
@@ -724,17 +784,27 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 
 // summary retourne les séries mensuelles (revenus/dépenses) et la répartition
 // par catégorie pour chaque mois des N derniers mois (défaut 12).
+// Inclut maintenant les infos de période (mois courant, complet, incomplet).
+// Le paramètre 'month' (YYYY-MM) limite la série aux mois jusqu'à ce mois.
 func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
 	months := 12
 	if m, err := strconv.Atoi(r.URL.Query().Get("months")); err == nil && m > 0 && m <= 60 {
 		months = m
 	}
+	// Limiter la série aux mois jusqu'au mois sélectionné (pour éviter d'afficher
+	// des mois futurs lorsque l'utilisateur navigue vers un mois historique).
+	maxMonth := r.URL.Query().Get("month")
 
 	type monthly struct {
-		Month    string  `json:"month"`
-		Income   float64 `json:"income"`
-		Expenses float64 `json:"expenses"`
+		Month         string  `json:"month"`
+		Income        float64 `json:"income"`
+		Expenses      float64 `json:"expenses"`
+		IsCurrent     bool    `json:"is_current"`
+		Status        string  `json:"status"`         // current | complete | incomplete
+		DaysObserved  int     `json:"days_observed"`
+		DaysInMonth   int     `json:"days_in_month"`
+		CoverageRatio float64 `json:"coverage_ratio"`
 	}
 	series := []monthly{}
 	rows, err := s.DB.Query(`
@@ -755,12 +825,30 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
+		info, _ := s.getPeriodInfo(owner, m.Month)
+		m.IsCurrent = info.IsCurrent
+		m.Status = info.Status
+		m.DaysObserved = info.DaysObserved
+		m.DaysInMonth = info.DaysInMonth
+		m.CoverageRatio = info.CoverageRatio
 		series = append(series, m)
 	}
 	rows.Close()
 	// remettre en ordre chronologique
 	for i, j := 0, len(series)-1; i < j; i, j = i+1, j-1 {
 		series[i], series[j] = series[j], series[i]
+	}
+
+	// Si un mois est sélectionné, filtrer la série pour ne pas dépasser ce mois
+	// (utile pour les graphiques historiques : on ne veut pas montrer de mois futurs).
+	if maxMonth != "" {
+		filtered := []monthly{}
+		for _, s := range series {
+			if s.Month <= maxMonth {
+				filtered = append(filtered, s)
+			}
+		}
+		series = filtered
 	}
 
 	type catAgg struct {

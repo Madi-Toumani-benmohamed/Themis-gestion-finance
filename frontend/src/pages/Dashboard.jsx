@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { api, eur, kindIcon } from '../api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { api, eur, kindIcon, monthLabel } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
 import { Reveal } from '../Reveal'
 import { Logo } from '../Logo'
@@ -26,9 +26,99 @@ const TONE_LABEL = {
   alert: 'Demande une action',
 }
 
-function Hero() {
+// Sélecteur de mois navigable dans le dashboard.
+// Permet de consulter le mois précédent/suivant, de sélectionner directement
+// un mois et une année, et de revenir rapidement au mois en cours.
+function MonthSelector({ selectedMonth, onMonthChange }) {
+  const now = new Date()
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const isCurrent = selectedMonth === currentMonth
+
+  // Liste des mois disponibles (sur les 24 derniers mois)
+  const availableMonths = useMemo(() => {
+    const months = []
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      months.push({
+        value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        label: monthLabel(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`),
+      })
+    }
+    return months
+  }, [])
+
+  const goToPrev = () => {
+    const [y, m] = selectedMonth.split('-').map(Number)
+    const prev = new Date(y, m - 1, 1)
+    onMonthChange(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`)
+  }
+
+  const goToNext = () => {
+    const [y, m] = selectedMonth.split('-').map(Number)
+    // On ne permet pas de naviguer vers un mois futur
+    if (selectedMonth >= currentMonth) return
+    const next = new Date(y, m, 1)
+    const nextStr = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`
+    if (nextStr <= currentMonth) {
+      onMonthChange(nextStr)
+    }
+  }
+
+  const goToCurrent = () => onMonthChange(currentMonth)
+
+  return (
+    <div className="month-selector">
+      <button
+        className="month-nav-btn"
+        onClick={goToPrev}
+        disabled={!selectedMonth}
+        title="Mois précédent"
+        aria-label="Mois précédent"
+      >
+        ‹
+      </button>
+
+      <div className="month-selector-content">
+        <select
+          className="month-selector-select"
+          value={selectedMonth}
+          onChange={(e) => onMonthChange(e.target.value)}
+          title="Sélectionner un mois"
+          aria-label="Sélectionner un mois"
+        >
+          {availableMonths.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        className="month-nav-btn"
+        onClick={goToNext}
+        disabled={selectedMonth >= currentMonth}
+        title="Mois suivant"
+        aria-label="Mois suivant"
+      >
+        ›
+      </button>
+
+      <button
+        className={`month-now-btn ${isCurrent ? 'active' : ''}`}
+        onClick={goToCurrent}
+        title="Retour au mois en cours"
+        aria-label="Retour au mois en cours"
+      >
+        {isCurrent ? '●' : '○'}
+      </button>
+    </div>
+  )
+}
+
+function Hero({ selectedMonth }) {
   const [h, setH] = useState(null)
-  useEffect(() => { api.hero().then(setH).catch(() => setH({ available: false })) }, [])
+  useEffect(() => { api.hero(selectedMonth).then(setH).catch(() => setH({ available: false })) }, [selectedMonth])
   if (!h) return null
   if (!h.available) return null
   const fr = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null
@@ -51,6 +141,12 @@ function Hero() {
         </ul>
       )}
       <div className="hero-meta">
+        {h.period && h.period.is_current && (
+          <span className="hero-period-badge">Mois en cours — données jusqu'au {h.period.days_observed}/{h.period.days_in_month}</span>
+        )}
+        {h.period && h.period.status === 'incomplete' && (
+          <span className="hero-period-badge hero-period-incomplete">Mois incomplet — {h.period.days_observed}/{h.period.days_in_month} jours</span>
+        )}
         {h.coverage?.last_tx && <span>Données jusqu'au <strong>{fr(h.coverage.last_tx)}</strong></span>}
         {h.coverage?.last_import && <span className="coverage-sep">·</span>}
         {h.coverage?.last_import && <span>dernier import le {fr(h.coverage.last_import)}</span>}
@@ -61,39 +157,60 @@ function Hero() {
 }
 
 // Indicateurs clés : les quatre chiffres essentiels du mois de référence.
-function KpiRow() {
+function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
   useEffect(() => {
-    Promise.all([api.summary(2), api.remaining().catch(() => null)]).then(([s2, rav]) => {
+    Promise.all([api.summary(2, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
       const m = s2.monthly?.at(-1)
       if (!m) return setKpi(null)
       const prev = s2.monthly?.at(-2)
+
+      // Ne pas calculer de delta si le mois courant est incomplet
+      // ou si le mois précédent est incomplet.
+      const isCurrent = m.is_current || m.status === 'current'
+      const prevIncomplete = prev && (prev.status === 'incomplete' || prev.is_current)
+
       const deltaPct = (cur, was) => {
         if (was == null || was === 0) return null
         return Math.round(((cur - was) / Math.abs(was)) * 100)
       }
       setKpi({
         income: m.income, spent: m.expenses, net: m.income - m.expenses,
+        isCurrent,
+        periodStatus: m.status,
+        daysObserved: m.days_observed,
+        daysInMonth: m.days_in_month,
+        coverageRatio: m.coverage_ratio,
         rav: rav && rav.available ? rav.remaining : null,
-        spentDelta: prev ? deltaPct(m.expenses, prev.expenses) : null,
-        incomeDelta: prev ? deltaPct(m.income, prev.income) : null,
+        spentDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.expenses, prev.expenses) : null,
+        incomeDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.income, prev.income) : null,
       })
     }).catch(() => setKpi(null))
-  }, [])
+  }, [selectedMonth])
   if (!kpi) return null
+
   const delta = (d) => d == null ? null : (
     <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
   )
-  const cell = (label, value, tone, deltaEl) => (
+
+  const cell = (label, value, tone, deltaEl, subLabel) => (
     <div className={`kpi ${tone || ''}`}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{eur(value)}</div>
       {deltaEl}
+      {subLabel}
     </div>
   )
+
+  const periodBadge = kpi.isCurrent ? (
+    <span className="kpi-period-badge">Mois en cours — {kpi.daysObserved}/{kpi.daysInMonth} jours</span>
+  ) : kpi.periodStatus === 'incomplete' ? (
+    <span className="kpi-period-badge kpi-period-incomplete">Incomplet — {kpi.daysObserved}/{kpi.daysInMonth} jours</span>
+  ) : null
+
   return (
     <div className="kpi-row">
-      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta))}
+      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
       {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
       {cell('Épargne du mois', kpi.net, kpi.net >= 0 ? 'kpi-pos' : 'kpi-neg')}
       {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
@@ -101,9 +218,9 @@ function KpiRow() {
   )
 }
 
-function Journal({ onNavigate }) {
+function Journal({ onNavigate, selectedMonth }) {
   const [events, setEvents] = useState(null)
-  useEffect(() => { api.journal().then((d) => setEvents(d.events || [])).catch(() => setEvents([])) }, [])
+  useEffect(() => { api.journal(selectedMonth).then((d) => setEvents(d.events || [])).catch(() => setEvents([])) }, [selectedMonth])
   if (!events || events.length === 0) return null
 
   const icon = { positive: '✓', attention: '⚠', neutral: '·' }
@@ -165,6 +282,10 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
   const [layout, setLayout] = useState(null)
   const [editing, setEditing] = useState(false)
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
 
   useEffect(() => {
     api.summary(24).then(setData).catch((e) => setErr(e.message))
@@ -216,9 +337,10 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
     <div className="section">
       {err && <div className="notice err">{err}</div>}
 
-      <Hero />
-      <Reveal delay={80}><KpiRow /></Reveal>
-      <Reveal delay={160}><Journal onNavigate={onNavigate} /></Reveal>
+      <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+      <Hero selectedMonth={selectedMonth} />
+      <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
+      <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
 
       <div className="dash-toolbar">
         <span className="muted" style={{ fontSize: 13 }}>
@@ -260,7 +382,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
                   </div>
                 )}
               </div>
-              <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} onNavigate={onNavigate} />
+              <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} onNavigate={onNavigate} selectedMonth={selectedMonth} />
             </div>
           )
         })}
