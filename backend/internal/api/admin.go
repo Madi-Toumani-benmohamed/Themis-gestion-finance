@@ -21,20 +21,22 @@ import (
 // AIConfig est la configuration IA effective, modifiable depuis la page
 // d'admin sans redémarrage. Persistée dans settings (clé "ai_config").
 type AIConfig struct {
-	Provider       string `json:"provider"` // "none" | "ollama" | "anthropic" | "mistral" | "freellm"
+	OpenAIKey      string `json:"openai_key,omitempty"`
+	OpenAIModel    string `json:"openai_model"`
+	Provider       string `json:"provider"` // "none" | "ollama" | "anthropic" | "mistral" | "freellm" | "openai"
 	OllamaURL      string `json:"ollama_url"`
 	OllamaModel    string `json:"ollama_model"`
 	AnthropicModel string `json:"anthropic_model"`
 	// AnthropicKey vide = utiliser ANTHROPIC_API_KEY de l'environnement.
 	// Jamais renvoyée en clair par l'API (masquée).
-	AnthropicKey   string `json:"anthropic_key,omitempty"`
+	AnthropicKey string `json:"anthropic_key,omitempty"`
 	// Mistral AI
 	MistralKey   string `json:"mistral_key,omitempty"`
 	MistralModel string `json:"mistral_model"`
 	// FreeLLM
-	FreeLLMKey   string `json:"freellm_key,omitempty"`
-	FreeLLMURL   string `json:"freellm_url"`
-	FreeLLMModel string `json:"freellm_model"`
+	FreeLLMKey     string `json:"freellm_key,omitempty"`
+	FreeLLMURL     string `json:"freellm_url"`
+	FreeLLMModel   string `json:"freellm_model"`
 	AutoCategorize bool   `json:"auto_categorize"`
 	// Context : instructions libres fournies par l'utilisateur pour éclairer les
 	// commentaires de l'IA (ex. « mon loyer est trimestriel », « le virement à
@@ -46,6 +48,7 @@ type AIConfig struct {
 func aiConfigFromEnv(cfg config.Config) AIConfig {
 	return AIConfig{
 		Provider:       cfg.AIProvider,
+		OpenAIModel:    cfg.OpenAIModel,
 		OllamaURL:      cfg.OllamaURL,
 		OllamaModel:    cfg.OllamaModel,
 		AnthropicModel: cfg.AnthropicModel,
@@ -61,6 +64,16 @@ func aiConfigFromEnv(cfg config.Config) AIConfig {
 // buildClient construit le client LLM correspondant à la config.
 func (s *Server) buildClient(c AIConfig) llm.Client {
 	switch c.Provider {
+	case "openai":
+		c = s.withOpenAIDefaults(c)
+		key := c.OpenAIKey
+		if key == "" {
+			key = s.Cfg.OpenAIKey
+		}
+		if key == "" {
+			return nil
+		}
+		return &llm.OpenAI{APIKey: key, Model: c.OpenAIModel}
 	case "ollama":
 		if c.OllamaURL == "" {
 			return nil
@@ -100,6 +113,23 @@ func (s *Server) buildClient(c AIConfig) llm.Client {
 	default:
 		return nil
 	}
+}
+
+// withOpenAIDefaults conserve le secret lors d'un enregistrement ou test
+// avec champ masqué vide. Le repli environnement reste dans buildClient.
+func (s *Server) withOpenAIDefaults(c AIConfig) AIConfig {
+	c.OpenAIKey = strings.TrimSpace(c.OpenAIKey)
+	c.OpenAIModel = strings.TrimSpace(c.OpenAIModel)
+	if c.OpenAIKey == "" {
+		c.OpenAIKey = s.getAIConfig().OpenAIKey
+	}
+	if c.OpenAIModel == "" {
+		c.OpenAIModel = s.Cfg.OpenAIModel
+	}
+	if c.OpenAIModel == "" {
+		c.OpenAIModel = llm.DefaultOpenAIModel
+	}
+	return c
 }
 
 // aiState protège la config et le client actifs.
@@ -142,6 +172,9 @@ func (s *Server) autoCategorizeEnabled() bool {
 
 // ApplyAIConfig active une configuration (client reconstruit) sans la persister.
 func (s *Server) ApplyAIConfig(c AIConfig) {
+	if c.Provider == "openai" {
+		c = s.withOpenAIDefaults(c)
+	}
 	client := s.buildClient(c)
 	s.ai.mu.Lock()
 	s.ai.config = c
@@ -184,6 +217,8 @@ func (s *Server) maskedConfig() map[string]any {
 	}
 	return map[string]any{
 		"provider":          c.Provider,
+		"openai_model":      c.OpenAIModel,
+		"openai_key_set":    c.OpenAIKey != "" || s.Cfg.OpenAIKey != "",
 		"ollama_url":        c.OllamaURL,
 		"ollama_model":      c.OllamaModel,
 		"anthropic_model":   c.AnthropicModel,
@@ -209,10 +244,15 @@ func (s *Server) adminPutConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("corps JSON invalide"))
 		return
 	}
+	in = s.withOpenAIDefaults(in)
 	switch in.Provider {
-	case "none", "ollama", "anthropic", "mistral", "freellm":
+	case "none", "ollama", "anthropic", "mistral", "freellm", "openai":
 	default:
-		writeErr(w, http.StatusBadRequest, fmt.Errorf(`provider doit être "none", "ollama", "anthropic", "mistral" ou "freellm"`))
+		writeErr(w, http.StatusBadRequest, fmt.Errorf(`provider doit être "none", "ollama", "anthropic", "mistral", "freellm" ou "openai"`))
+		return
+	}
+	if in.Provider == "openai" && in.OpenAIKey == "" && s.Cfg.OpenAIKey == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("openai_key requis"))
 		return
 	}
 	if in.Provider == "ollama" && in.OllamaURL == "" {
@@ -273,6 +313,7 @@ func (s *Server) adminTestAI(w http.ResponseWriter, r *http.Request) {
 		if in.AnthropicKey == "" {
 			in.AnthropicKey = s.getAIConfig().AnthropicKey
 		}
+		in = s.withOpenAIDefaults(in)
 		client = s.buildClient(in)
 	}
 	if client == nil {
@@ -290,8 +331,12 @@ func (s *Server) adminTestAI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": client.Name(), "detail": "instance joignable, modèle présent"})
 		return
 	}
-	// Anthropic : mini-complétion (coût négligeable)
-	if _, err := client.Complete(ctx, "Réponds uniquement OK.", "ping", 4, false); err != nil {
+	// Test synthétique uniquement ; aucun flux bancaire envoyé.
+	maxTokens := 4
+	if _, ok := client.(*llm.OpenAI); ok {
+		maxTokens = 256
+	}
+	if _, err := client.Complete(ctx, "Réponds uniquement OK.", "ping", maxTokens, false); err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "provider": client.Name(), "detail": err.Error()})
 		return
 	}

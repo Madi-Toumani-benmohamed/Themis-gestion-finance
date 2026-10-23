@@ -144,7 +144,8 @@ Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé di
 | `DATABASE_URL` | Connexion utilisée par le backend. |
 | `REMOTE_OLLAMA_BASE_URL` | URL Ollama utilisée par Compose pour l’application et la mémoire. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Instance et modèle Ollama du backend ; modèle par défaut `qwen2.5:14b`. |
-| `AI_PROVIDER` | Fournisseur du backend : `none`, `ollama`, `mistral`, `freellm` ou `anthropic`. |
+| `AI_PROVIDER` | Fournisseur du backend : `none`, `ollama`, `mistral`, `freellm`, `anthropic` ou `openai`. |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Clé et modèle OpenAI (défaut `gpt-4.1-mini`), relayés par les deux configurations Compose. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Configuration Anthropic. |
 | `MISTRAL_API_KEY`, `MISTRAL_MODEL` | Configuration Mistral. |
 | `FREELLM_API_KEY`, `FREELLM_URL`, `FREELLM_MODEL` | Fournisseur compatible OpenAI FreeLLM. |
@@ -152,9 +153,13 @@ Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé di
 | `MEMORY_ENABLED`, `MEMORY_SERVICE_URL` | Activation et adresse du service mémoire pour le backend. |
 | `COOKIE_SECURE` | Activer avec `true` lorsque l’application est servie en HTTPS. |
 
-Sans `AI_PROVIDER` explicite, le backend choisit Ollama si une URL est définie, puis Mistral, FreeLLM ou Anthropic selon les clés présentes, sinon `none`.
+Sans `AI_PROVIDER` explicite, le backend choisit Ollama si une URL est définie, puis Mistral, FreeLLM, Anthropic ou OpenAI selon les clés présentes, sinon `none`.
 
 **Toutes les variables du backend ne sont pas relayées par le Compose principal.** Pour ajouter `COOKIE_SECURE`, `AI_PROVIDER` ou d’autres options, les déclarer dans `services.app.environment`, par exemple dans une surcharge Compose. Le Compose principal fixe actuellement `MEMORY_ENABLED=true` et l’adresse interne du service mémoire ; les placer seulement dans `.env` ne change pas ces valeurs.
+
+Dans **Admin → Fournisseur d’IA**, l’option **OpenAI (cloud)** permet de saisir une clé API et un identifiant de modèle compatible avec l’API Responses. Le bouton de test envoie uniquement une requête synthétique (avec consommation de jetons). Laisser le champ de clé vide conserve la clé enregistrée ; l’API ne renvoie que son indicateur de présence. Aucune clé n’est nécessaire pour les tests automatisés, qui utilisent un serveur HTTP simulé.
+
+Le client utilise `store: false` pour ne pas demander la conservation des réponses dans l’API Responses. Cela ne remplace pas les politiques de traitement des données du fournisseur ; les données nécessaires au parsing, à la catégorisation ou à l’assistant sont transmises à OpenAI lorsque ce fournisseur est choisi. Référence : [documentation officielle OpenAI](https://developers.openai.com/api/docs/guides/text).
 
 La page **Admin** permet de configurer et tester l’IA à chaud. La configuration persistée en base prime sur les variables d’environnement aux démarrages suivants.
 
