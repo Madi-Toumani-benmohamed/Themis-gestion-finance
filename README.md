@@ -46,7 +46,7 @@ La stack Compose principale comprend `app`, `db`, `knowledge-graph` et `falkordb
 | Partie | Technologies |
 | --- | --- |
 | Backend | Go 1.22 minimum ; build Docker et CI en Go 1.23 ; HTTP standard, `lib/pq`, migrations SQL embarquées |
-| Frontend | React 18, Vite 5, Recharts ; build Docker et CI avec Node.js 22 |
+| Frontend | React 18, Vite 8, Recharts ; build Docker et CI avec Node.js 22 |
 | Base | PostgreSQL |
 | Mémoire | Python 3.12, FastAPI, Graphiti, FalkorDB |
 | OCR | Poppler et Tesseract français, inclus dans l’image runtime Debian |

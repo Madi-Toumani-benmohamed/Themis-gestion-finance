@@ -417,3 +417,8 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `/api/hero` expose les calculs existants `income`, `expenses`, `net` et `period_complete`. `hero_diagnosis.go` vérifie une couverture continue par relevés validés pour tous les comptes connus, indépendamment du statut approximatif de `period.go`. En absence de preuve : bilan incomplet.
 - Diagnostic provisoire indépendant du signe des flux et sans hypothèse de salaire. Alertes réelles conservées ; comparaisons limitées aux trois mois précédents documentés ; signaux récurrents limités au mois de leur dernière opération.
 - Tests : `hero_diagnosis_test.go` (cycle de salaire, alertes, intervalles de relevés), tests Node de présentation.
+
+### Dépendances frontend — sécurité (2026-10-23)
+
+- Vite 8.3.4 et `@vitejs/plugin-react` 6.1.2 : mise à niveau conjointe pour respecter les peer dependencies. Build avec Node.js 22 (Docker et CI).
+- Correctifs PostCSS, Browserslist et baseline-browser-mapping intégrés via Dependabot.
