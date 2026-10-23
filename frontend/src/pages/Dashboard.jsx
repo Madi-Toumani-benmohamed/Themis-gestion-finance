@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, eur, kindIcon, monthLabel } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
 import { Reveal } from '../Reveal'
-import { Logo } from '../Logo'
+import { FinancialSummary } from '../components/FinancialSummary'
 
 let uid = 100
 const newId = () => `w${uid++}_${Date.now() % 10000}`
@@ -19,13 +19,6 @@ const newId = () => `w${uid++}_${Date.now() % 10000}`
 // Hero : la conclusion de l'analyse. Un ton global, une phrase de situation,
 // et les faits saillants du mois — calculés depuis les données, pas générés.
 // Tout le reste de la page vient expliquer cette conclusion.
-const TONE_LABEL = {
-  positive: 'Tout va bien',
-  neutral: 'Rien à signaler',
-  attention: 'À surveiller',
-  alert: 'Demande une action',
-}
-
 // Sélecteur de mois navigable dans le dashboard.
 // Permet de consulter le mois précédent/suivant, de sélectionner directement
 // un mois et une année, et de revenir rapidement au mois en cours.
@@ -116,46 +109,6 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
   )
 }
 
-function Hero({ selectedMonth }) {
-  const [h, setH] = useState(null)
-  useEffect(() => { api.hero(selectedMonth).then(setH).catch(() => setH({ available: false })) }, [selectedMonth])
-  if (!h) return null
-  if (!h.available) return null
-  const fr = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null
-  const icon = { positive: '✓', neutral: '·', attention: '△', alert: '✕' }
-  return (
-    <section className={`hero hero-${h.tone}`}>
-      <span className={`hero-balance hero-balance-${h.tone}`} aria-hidden="true">
-        <Logo size={104} />
-      </span>
-      <span className={`hero-tone tone-${h.tone}`}>{TONE_LABEL[h.tone]}</span>
-      <div className="hero-headline">{h.headline}</div>
-      {(h.points ?? []).length > 0 && (
-        <ul className="hero-points">
-          {h.points.map((p, i) => (
-            <li key={i} className={`hero-point tone-${p.tone}`} style={{ '--n': i }}>
-              <span className="hero-point-icon" aria-hidden="true">{icon[p.tone] || '·'}</span>
-              {p.text}
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="hero-meta">
-        {h.period && h.period.is_current && (
-          <span className="hero-period-badge">Mois en cours — données jusqu'au {h.period.days_observed}/{h.period.days_in_month}</span>
-        )}
-        {h.period && h.period.status === 'incomplete' && (
-          <span className="hero-period-badge hero-period-incomplete">Mois incomplet — {h.period.days_observed}/{h.period.days_in_month} jours</span>
-        )}
-        {h.coverage?.last_tx && <span>Données jusqu'au <strong>{fr(h.coverage.last_tx)}</strong></span>}
-        {h.coverage?.last_import && <span className="coverage-sep">·</span>}
-        {h.coverage?.last_import && <span>dernier import le {fr(h.coverage.last_import)}</span>}
-        {h.coverage?.stale && <span className="hero-stale">— un relevé récent manque peut-être</span>}
-      </div>
-    </section>
-  )
-}
-
 // Indicateurs clés : les quatre chiffres essentiels du mois de référence.
 function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
@@ -212,7 +165,7 @@ function KpiRow({ selectedMonth }) {
     <div className="kpi-row">
       {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
       {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
-      {cell('Épargne du mois', kpi.net, kpi.net >= 0 ? 'kpi-pos' : 'kpi-neg')}
+      {cell('Résultat des flux enregistrés', kpi.net, '')}
       {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
     </div>
   )
@@ -338,7 +291,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
       {err && <div className="notice err">{err}</div>}
 
       <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
-      <Hero selectedMonth={selectedMonth} />
+      <FinancialSummary selectedMonth={selectedMonth} />
       <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
       <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
 
