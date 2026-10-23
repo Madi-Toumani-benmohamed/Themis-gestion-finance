@@ -113,7 +113,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate main Compose configuration
-        run: docker compose -f docker-compose.yml --env-file example.env config --quiet
+        run: docker compose -f docker-compose.yml --env-file example.env  --profile local-ai config --quiet
 
       - name: Validate Supabase Compose configuration
-        run: docker compose -f compose-supabase/docker-compose.yml --env-file example.env config --quiet
+        run: docker compose -f compose-supabase/docker-compose.yml --env-file example.env  --profile local-ai config --quiet
