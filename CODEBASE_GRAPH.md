@@ -436,3 +436,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `.github/workflows/ci.yml` exécute les tests Node `src/components/*.test.mjs` avant le build frontend.
 - Le contrôle syntaxique Python (`compileall`) ne nécessite pas l’installation de Graphiti et de ses dépendances ; il ne valide pas les imports ni le comportement du service.
 - Le build de l’image applicative attend backend, frontend, mémoire et Compose. Buildx utilise le cache GitHub Actions `themis-app` en mode `min`, sans publication d’image ; une erreur d’export de cache ne masque pas une erreur de build.
+
+### Centre de fiabilité des données
+
+- `GET /api/reliability?month=YYYY-MM` (`reliability.go`) : couverture par compte, intervalles sans preuve documentaire, relevés non validés ou de période inconnue, dernière transaction sur la période et dernier import toutes périodes. Requêtes limitées au propriétaire authentifié. Aucun montant bancaire exposé.
+- Le mois courant est examiné du 1er à aujourd’hui ; un mois historique est examiné jusqu’à sa fin. Pas de mois futur. Les périodes inconnues sont signalées sans leur attribuer arbitrairement un mois.
+- `uncoveredStatementDates` est partagé avec `heroSpansCover` : continuité des relevés validés, y compris cycles clôturés le 21. Pas de nouveau calcul financier ou de migration.
+- `DataReliability.jsx` dans Relevés : choix du mois, détails par compte, bouton pour filtrer les relevés concernés et accès à l’import existant. Lien depuis le pied de FinancialSummary transmettant le mois du dashboard.
+- Tests Go des intervalles/statuts et test PostgreSQL optionnel `TestReliabilityPostgres` (`THEMIS_TEST_DATABASE_URL`, tables temporaires), tests Node `dataReliabilityModel.test.mjs`.
