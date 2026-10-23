@@ -414,27 +414,45 @@ export function KpiWidget({ data, selectedMonth }) {
 /* ------------------------------------------------------------------ */
 /* Widget : top dépenses du mois sélectionné                           */
 /* ------------------------------------------------------------------ */
-export function TopWidget({ config, selectedMonth }) {
+export function TopWidget({ config, selectedMonth, data }) {
   const [rows, setRows] = useState(null)
   const [periodInfo, setPeriodInfo] = useState(null)
   useEffect(() => {
+    let cancelled = false
     // Les transferts internes (virements entre comptes personnels) ne sont
     // pas des dépenses : on les exclut du top.
-    const month = selectedMonth || undefined
-    Promise.all([api.summary(1, month), api.categories()]).then(([d, cats]) => {
-      const cur = month ? d.monthly?.find((m) => m.month === month) : d.monthly?.at(-1)
-      if (!cur) return setRows([])
+    const now = new Date()
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const monthToUse = selectedMonth || data?.monthly?.at(-1)?.month || currentMonthStr
+
+    const cur = data?.monthly?.find((m) => m.month === monthToUse) || data?.monthly?.at(-1)
+    if (!cur) {
+      if (!cancelled) {
+        setRows([])
+        setPeriodInfo(null)
+      }
+      return
+    }
+    if (!cancelled) {
       setPeriodInfo({ isCurrent: cur.is_current || cur.status === 'current', incomplete: cur.status === 'incomplete' })
-      const txMonth = cur.month
-      if (!txMonth) return setRows([])
+    }
+
+    api.categories().then((cats) => {
+      if (cancelled) return
       const transferIds = new Set((cats || []).filter((c) => c.is_transfer).map((c) => c.id))
-      api.transactions({ month: txMonth }).then((txs) => {
+      api.transactions({ month: monthToUse }).then((txs) => {
+        if (cancelled) return
         setRows(txs.filter((t) => t.amount < 0 && !transferIds.has(t.domain_id))
           .sort((a, b) => a.amount - b.amount)
           .slice(0, config.count || 5))
+      }).catch(() => {
+        if (!cancelled) setRows([])
       })
-    }).catch(() => setRows([]))
-  }, [config.count, selectedMonth])
+    }).catch(() => {
+      if (!cancelled) setRows([])
+    })
+    return () => { cancelled = true }
+  }, [config.count, selectedMonth, data?.monthly?.length])
   if (rows === null) return <Loading />
   if (rows.length === 0) return <Empty />
   const max = -rows[0].amount
