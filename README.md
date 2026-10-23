@@ -1,490 +1,236 @@
 # thémis.
 
-**Thémis, Titanide de la justice, tient la balance** — ici, celle de tes
-comptes. Gestion de finances personnelles sans saisie : un relevé bancaire
-PDF déposé par mois, et tout le reste est automatique — extraction avec
-validation comptable au centime, catégorisation, tableaux de bord, conseils IA.
+Thémis est une application auto-hébergée de gestion de finances personnelles : import de relevés bancaires PDF et CSV, classement des transactions, budgets, tableaux de bord et assistant IA optionnel.
 
-> Renommage : l'appli s'appelait « solde ». Le module Go, le binaire et les
-> identifiants par défaut de la base sont passés à `themis`. Si tu migres un
-> déploiement existant, garde simplement ton `DATABASE_URL` actuel — le
-> schéma est inchangé.
+## Fonctionnalités
 
-- **Palette de commande (Cmd/Ctrl+K)** — une palette clavier ouvrable partout :
-  navigation entre les pages, actions (importer un relevé), et recherche de
-  transactions en direct. Flèches pour naviguer, Entrée pour ouvrir, Échap pour
-  fermer. L'app devient pilotable entièrement au clavier.
-- **Détection d'anomalies** — un widget « Ça mérite ton attention » remonte
-  spontanément quatre types de signaux : hausse d'abonnement (ex. Netflix
-  13 € → 16 €), dépense inhabituelle pour un marchand, nouveau prélèvement
-  régulier (abonnement récemment souscrit), et abonnement disparu (résiliation
-  ou incident). Règles déterministes, calibrées pour éviter les faux positifs.
-- **Tri en pile** — plutôt que de scanner le tableau, un bouton « Trier en pile »
-  présente les transactions sans domaine une par une, en plein écran, avec les
-  domaines en gros boutons (clic ou touches 1-6 ; → pour passer, Échap pour
-  fermer). On traite quelques cartes au lieu de parcourir des dizaines de lignes.
-- **Pouls du mois** — en tête du tableau de bord, une phrase de synthèse en
-  français répond d'un coup d'œil à « est-ce que tout va bien ? » : ton calme /
-  attention / alerte selon l'écart à tes habitudes, poste en hausse, solde du
-  mois, transactions à ranger. Calcul déterministe (sans IA), et l'app s'abstient
-  de tout jugement tant qu'elle n'a pas au moins deux mois d'historique fiable.
+- **Import PDF et CSV** : extraction du texte, OCR local si nécessaire, déduplication et validation comptable des relevés lorsque les soldes de contrôle sont disponibles. Les CSV restent à vérifier faute de ces soldes.
+- **Classement des transactions** : domaines/catégories, tags multiples, règles automatiques, renommage des marchands et tri en pile. La catégorisation IA complète les règles sans remplacer un classement déjà posé.
+- **Dashboard personnalisable** : navigation mensuelle, synthèse financière, revenus/dépenses, graphiques Recharts, principales dépenses, budgets, récurrences et journal d’événements.
+- **Points d’attention** : dépassements budgétaires, dépenses potentiellement inhabituelles et signaux sur les paiements récurrents, calculés par des règles déterministes.
+- **Analyse et simulation** : évolution des dépenses, croisements catégories/tags, suivi des comptes, crédits et taxes, simulation budgétaire.
+- **Assistant IA** : conversation sur les données financières et service de mémoire Graphiti/FalkorDB pour enrichir le contexte.
+- **Interface** : thèmes clair et sombre, design sobre à accent indigo `#5B5BD6`, polices embarquées, disposition responsive et palette de commande `Ctrl/Cmd+K`.
+- **Multi-utilisateurs** : authentification par session, rôles administrateur/utilisateur et données rattachées à leur propriétaire. Création du premier administrateur au premier lancement.
 
-- **Import CSV** — en plus des relevés PDF, thémis avale les exports CSV de la
-  plupart des banques, avec détection automatique du format : séparateur (`,`
-  `;` ou tabulation), colonnes (date / libellé / montant, ou débit et crédit
-  séparés), format de date (JJ/MM/AAAA, AAAA-MM-JJ, MM/JJ/AAAA) et de montant
-  (virgule ou point décimal, symbole €). Aucun réglage à faire côté utilisateur.
-  Un CSV n'ayant pas de solde de contrôle, il est marqué « à vérifier » plutôt
-  que « validé au centime » comme le PDF.
-- **Icônes de navigation** — chaque onglet du menu porte un pictogramme en trait.
+### Lire la synthèse financière
 
-- **Thème clair / sombre** — bascule via l'icône dans l'en-tête, choix mémorisé
-  d'une session à l'autre. Tout le design system suit automatiquement.
+La synthèse distingue trois contextes :
 
-- **Analyse croisée catégorie × tag** — dans l'onglet Analyse, deux vues :
-  la répartition des dépenses par tag à l'intérieur d'une catégorie (ex.
-  Alimentation → courses / resto / livraison), et l'évolution de tags choisis
-  au fil des mois toutes catégories confondues. La catégorie donne la structure
-  auto-remplie ; le tag donne la finesse optionnelle. En taguant
-  perso/amoureux/famille, on retrouve une lecture « domaines de vie » sans
-  imposer ce classement partout.
+| Période | Présentation |
+| --- | --- |
+| Mois en cours | Solde des flux à date, explicitement provisoire. Un résultat négatif seul ne déclenche pas de diagnostic alarmiste. |
+| Mois historique documenté | Résultat des flux du mois, avec diagnostic et comparaisons lorsque les périodes de référence sont documentées. |
+| Mois historique incomplet | Résultat des flux disponibles et statut « Données incomplètes », sans bilan définitif. |
 
-- **Navigation confortable** — la barre d'outils des transactions (mois, filtres,
-  « Appliquer les règles ») reste collée en haut pendant le défilement, et un
-  bouton « remonter en haut » apparaît sur les longues pages.
+Les revenus de fin de mois ne sont ni estimés ni supposés reçus. Les alertes indépendantes du calendrier de salaire restent visibles.
 
-- **Isolation des données par utilisateur** — chaque compte dispose de son
-  espace totalement cloisonné : transactions, relevés, comptes, catégories,
-  règles, budgets, crédits, tags et analyses lui sont propres. Aucun utilisateur
-  ne voit ni ne peut modifier les données d'un autre, même en ciblant un
-  identifiant directement. Un nouvel utilisateur démarre avec ses propres
-  catégories et un compte courant.
+Le résultat correspond aux **revenus moins les dépenses**, selon les conventions de flux de l’application, avec exclusion des transferts internes. Il ne représente pas le solde bancaire disponible.
 
-- **Transferts internes neutres** — une catégorie « Transfert interne » pour tes
-  virements entre comptes personnels (courant ↔ Livret A). Ces mouvements ne sont
-  ni dépense ni revenu : ils sont exclus de tous les calculs de flux (dépenses,
-  revenus, pouls, journal, budgets), mais restent comptés dans le reste à vivre
-  (l'argent sort réellement du compte courant). Ton épargne se lit au solde du
-  Livret A, pas au flux des virements.
-- **Couleurs de catégories modifiables** — en mode « gérer » dans l'onglet
-  Transactions, clique sur la pastille de couleur d'une catégorie pour choisir
-  la tienne, au lieu de subir l'aléatoire.
-- **Reste à vivre projeté** — un chiffre en tête du tableau de bord : ce qu'il
-  reste sur le compte une fois retirés les prélèvements récurrents encore
-  attendus d'ici la fin du mois. Répond à « combien puis-je dépenser sans
-  mauvaise surprise ? ». Chaque euro retiré correspond à un prélèvement réel
-  identifié (jamais une estimation), et le détail est affiché.
+Pour cette synthèse, la couverture historique exige des intervalles continus de relevés validés pour chaque compte connu. Des relevés successifs clôturés le 21 peuvent ainsi documenter un mois civil ; un trou ou des métadonnées absentes conduisent à une qualification prudente. La dernière transaction et le dernier import sont affichés séparément et ne prouvent pas, à eux seuls, la complétude. Les autres widgets conservent leurs propres règles de période.
 
-- **Journal d'événements** — l'écran d'accueil de thémis. Plutôt qu'un tableau
-  de bord à interpréter, une chronologie de faits marquants : revenu reçu,
-  abonnement en hausse, budget tenu, prélèvement à venir. Chaque événement peut
-  porter une action (créer une règle, voir les transactions). L'app raconte tes
-  finances au lieu de te laisser les déchiffrer.
+## Architecture
 
-## Interface
-
-Design « outil premium » : fond clair épuré, accent indigo unique (#5B5BD6), typographie Inter, surfaces en cartes à ombres douces (aucune bordure dure), rayons harmonisés, micro-interactions rapides. Aucune police externe (Inter et IBM Plex Mono sont empaquetées).
-
-## Fonctionnement
-
-```
-PDF du relevé ──► extraction native ── pas de couche texte ? ──► OCR (pdftoppm + tesseract)
-                       │                                              │
-                       └────────────► parseur local ◄─────────────────┘
-                          (analyse positionnelle des colonnes Débit/Crédit)
-                       │
-                       ├─ validation comptable : solde initial + Σ transactions = solde final
-                       ├─ réconciliation : arbitrage des lectures OCR ambiguës par l'équation comptable
-                       │
-                       └─ si échec ou validation KO ──► fallback API Claude (texte extrait → JSON)
-                                                              │
-                    PostgreSQL ◄── déduplication (hash) ◄─────┘
-                       │
-                       ├──► catégorisation automatique par règles (enrichissables depuis l'UI)
-                       ├──► dashboard React (KPIs, ruban des catégories, évolution 12 mois)
-                       └──► analyse IA mensuelle (agrégats anonymes uniquement)
+```text
+Navigateur → app :8080
+              ├── API Go + frontend React compilé
+              ├── PostgreSQL
+              ├── fournisseur IA configuré (optionnel)
+              └── knowledge-graph :8100 → FalkorDB + Ollama
 ```
 
-## Architecture (une seule image)
+L’application web et l’API sont livrées dans **la même image**, construite avec `backend/Dockerfile` depuis la racine du dépôt. Le backend sert les fichiers statiques et les routes `/api/*` ; aucun nginx séparé n’est nécessaire.
 
-thémis se déploie en **une seule image** : le backend Go sert à la fois l'API
-(`/api/*`) et l'interface web compilée (tout le reste, avec fallback SPA), sur
-le port 8080. Il n'y a **pas de reverse proxy** ni de conteneur nginx séparé.
+La stack Compose principale comprend `app`, `db`, `knowledge-graph` et `falkordb`. Le service `ollama` est activé par le profil `local-ai`. Le graphe de connaissances a besoin d’un serveur Ollama accessible pour ses opérations IA.
 
-> Historique : les toutes premières versions utilisaient deux conteneurs
-> (nginx pour le front + reverse proxy `/api`, et le backend). C'était une
-> source de bugs — il fallait reconstruire les deux images à chaque
-> changement, et une désynchronisation donnait « pas de page de connexion ».
-> L'image unique supprime ce problème : un seul artefact, jamais désynchronisé.
-> Le proxy n'était donc pas nécessaire, c'était un reliquat de l'archi initiale.
+| Partie | Technologies |
+| --- | --- |
+| Backend | Go 1.22 minimum ; build Docker et CI en Go 1.23 ; HTTP standard, `lib/pq`, migrations SQL embarquées |
+| Frontend | React 18, Vite 5, Recharts ; build Docker et CI avec Node.js 22 |
+| Base | PostgreSQL |
+| Mémoire | Python 3.12, FastAPI, Graphiti, FalkorDB |
+| OCR | Poppler et Tesseract français, inclus dans l’image runtime Debian |
 
-Si ton cluster impose un ingress/reverse proxy en amont (TLS, auth), il route
-simplement **tout** vers le service thémis sur :8080 — pas besoin de séparer
-`/api` du reste.
+Le conteneur applicatif s’exécute avec un utilisateur non-root. Les volumes Compose conservent PostgreSQL, FalkorDB et les modèles Ollama.
 
-## Stack
+## Démarrage avec Docker Compose
 
-- **Backend** : Go 1.22+ (stdlib http, `lib/pq`, `ledongthuc/pdf`), migrations SQL embarquées, arrêt propre sur SIGTERM.
-- **Frontend** : React 18 + Vite, Recharts. Servi par nginx, ou par le backend lui-même (copier `frontend/dist` dans `backend/static` pour une image unique).
-- **Base** : PostgreSQL 14+.
-- **IA (optionnelle)** : **Ollama en local** (recommandé pour des données bancaires — rien ne quitte la machine) ou API Anthropic. Fallback de parsing + conseils mensuels. Sans fournisseur, l'appli fonctionne, seules ces deux fonctions sont désactivées.
-
-## Tu ne vois pas les nouveautés / pas de page de connexion ?
-
-C'est presque toujours un **frontend pas reconstruit**. Le front est compilé
-en fichiers statiques : redéployer le backend seul ne le met pas à jour.
-
-Depuis cette version, le **backend sert lui-même l'interface** (image unique,
-UI + API sur le port 8080) — plus aucun risque de désynchronisation :
+Prérequis : Docker avec le plugin Compose et accès aux images configurées.
 
 ```bash
-docker compose build --no-cache app   # reconstruit frontend PUIS backend
-docker compose up -d
-# → http://localhost:8080  (page de connexion au premier lancement)
+cp example.env .env
 ```
 
-Sur ton cluster : reconstruis et pousse l'image `backend/Dockerfile` (son
-contexte de build est la racine du repo), puis force le rollout
-(`kubectl rollout restart deploy/themis`). Vérifie la version servie avec
-`curl https://…/api/auth/status` → doit répondre `{"setup_required":true}`
-tant qu'aucun compte n'est créé.
+Adapter `.env` avant le premier lancement :
 
-## Démarrage rapide (dev)
+- Définir `POSTGRES_USER`, `POSTGRES_PASSWORD` et `POSTGRES_DB`.
+- Choisir une image PostgreSQL disponible : l’exemple référence `themis-db:2.3`, une image personnalisée. Pour une nouvelle installation standard, utiliser par exemple `POSTGRES_IMAGE=postgres:16-alpine`.
+- Garder `POSTGRES_PORT=5432` pour le port interne de PostgreSQL dans la stack principale.
+- Définir `APP_PORT=8080`, ou le port hôte souhaité.
 
 ```bash
-# 1. Base
-docker compose up -d db
-
-# 2. Backend
-cd backend
-DATABASE_URL="postgres://themis:themis@localhost:5432/themis?sslmode=disable" \
-ANTHROPIC_API_KEY="sk-ant-..." \
-go run ./cmd/server
-
-# 3. Frontend (proxy /api → :8080 déjà configuré)
-cd frontend && npm install && npm run dev
+docker compose up -d --build
+docker compose ps
+curl http://localhost:8080/api/health
 ```
 
-Ou tout-en-un : `ANTHROPIC_API_KEY=sk-ant-... docker compose up --build` → http://localhost:3000
+Ouvrir **http://localhost:8080** (ou le port `APP_PORT` choisi), puis créer le premier administrateur. La base principale n’est pas publiée sur le réseau hôte par défaut.
 
-## Configuration (env)
-
-| Variable            | Défaut                          | Rôle                                        |
-|---------------------|---------------------------------|---------------------------------------------|
-| `PORT`              | `8080`                          | Port HTTP du backend                        |
-| `DATABASE_URL`      | `postgres://themis:themis@localhost:5432/themis?sslmode=disable` | Connexion PostgreSQL |
-| `AI_PROVIDER`       | *(auto)*                        | `ollama`, `anthropic` ou `none`. Auto : ollama si `OLLAMA_URL` est défini, sinon anthropic si clé, sinon none |
-| `OLLAMA_URL`        | *(vide)*                        | URL d'une instance Ollama (ex. `http://ollama:11434`) → IA 100 % locale |
-| `OLLAMA_MODEL`      | `qwen2.5:14b`                   | Modèle Ollama (`ollama pull …` au préalable) |
-| `ANTHROPIC_API_KEY` | *(vide)*                        | Active l'API Claude (cloud)                 |
-| `ANTHROPIC_MODEL`   | `claude-sonnet-4-6`             | Modèle Claude utilisé                       |
-| `AI_AUTO_CATEGORIZE`| `true`                          | Catégorisation IA auto à chaque import (`false` pour désactiver) |
-
-### IA locale avec Ollama (recommandé)
-
-Ce sont des données bancaires : autant que l'IA tourne chez toi. Le backend
-parle à n'importe quelle instance [Ollama](https://ollama.com) :
+### Mettre à jour l’application
 
 ```bash
-# en dev
-ollama pull qwen2.5:14b
-OLLAMA_URL=http://localhost:11434 go run ./cmd/server
+docker compose up -d --build
+```
 
-# avec docker compose
-docker compose --profile local-ai up -d
+Pour reconstruire uniquement l’application :
+
+```bash
+docker compose up -d --build app
+```
+
+Le build reconstruit le frontend et le backend ensemble. Les migrations embarquées sont appliquées au démarrage. Sauvegarder la base avant les mises à jour ; ne pas remplacer une image PostgreSQL existante par une autre version majeure sans procédure de migration.
+
+### Ollama dans Docker
+
+Dans `.env`, laisser `REMOTE_OLLAMA_BASE_URL` vide et définir :
+
+```dotenv
+OLLAMA_URL=http://ollama:11434
+OLLAMA_MODEL=qwen2.5:14b
+```
+
+Puis lancer le profil et télécharger les modèles :
+
+```bash
+docker compose --profile local-ai up -d --build
 docker compose exec ollama ollama pull qwen2.5:14b
-OLLAMA_URL=http://ollama:11434 docker compose up backend
+docker compose exec ollama ollama pull nomic-embed-text
 ```
 
-Sur ton cluster : un Deployment Ollama (GPU si dispo, sinon CPU — plus lent
-mais fonctionnel) + `OLLAMA_URL=http://ollama.<ns>.svc:11434` sur le backend.
-Le démarrage vérifie que l'instance répond et que le modèle est présent, et
-`/api/health` expose `ai_provider`.
+Le profil démarre Ollama ; `OLLAMA_URL` configure explicitement l’application Go. Le service mémoire utilise par défaut `http://ollama:11434/v1` et le modèle d’embedding `nomic-embed-text`.
 
-Choix du modèle : `qwen2.5:14b` ou `mistral-small` donnent une extraction
-JSON fiable pour le parsing de secours ; `llama3.1:8b` suffit largement pour
-les conseils mensuels si ta machine est modeste. Le parsing force
-`format:"json"` côté Ollama : la réponse est du JSON valide garanti.
+### Ollama sur une autre machine ou sur l’hôte
 
-À noter : avec le parseur positionnel + OCR intégrés, le fallback IA ne sert
-que pour les formats de relevés vraiment exotiques — la plupart des imports
-n'utilisent aucune IA du tout.
+Définir dans `.env` une URL accessible depuis les conteneurs, **sans suffixe `/v1`** :
 
-#### Ollama distant sur le Mac
+```dotenv
+REMOTE_OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
 
-Pour éviter de faire tourner Ollama dans un conteneur Docker (plus lent sur
-macOS sans GPU), tu peux utiliser une instance Ollama installée nativement
-sur ton Mac hôte. Le backend et le Knowledge Graph pointeront vers elle via
-`host.docker.internal`.
+Cette variable a priorité sur `OLLAMA_URL` pour l’application ; Compose ajoute `/v1` pour le service mémoire. Installer les modèles de génération et d’embedding sur cette instance, puis lancer `docker compose up -d --build` sans profil `local-ai`.
 
-1. **Trouver l'IP privée du Mac** (optionnel, `host.docker.internal` suffit) :
-   ```bash
-   ipconfig getifaddr en0   # Wi-Fi
-   ipconfig getifaddr en1   # Ethernet
-   ```
+Avec Docker Desktop, `host.docker.internal` désigne l’hôte. Sous Docker Engine Linux, utiliser une adresse accessible ou ajouter un mapping `host.docker.internal:host-gateway` aux services **app et knowledge-graph** via un fichier Compose de surcharge.
 
-2. **Configurer Ollama pour écouter sur toutes les interfaces** :
-   ```bash
-   OLLAMA_ORIGINS="*" ollama serve
-   ```
-   Ou définis la variable d'environnement `OLLAMA_HOST=0.0.0.0:11434` avant
-   de lancer `ollama serve`.
+Ollama doit écouter sur une interface accessible aux conteneurs. Limiter cet accès au réseau prévu ; modifier les origines autorisées ne remplace pas la configuration de l’adresse d’écoute.
 
-3. **Définir dans `.env`** (à la racine du repo) :
-   ```bash
-   REMOTE_OLLAMA_BASE_URL=http://host.docker.internal:11434
-   ```
-   Le suffixe `/v1` est ajouté automatiquement par le compose pour le service
-   Knowledge Graph ; le backend Go utilise l'URL brute. Une seule variable suffit — elle est propagée aux deux services.
+### Variante Supabase
 
-4. **Lancer sans le profile `local-ai`** (le conteneur ollama n'est pas démarré) :
-   ```bash
-   docker compose up -d
-   ```
-
-5. **Vérifier** :
-   ```bash
-   curl http://localhost:8080/api/health
-   # → doit répondre avec "ai_provider": "ollama"
-   ```
-
-> **Note réseau Docker** : `host.docker.internal` n'est pas disponible sous
-> Docker Engine classique (Linux).
-> - **Docker Desktop (macOS / Windows)** — utilise `host.docker.internal` comme indiqué ci-dessus.
-> - **Docker Engine (Linux)** — ajoute dans `docker-compose.yml` :
->   ```yaml
->   services:
->     backend:
->       extra_hosts:
->         - "host.docker.internal:host-gateway"
->   ```
->   ou, si tu préfères une IP fixe, trouve l'IP de la machine hôte avec
->   `hostname -I` et remplace `host.docker.internal` par cette adresse.
-
-## API
-
-| Méthode | Route                     | Rôle |
-|---------|---------------------------|------|
-| GET     | `/api/health`             | Liveness/readiness (+ état IA) |
-| POST    | `/api/statements`         | Upload PDF (multipart `file`, 20 Mo max) |
-| GET     | `/api/statements`         | Historique des relevés |
-| DELETE  | `/api/statements/{id}`    | Supprime relevé + transactions |
-| GET     | `/api/transactions`       | Liste (`?month=YYYY-MM`, `?category=id\|none`, `?q=recherche`) |
-| PATCH   | `/api/transactions/{id}`  | Change la catégorie |
-| GET/POST| `/api/categories`         | Catégories |
-| GET/POST| `/api/rules`              | Règles (`apply:true` = rétroactif) ; DELETE `/api/rules/{id}` |
-| GET     | `/api/summary?months=N`   | Séries mensuelles + répartition par catégorie |
-| GET/POST| `/api/budgets`            | Budgets par catégorie (`?month=`) ; DELETE `/api/budgets/{id}` |
-| GET     | `/api/recurring`          | Abonnements et dépenses récurrentes détectés (`?min_months=`) |
-| POST    | `/api/categorize/ai`      | Classe par IA les transactions sans catégorie (`{"month": "YYYY-MM"}` optionnel) |
-| GET     | `/api/transactions/export`| Export CSV (`;`, décimales FR) (`?month=`) |
-| GET/PUT | `/api/settings/{key}`     | Réglages persistés (layout du dashboard…) |
-| GET/PUT | `/api/admin/config`       | Config IA effective (fournisseur, modèles) — appliquée à chaud |
-| POST    | `/api/admin/ai/test`      | Teste la connexion au fournisseur (celui du corps, ou l'actif) |
-| GET     | `/api/admin/ollama/models`| Modèles disponibles sur l'instance Ollama (`?url=`) |
-| GET     | `/api/admin/stats`        | Compteurs, taille de la base, bornes de l'historique |
-| POST    | `/api/admin/reapply-rules`| Réapplique les règles aux transactions non classées |
-| POST    | `/api/admin/purge`        | Efface relevés/transactions/analyses (`{"confirm":"TOUT EFFACER"}`) |
-| GET/POST| `/api/analyses/{YYYY-MM}` | Conseils IA du mois |
-
-## Relevés sans couche texte (OCR)
-
-Certaines banques — le Crédit Agricole notamment — génèrent des PDF où chaque
-caractère est dessiné en **image bitmap** : aucune extraction de texte n'est
-possible, même avec poppler. Le backend le détecte automatiquement et bascule
-sur un pipeline OCR entièrement local :
-
-1. rasterisation à 480 dpi (`pdftoppm`) — multiple entier des 240 ppi des
-   glyphes bitmap, donc sans interpolation floue ;
-2. OCR positionnel (`tesseract -l fra`, sortie TSV) puis reconstruction des
-   lignes par regroupement vertical ;
-3. **seconde passe** ciblée sur chaque montant (crop + psm 7 + whitelist
-   chiffres), les deux lectures étant conservées ;
-4. **réconciliation** : si la validation comptable échoue, le parseur essaie
-   les combinaisons de lectures ambiguës et applique celle qui équilibre
-   exactement le relevé.
-
-Dépendances runtime : `poppler-utils`, `tesseract-ocr`, `tesseract-ocr-fra`
-(déjà dans l'image Docker du backend). Sans elles, l'appli fonctionne mais ces
-relevés partent directement au fallback IA. Compter ~25-30 s d'import pour un
-relevé de 3 pages en OCR — sans importance pour une opération mensuelle.
-
-## Adapter le parseur à ta banque
-
-Le parseur local est générique pour les relevés français : colonnes Débit/Crédit repérées par
-l'en-tête, dates `jj/mm[/aaaa]`, montants `1 234,56`, soldes « ancien/nouveau solde ».
-Pour tester rapidement sur un de tes relevés :
+Une configuration utilisant une base externe est disponible dans [compose-supabase/docker-compose.yml](compose-supabase/docker-compose.yml). Adapter les variables `SUPABASE_*` de l’exemple à l’instance réelle avant utilisation :
 
 ```bash
-cd backend && go run ./cmd/parsetest /chemin/vers/releve.pdf
+docker compose -f compose-supabase/docker-compose.yml --env-file .env up -d --build
 ```
 
-Si le format de ta banque diffère, ajuste les regex en tête de
-`backend/internal/parser/local.go` (`reDate`, `reAmount`, `reSoldeOld/New`, `rePeriod`).
-En attendant, le fallback IA prend le relais dès qu'une clé API est fournie —
-la validation comptable te dit dans l'UI si un import mérite vérification.
+La variante actuelle utilise `SUPABASE_HOST` comme identifiant de connexion dans l’URL PostgreSQL, et `SUPABASE_POOLER` comme hôte réseau ; `SUPABASE_USER` n’y est pas utilisé. Vérifier ces valeurs auprès de l’instance cible. Cette variante charge aussi le fichier racine `.env` via `env_file` : il doit exister, y compris lors de la validation Compose.
 
-## Revue de code & durcissement
+## Configuration
 
-Passage de revue complet réalisé :
-- **Sécurité** : cookie de session marqué `Secure` en production via
-  `COOKIE_SECURE=true` ; nettoyage horaire des sessions expirées ; validation
-  stricte des IDs (entiers) dans le graphe par catégories ; changement de mot
-  de passe personnel qui invalide les autres sessions ouvertes.
-- **Portabilité** : `GET /api/export` produit une archive JSON complète
-  (comptes, transactions avec catégories/domaines/tags, règles, budgets,
-  crédits, taxes) — sauvegarde et RGPD. Accessible depuis l'onglet Admin.
-- **Chargement** — l'interface est livrée en un seul bundle (~140 kB
-  compressé) : aucun fragment chargé à la volée, donc aucun risque d'« écran
-  blanc » au changement d'onglet.
-- **Tests** : couverture ajoutée sur le hachage PBKDF2, la validation des mots
-  de passe et le calcul d'échéancier de crédit, en plus des tests parseur.
-- **UX** : système de toasts empilables et animés (succès/erreur/info),
-  transitions de page, micro-interactions au survol.
+Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé directement lit les variables de son environnement ; il ne charge pas automatiquement ce fichier.
 
-## Authentification & rôles
+| Variable | Rôle |
+| --- | --- |
+| `APP_PORT` | Port hôte de l’application dans Compose ; `PORT` contrôle le port du backend lancé directement (défaut `8080`). |
+| `POSTGRES_IMAGE`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT` | Configuration PostgreSQL et construction de `DATABASE_URL` dans la stack principale. |
+| `DATABASE_URL` | Connexion utilisée par le backend. |
+| `REMOTE_OLLAMA_BASE_URL` | URL Ollama utilisée par Compose pour l’application et la mémoire. |
+| `OLLAMA_URL`, `OLLAMA_MODEL` | Instance et modèle Ollama du backend ; modèle par défaut `qwen2.5:14b`. |
+| `AI_PROVIDER` | Fournisseur du backend : `none`, `ollama`, `mistral`, `freellm` ou `anthropic`. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Configuration Anthropic. |
+| `MISTRAL_API_KEY`, `MISTRAL_MODEL` | Configuration Mistral. |
+| `FREELLM_API_KEY`, `FREELLM_URL`, `FREELLM_MODEL` | Fournisseur compatible OpenAI FreeLLM. |
+| `AI_AUTO_CATEGORIZE` | Catégorisation IA à l’import (`true` par défaut). |
+| `MEMORY_ENABLED`, `MEMORY_SERVICE_URL` | Activation et adresse du service mémoire pour le backend. |
+| `COOKIE_SECURE` | Activer avec `true` lorsque l’application est servie en HTTPS. |
 
-Au premier lancement, thémis demande la **création d'un compte administrateur**
-(mot de passe : 10 caractères minimum, lettres + chiffres, haché en
-**PBKDF2-HMAC-SHA256**, 210 000 itérations, bibliothèque standard uniquement —
-aucune dépendance crypto externe). Ensuite, toute l'API exige une session
-(cookie `HttpOnly`, `SameSite=Lax`, 30 jours) hormis `/api/health` (probes) et
-`/api/auth/*`. Limitation anti-force-brute : 5 essais → pause de 30 s.
+Sans `AI_PROVIDER` explicite, le backend choisit Ollama si une URL est définie, puis Mistral, FreeLLM ou Anthropic selon les clés présentes, sinon `none`.
 
-Deux rôles : **admin** (accès à l'onglet Admin, gestion des utilisateurs) et
-**utilisateur** (tout le reste). L'onglet Admin permet de créer/supprimer des
-comptes ; le dernier administrateur ne peut pas être supprimé.
+**Toutes les variables du backend ne sont pas relayées par le Compose principal.** Pour ajouter `COOKIE_SECURE`, `AI_PROVIDER` ou d’autres options, les déclarer dans `services.app.environment`, par exemple dans une surcharge Compose. Le Compose principal fixe actuellement `MEMORY_ENABLED=true` et l’adresse interne du service mémoire ; les placer seulement dans `.env` ne change pas ces valeurs.
 
-## Comptes, crédits, domaines
+La page **Admin** permet de configurer et tester l’IA à chaud. La configuration persistée en base prime sur les variables d’environnement aux démarrages suivants.
 
-- **Multi-comptes** : compte courant, Livret A, LDDS, PEL, compte-titres…
-  chacun avec son type, son taux et son plafond. Les relevés PDF alimentent le
-  solde des comptes courants (champ `account_id` à l'upload) ; pour les livrets
-  et la bourse, un **pointage manuel** de solde suffit. Le patrimoine total est
-  agrégé.
-- **Crédits & taxes** : suivi des mensualités restantes de chaque crédit
-  (barre de progression, date de fin calculée), taxes avec **compte à rebours
-  avant échéance** et alerte sous 30 jours, et une bannière de synthèse de la
-  dette totale.
-- **Graphe par catégories** : sélection multiple de catégories, période
-  (mois / trimestre / année), rendu en barres empilées ou en courbes.
-- **Simulation budgétaire** : à partir de tes moyennes réelles sur 3 mois,
-  teste des réductions par catégorie (curseurs), de nouvelles dépenses et un
-  emprunt (mensualité et coût total calculés), avec le reste à vivre projeté.
-- **Domaine (taxonomie unique) & tags** — la catégorie a été supprimée : le
-  **domaine** de vie est désormais le seul axe de classement structurant. Petit
-  ensemble fixe (Logement, Vie pro, Vie perso, Vie amoureuse, Famille, Loisirs),
-  un seul par transaction, pastille colorée. Les **budgets**, le **graphe**, les
-  **règles automatiques** et l'**auto-tri IA** opèrent tous sur le domaine. Les
-  **tags** restent libres et multiples, avec autocomplétion anti-doublon.
-- **Gestion des règles** — un panneau « règles automatiques » (onglet Transactions) liste toutes les règles motif → domaine, avec le nombre de transactions couvertes et le domaine cible coloré. Chaque règle peut être modifiée (motif et/ou domaine, réappliquée aussitôt) ou supprimée. Un même motif ne peut exister qu'une fois : recréer une règle existante met à jour sa catégorie au lieu de créer un doublon. Une règle peut aussi poser des tags automatiquement (ex. « Bouygues Telecom » → catégorie Télécommunications + tags factures, abonnement, mobile). Les règles s'éditent en cliquant directement sur le motif ou la catégorie (sauvegarde immédiate).
+## Développement et validation
 
+Pour développer hors Docker, prévoir une base PostgreSQL accessible sur l’hôte, Go, Node.js et, pour l’OCR, Poppler/Tesseract. Le service `db` du Compose principal n’expose pas de port hôte : ajouter une surcharge si cette base doit être utilisée depuis Go local.
 
-## Page d'administration
+Dans un premier terminal, depuis la racine :
 
-L'onglet **Admin** permet de :
+```bash
+cd backend
+# Définir DATABASE_URL avec les identifiants de la base de développement.
+AI_PROVIDER=none MEMORY_ENABLED=false go run ./cmd/server
+```
 
-- **Changer de fournisseur/modèle d'IA à chaud** : bascule none ↔ Ollama ↔ API
-  Claude sans redémarrer le backend. Pour Ollama, un bouton liste les modèles
-  réellement installés sur l'instance ; « Tester la connexion » valide la
-  config *avant* de l'appliquer. La configuration est persistée en base et
-  **prend le pas sur les variables d'environnement** aux démarrages suivants.
-  La clé API n'est jamais renvoyée par l'API (seul un indicateur « définie »).
-- **Consulter les statistiques** : relevés, transactions (et % classé),
-  règles, taille de la base, bornes de l'historique.
-- **Maintenance** : réappliquer les règles aux transactions non classées ;
-  zone dangereuse pour purger les données (confirmation textuelle exigée,
-  catégories/règles/budgets/réglages conservés).
+Dans un second terminal :
 
-⚠️ L'appli n'a pas d'authentification (conçue pour un usage personnel
-auto-hébergé) : si tu l'exposes au-delà de ton réseau, protège-la au niveau
-de l'ingress (auth basique, OAuth2-proxy, VPN…) — la page admin comme le reste.
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-## Tableau de bord personnalisable
+Vite affiche son URL de développement et redirige `/api` vers `http://localhost:8080`.
 
-Le dashboard est une grille de **widgets** : bouton « Personnaliser » pour
-ajouter, retirer, réordonner (↑/↓) ou redimensionner (demi / pleine largeur)
-chaque bloc. La disposition est **persistée côté serveur** (`settings`),
-donc identique sur tous tes appareils.
+Commandes de validation depuis la racine :
 
-Widgets disponibles : indicateurs du mois (revenus, dépenses, net, taux
-d'épargne, avec variation vs mois précédent), courbes revenus/dépenses/net
-interactives (légende cliquable pour masquer une série, zoom par brosse
-au-delà de 14 mois), cumul net, donut des catégories (survol interactif),
-tendance d'une catégorie au choix, top dépenses, mini-budgets, abonnements.
+```bash
+(cd backend && go test -race ./... && go vet ./... && go build ./...)
+node --test frontend/src/components/financialSummaryModel.test.mjs
+npm --prefix frontend ci
+npm --prefix frontend run build
+docker compose --env-file example.env --profile local-ai config --quiet
+docker compose -f compose-supabase/docker-compose.yml --env-file example.env config --quiet
+```
 
-## Budgets & abonnements
+Les tests de diagnostic vérifient notamment qu’un résultat provisoire négatif reste neutre, que les alertes sont conservées et que la couverture des relevés ne comporte pas de trou. La CI vérifie les tests Go, le build frontend, la syntaxe Python, l’image applicative et les deux configurations Compose.
 
-- **Budgets** : un plafond mensuel par catégorie ; l'UI affiche la jauge de
-  consommation, le dépassement, et — pour le mois en cours — une projection
-  fin de mois au prorata des jours écoulés.
-- **Abonnements** : détection automatique des dépenses récurrentes. Les
-  libellés sont réduits à l'identité du marchand (préfixes bancaires, dates
-  et références supprimés) puis regroupés ; un montant stable (< 15 %
-  d'écart) sur ≥ 2 mois est marqué abonnement probable. Le total mensuel des
-  abonnements est affiché — souvent la découverte la plus utile de l'appli.
+Consulter [CODEBASE_GRAPH.md](CODEBASE_GRAPH.md) pour les fichiers clés, flux de données et conventions d’architecture.
 
-## Catégorisation IA
+## API : points d’entrée principaux
 
-Les règles classent les marchands connus ; l'IA s'occupe du reste :
+Les routes métier nécessitent une session authentifiée. Liste non exhaustive :
 
-- **À l'import** : après les règles, les transactions restées sans catégorie
-  sont soumises au fournisseur d'IA configuré (désactivable via
-  `AI_AUTO_CATEGORIZE=false`). Le nombre de transactions classées est indiqué
-  dans la notification d'import.
-- **À la demande** : bouton « Classer avec l'IA » dans l'onglet Transactions
-  (respecte le filtre de mois), utile pour rattraper l'historique.
+| Route | Usage |
+| --- | --- |
+| `GET /api/health` | État de l’application et connexion à la base. |
+| `/api/auth/*` | Initialisation, connexion, déconnexion et gestion de la session. |
+| `GET/POST /api/statements` | Historique et import des relevés. |
+| `GET/PATCH /api/transactions[/{id}]` | Recherche et modification des transactions. |
+| `GET /api/summary?months=24&month=YYYY-MM` | Agrégats mensuels et catégories. |
+| `GET /api/hero?month=YYYY-MM` | Synthèse, flux, diagnostic et couverture documentée. |
+| `GET /api/period?month=YYYY-MM` | Métadonnées de période ; son statut ne constitue pas la preuve de couverture de la synthèse. |
+| `GET /api/anomalies?month=YYYY-MM` | Signaux détectés. |
+| `GET /api/journal?month=YYYY-MM` | Événements de la période. |
+| `GET /api/remaining?month=YYYY-MM` | Reste à vivre ou résultat historique selon le contexte. |
+| `GET/POST /api/budgets` | Consultation et définition des budgets. |
+| `POST /api/chat` | Assistant conversationnel. |
+| `GET /api/export` | Export des données. |
+| `GET/PUT /api/admin/config` | Configuration IA, accès administrateur. |
 
-Garde-fous : l'IA ne remplace **jamais** une catégorie déjà posée (règle ou
-choix manuel), n'utilise que des noms de catégories existants (les noms
-inventés sont ignorés), et le prompt lui demande d'omettre plutôt que de
-classer au hasard. Tu peux toujours corriger dans l'UI — et en profiter pour
-créer une règle, qui prendra le pas sur l'IA aux imports suivants.
+Les filtres et contrats exacts sont définis dans `backend/internal/api/` et utilisés par `frontend/src/api.js`.
 
-**Confidentialité** : contrairement aux conseils mensuels (agrégats anonymes),
-cette fonction envoie les **libellés** des transactions au fournisseur. Avec
-Ollama, tout reste local ; avec l'API Anthropic, à toi de juger — ou de
-désactiver avec `AI_AUTO_CATEGORIZE=false`.
+## Confidentialité et exploitation
 
-## Règles de catégorisation
+L’extraction native, l’OCR et les règles déterministes s’exécutent localement. Si le parsing local échoue, le fournisseur IA configuré peut recevoir le texte du relevé. La catégorisation peut envoyer les libellés et l’assistant les données nécessaires à ses outils : ne pas assimiler toutes les fonctions IA à des agrégats anonymes.
 
-Les catégories se créent **à la volée** depuis le sélecteur d'une transaction
-(« ＋ Nouvelle catégorie… ») ou depuis le formulaire de budget — pas besoin de
-passer par une page d'administration. La création est idempotente : recréer un
-nom existant renvoie la catégorie existante.
+Avec une instance Ollama que vous contrôlez, ces traitements restent dans l’infrastructure choisie. Avec un fournisseur distant, des données sont transmises à ce fournisseur. La mémoire peut également conserver du contexte financier dans FalkorDB.
 
-Motif = sous-chaîne insensible à la casse (`CARREFOUR`), ou regex si préfixé `re:`
-(`re:CB\s+AMAZON(?!\s+PRIME)`). Les plus longs sont testés d'abord. L'UI propose de créer
-une règle à chaque re-catégorisation manuelle, avec application rétroactive aux
-transactions non classées.
+Ne pas committer `.env`, les relevés ou les exports bancaires. Sauvegarder PostgreSQL et, si nécessaire, les données du graphe. Pour une exposition publique, utiliser HTTPS et configurer `COOKIE_SECURE=true` dans l’environnement effectif de l’application. Le port du service mémoire est publié sur `8100` par le Compose principal : adapter son exposition réseau au déploiement.
 
-## Design & animations
+Pour diagnostiquer un démarrage :
 
-Direction « guichet réédité » : un objet imprimé de banque française —
-papier vergé, encres de guichet, bandeau **guilloché** en tête (le motif
-gravé des chèques), filets fins sans arrondi, montants en mono tabulaire,
-et un **tampon Validé** sur les relevés dont l'équation comptable est exacte.
-Typographies Fraunces / Archivo / IBM Plex Mono **embarquées dans le build**
-(Fontsource) : l'interface ne charge rien depuis un CDN, cohérent avec une
-appli de données bancaires. Sous le guilloché court **la grecque** — le méandre, clin d'œil à Thémis.
+```bash
+docker compose ps
+docker compose logs --tail=100 app knowledge-graph
+```
 
-Animations orchestrées : séquence d'impression au chargement (le guilloché se
-grave de gauche à droite, la grecque suit, la marque se tamponne, la fente et
-les onglets se lèvent en cascade), **claquement plein écran du tampon
-« Validé »** quand un relevé est équilibré au centime, compteurs déroulants
-sur les indicateurs, révélation en cascade des widgets et des lignes,
-balayage des jauges, voile de dépôt plein écran au glisser-déposer.
-`prefers-reduced-motion` désactive tout, responsive mobile.
-
-## Confidentialité
-
-- Parsing local par défaut : rien ne sort de ton cluster tant que le parseur valide.
-- Avec **Ollama**, même les fonctions IA sont 100 % locales : rien ne sort, point.
-- Avec l'API Anthropic : le fallback de parsing envoie le **texte extrait** du relevé (à toi de juger) ; les **conseils mensuels** n'envoient que des agrégats anonymes (totaux par catégorie), jamais les libellés.
-
-## Notes pour ton déploiement (tu gères l'infra, mais au cas où)
-
-- `/api/health` fait un ping DB → utilisable en readinessProbe.
-- SIGTERM → drain 15 s : compatible rolling updates.
-- Image backend debian-slim non-root (l'OCR exige poppler + tesseract, exit distroless), binaire statique.
-- Backups Postgres fortement recommandés : ce sont tes finances.
+Les journaux peuvent contenir des informations sensibles : les examiner et les expurger avant partage.
