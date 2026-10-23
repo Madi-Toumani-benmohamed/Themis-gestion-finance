@@ -51,12 +51,12 @@ func ConfigTimeouts(cfg config.Config) {
 }
 
 var (
-	_ollamaTimeout    int
-	_cloudTimeout     int
-	_chatTimeout      int
+	_ollamaTimeout     int
+	_cloudTimeout      int
+	_chatTimeout       int
 	_categorizeTimeout int
-	_narrativeTimeout int
-	_testTimeout      int
+	_narrativeTimeout  int
+	_testTimeout       int
 )
 
 func ollamaTimeout() time.Duration {
@@ -101,6 +101,11 @@ func TestTimeout() time.Duration {
 // seuls le fallback de parsing et les conseils mensuels sont désactivés).
 func FromConfig(cfg config.Config) Client {
 	switch cfg.AIProvider {
+	case "openai":
+		if cfg.OpenAIKey == "" {
+			return nil
+		}
+		return &OpenAI{APIKey: cfg.OpenAIKey, Model: cfg.OpenAIModel}
 	case "anthropic":
 		return &Anthropic{APIKey: cfg.AnthropicKey, Model: cfg.AnthropicModel}
 	case "ollama":
