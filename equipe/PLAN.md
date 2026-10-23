@@ -1,112 +1,85 @@
-# Plan : Externalisation d'Ollama vers le Mac hôte
+# Plan d'intervention : bugs navigation temporelle et Top dépenses
 
 ## 1. Besoin reformulé
 
-Rendre l'instance Ollama locale optionnelle en permettant au backend et au service Knowledge Graph de pointer vers une instance Ollama distante hébergée nativement sur le Mac de l'utilisateur (au lieu du conteneur Docker). Supprimer la dépendance implicite au service `ollama` dans les configurations Docker, et documenter la procédure de configuration réseau pour Mac.
+La navigation par mois sur le dashboard ne permet pas de reculer dans le temps : le bouton « mois précédent » ne change pas le mois sélectionné, contrairement au bouton « mois suivant ». Par ailleurs, le widget « Top dépenses du mois » affiche « Pas encore de données » pour les mois historiques alors que les transactions existent et que les autres widgets affichent correctement les données passées.
 
 ## 2. Décisions techniques
 
 | Décision | Choix | Raison |
-|----------|-------|---------|
-| Langage de modification | Docker env vars + YAML | Aucun code Go/Python à changer — l'infrastructure lit déjà `OLLAMA_URL` depuis l'environnement |
-| Paramétrage de l'URL Ollama dans knowledge-graph | Variable d'env `${REMOTE_OLLAMA_URL:-}` avec suffixe `/v1` ajouté en compose | Le service Python Graphiti attend le endpoint OpenAI (`/v1`), tandis que le backend Go attend `/api/chat`. On évite de dupliquer la logique de suffixe dans le code. |
-| Réseau Docker → Mac hôte | `host.docker.internal` (Docker Desktop) | Solution standard, ne nécessite pas de connaître l'IP privée du Mac à l'avance. Compatible avec les deux compose files. |
-| Suppression du service ollama local | Conserver le profile `local-ai` mais le rendre explicite | Le profile existe déjà. On garde la compatibilité descendante : sans profile, pas de conteneur Ollama. |
-| Cohérence des deux compose files | Uniformiser le traitement de `OLLAMA_URL` | Actuellement, `compose-supabase/docker-compose.yml` ne définit pas `OLLAMA_URL` pour knowledge-graph (car il n'y a pas de service KG). Il faut ajouter le paramétrage dans les deux fichiers. |
+|----------|-------|--------|
+| Correction navigation | Corriger le calcul de date dans `MonthSelector.goToPrev` | Le constructeur `Date` attend un mois 0-indexé ; le code soustrait `m-1` au lieu de `m-2`, provoquant un décalage d'un mois |
+| Correction Top dépenses | Supprimer la dépendance à `api.summary(1, month)` et utiliser directement `selectedMonth` pour requêter les transactions | Le endpoint `summary` avec `months=1` ne retourne que le mois le plus récent, puis le filtre `month <= maxMonth` vide la série pour les mois historiques |
+| Architecture widgets | Garder le pattern existant où les widgets reçoivent `selectedMonth` et utilisent les données du dashboard principal | Évite les requêtes redondantes et garantit la cohérence des données |
+| Pas de modification backend | Corriger uniquement côté frontend pour ces deux bugs | La logique de navigation est purement client ; le problème Top dépenses vient de l'usage incorrect de l'API, pas de l'API elle-même |
 
-## 3. Étapes
+## 3. Étapes d'intervention
 
-### Étape 1 — Paramétrage de `OLLAMA_URL` dans le service knowledge-graph
-**Fichier modifié :** `docker-compose.yml`
+### Étape 1 — Corriger le calcul du mois précédent dans MonthSelector
+**Fichiers concernés :** `frontend/src/pages/Dashboard.jsx`
 
-Changer la ligne 43 :
-```yaml
-# Avant
-OLLAMA_URL: http://ollama:11434/v1
-# Après
-OLLAMA_URL: ${REMOTE_OLLAMA_URL:-http://ollama:11434/v1}
-```
-Même changement dans `compose-supabase/docker-compose.yml` (ajouter le service knowledge-graph avec la même variable, ou laisser tel quel s'il n'y a pas de KG dans cette variante — à vérifier).
+Corriger la fonction `goToPrev` pour utiliser le bon décalage de mois :
+- Remplacer `new Date(y, m - 1, 1)` par `new Date(y, m - 2, 1)`
+- Le mois provenant de la chaîne `YYYY-MM` est 1-indexé (1-12) alors que `Date` attend 0-indexé (0-11)
 
-**Livrable :** Le service knowledge-graph lit son URL Ollama depuis une variable d'environnement, avec fallback vers l'ancien comportement containerisé.
+**Critère de finition :**
+- Cliquer sur « ‹ » depuis Oct 2026 affiche Sep 2026
+- Cliquer sur « ‹ » depuis Jan 2026 affiche Dec 2025
+- Cliquer sur « › » continue de fonctionner (régression testée)
 
-### Étape 2 — Ajouter une entrée claire dans `.env` pour le mode distant
-**Fichier modifié :** `.env`
+### Étape 2 — Simplifier TopWidget pour éviter le summary redondant
+**Fichiers concernés :** `frontend/src/widgets/index.jsx`
 
-Ajouter après la section Ollama (ligne 24) :
-```bash
-# URL Ollama distante (Mac hôte). Laisser vide pour utiliser le conteneur local (profile local-ai).
-# Exemple : http://host.docker.internal:11434
-REMOTE_OLLAMA_URL=
-```
-Le suffixe `/v1` est ajouté automatiquement par le compose pour le service knowledge-graph ; le backend Go utilise l'URL brute.
+Modifier le widget `TopWidget` :
+- Remplacer la requête `api.summary(1, month)` par utilisation directe de `selectedMonth`
+- Conserver le chargement des catégories pour filtrer les transferts
+- Requêter directement `api.transactions({ month: selectedMonth || latestMonth })`
+- Pour déterminer le mois à afficher quand `selectedMonth` est vide, utiliser `data.monthly?.at(-1)?.month` depuis les props si disponibles, sinon se baser sur le mois courant
 
-**Livrable :** Le `.env` contient une variable documentée pour le mode distant.
+Alternative plus simple : changer `api.summary(1, month)` en `api.summary(24, month)` pour garantir que le mois historique est inclus dans les séries.
 
-### Étape 3 — Adapter les dépendances du service app
-**Fichier modifié :** `docker-compose.yml`
+**Critère de finition :**
+- Sélectionner un mois historique (ex: Nov 2025) affiche les top dépenses réelles
+- Le badge « Mois en cours »/« Incomplet » s'affiche correctement
+- Pas de message « Pas encore de données » sur mois avec transactions
 
-Vérifier que la section `depends_on` du service `app` ne mentionne pas `ollama`. Actuellement (ligne 69-73) :
-```yaml
-depends_on:
-  db:
-    condition: service_healthy
-  knowledge-graph:
-    condition: service_started
-```
-→ Déjà correct. **Aucun changement requis.** Cette étape sert de vérification et de documentation du constat.
+### Étape 3 — Vérifier la cohérence avec KpiRow
+**Fichiers concernés :** `frontend/src/pages/Dashboard.jsx`
 
-### Étape 4 — S'assurer que les deux compose files sont cohérents
-**Fichier modifié :** `compose-supabase/docker-compose.yml`
+Analyser si `KpiRow` présente le même problème avec `api.summary(2, selectedMonth)` :
+- Si le mois sélectionné est plus ancien que 2 mois, la série sera vide
+- Évaluer si nécessaire de corriger en passant à `months=24` ou en utilisant les données du dashboard principal
 
-Ce fichier ne contient pas de service `knowledge-graph` ni `ollama`. Il faut :
-- Soit l'ajouter avec le profile `local-ai` pour les utilisateurs Supabase qui veulent le KG
-- Soit documenter que le KG n'est pas supporté dans cette variante
+**Critère de finition :**
+- Les KPI affichent bien les données pour tout mois historique
+- Pas de régression sur le calcul des deltas vs mois précédent
 
-**Décision à prendre :** Ajouter le service knowledge-graph dans `compose-supabase/docker-compose.yml` avec le profile `local-ai`, en réutilisant la même variable `${REMOTE_OLLAMA_URL}`. Cela rend les deux variantes fonctionnellement équivalentes.
+### Étape 4 — Tests de non-régression navigation
+**Vérifications manuelles :**
 
-**Livrable :** Les deux fichiers compose partagent la même logique de configuration Ollama.
+Tester la navigation complète :
+- Depuis mois courant, reculer de 12 mois avec la flèche gauche
+- Reculer au-delà de janvier → changement d'année correct
+- Avancer avec la flèche droite s'arrête bien au mois courant
+- Le sélecteur déroulant et le bouton « retour mois en cours » fonctionnent
+- Tous les widgets se mettent à jour en synchronie
 
-### Étape 5 — Documentation : guide de configuration réseau Mac
-**Fichier modifié :** `README.md` (section « IA locale avec Ollama »)
-
-Ajouter une sous-section « Ollama distant sur le Mac » expliquant :
-1. Comment trouver l'IP privée du Mac : `ipconfig getifaddr en0` (WiFi) ou `en1` (Ethernet)
-2. Configurer Ollama pour écouter sur toutes les interfaces : `OLLAMA_ORIGINS="*" ollama serve`
-3. Définir dans `.env` : `REMOTE_OLLAMA_URL=http://192.168.x.x:11434` (ou `http://host.docker.internal:11434`)
-4. Lancer sans le profile local-ai : `docker compose up -d` (le conteneur ollama n'est pas démarré)
-5. Vérifier : `curl http://localhost:8080/api/health` → `ai_provider: ollama`
-
-**Livrable :** Un guide opérationnel dans le README.
-
-### Étape 6 — Tests
-**Action :** Lancer la suite de tests existante.
-
-```bash
-cd backend && go test ./...
-```
-
-Les tests unitaires (incluant `ollama_fallback_test.go` et `thinking_test.go`) utilisent `httptest` et ne nécessitent pas d'instance Ollama réelle. Ils doivent passer tels quels.
-
-**Vérification supplémentaire :** Démarrer l'appli avec `REMOTE_OLLAMA_URL=http://host.docker.internal:11434` et confirmer que le ping Ollama au démarrage réussit (log : pas d'alerte « ATTENTION — Ollama injoignable »).
-
-**Livrable :** `go test ./...` vert + vérification manuelle du ping.
+**Critère de finition :**
+- Navigation fluide dans les deux sens sans saut
+- Aucun widget ne se désynchronise du mois sélectionné
 
 ## 4. Règles à respecter
 
-1. **Ne jamais committer de secrets** : `REMOTE_OLLAMA_URL` va dans `.env` (ignoré par Git), pas dans les fichiers YAML.
-2. **Garder la compatibilité descendante** : si `REMOTE_OLLAMA_URL` est vide, le comportement doit être identique à avant (fallback vers `http://ollama:11434/v1` pour le KG, et le profile `local-ai` démarre le conteneur Ollama).
-3. **Ne pas modifier le code Go/Python** : toute la configuration passe par des variables d'environnement, conformément à l'architecture existante.
-4. **Suffixe `/v1`** : le service knowledge-graph (Python/Graphiti) utilise l'API OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`), donc son `OLLAMA_URL` doit finir par `/v1`. Le backend Go utilise `/api/chat` directement, donc son `OLLAMA_URL` ne doit PAS avoir de suffixe. C'est pourquoi on paramètre séparément.
-5. **Pas de modification des tests** : les tests existants ne doivent pas être modifiés, seulement exécutés.
+1. **Ne pas modifier la logique backend** : les bugs sont identifiés comme frontend uniquement
+2. **Ne pas casser la navigation future** : le bouton « mois suivant » doit rester bloqué sur le mois courant
+3. **Préserver les badges de période** : l'indicateur « Mois en cours »/« Incomplet » doit rester fonctionnel
+4. **Ne pas introduire de requêtes supplémentaires** : éviter de doubler les appels API déjà effectués par le dashboard principal
+5. **Maintenir la cohérence des données** : tous les widgets doivent afficher les mêmes données pour le même mois sélectionné
+6. **Ne jamais supposer la disponibilité des données** : gérer le cas où `selectedMonth` est vide ou où aucune transaction n'existe
 
-## 5. Critères d'achèvement par étape
+## 5. Critères de validation finale
 
-| Étape | Critère de finition |
-|-------|---------------------|
-| 1 | `docker-compose.yml` ligne 43 utilise `${REMOTE_OLLAMA_URL:-http://ollama:11434/v1}` au lieu de la valeur en dur |
-| 2 | `.env` contient la variable `REMOTE_OLLAMA_URL` commentée avec la doc |
-| 3 | Confirmation par lecture que `depends_on` du service `app` n'inclut pas `ollama` |
-| 4 | `compose-supabase/docker-compose.yml` contient le service knowledge-graph avec le même pattern de variable |
-| 5 | README contient la sous-section « Ollama distant sur le Mac » avec les 5 points du guide |
-| 6 | `go test ./...` retourne 0 échec ; log de démarrage sans alerte Ollama quand l'URL distante est configurée |
+- **Bug 1 résolu** : la flèche « mois précédent » déplace correctement le mois (Oct→Sep, Jan→Dec N-1, etc.)
+- **Bug 2 résolu** : le widget Top dépenses affiche les données pour tout mois historique avec transactions
+- **Non-régression** : les autres widgets (KPI, catégories, flux) continuent d'afficher correctement les données historiques
+- **Performance** : pas d'augmentation notable du nombre de requêtes API
