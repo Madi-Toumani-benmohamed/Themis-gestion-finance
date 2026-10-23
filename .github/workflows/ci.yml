@@ -116,4 +116,9 @@ jobs:
         run: docker compose -f docker-compose.yml --env-file example.env  --profile local-ai config --quiet
 
       - name: Validate Supabase Compose configuration
-        run: docker compose -f compose-supabase/docker-compose.yml --env-file example.env config --quiet
+        run: |
+          cp example.env .env
+          docker compose --env-file example.env \
+            -f compose-supabase/docker-compose.yml \
+            config --quiet
+          rm .env
