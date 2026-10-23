@@ -326,6 +326,43 @@ select { cursor: pointer; }
 .kpi-card .value.pos { color: var(--pos); }
 .kpi-card .sub { display: block; font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 
+/* Badge période sur les KPI */
+.kpi-period-row { grid-column: 1 / -1; margin-bottom: 8px; }
+.kpi-period-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 9px; border-radius: var(--r-full);
+  background: var(--accent-soft); color: var(--accent-hover);
+}
+.kpi-period-incomplete {
+  background: var(--warn-soft); color: var(--warn);
+}
+.kpi-delta {
+  display: block; font-size: 12px; color: var(--muted); margin-top: 6px;
+}
+.kpi-delta span { font-size: 11px; color: var(--faint); }
+
+/* Badge période sur le donut */
+.donut-period-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600; letter-spacing: .01em;
+  padding: 2px 7px; border-radius: var(--r-full);
+  background: var(--accent-soft); color: var(--accent-hover);
+  margin-left: 6px;
+}
+.donut-period-incomplete {
+  background: var(--warn-soft); color: var(--warn);
+}
+
+/* Badge période sur le top */
+.top-period-badge {
+  display: inline-flex; align-items: center;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 9px; border-radius: var(--r-full);
+  background: var(--accent-soft); color: var(--accent-hover);
+  margin-bottom: 10px;
+}
+
 /* Donut (répartition) */
 .donut-wrap { position: relative; display: grid; place-items: center; }
 .donut-center { position: absolute; text-align: center; }
@@ -992,6 +1029,53 @@ td.num, .num { text-align: right; }
 }
 .jevent-action:hover { opacity: .7; }
 
+/* ---- Sélecteur de mois (navigation temporelle du dashboard) ---- */
+.month-selector {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 20px; justify-content: center;
+}
+.month-nav-btn {
+  width: 36px; height: 36px; border-radius: var(--r-sm);
+  background: var(--paper); color: var(--body);
+  font-size: 20px; font-weight: 600; line-height: 1;
+  border: 1px solid var(--line-strong); cursor: pointer;
+  display: grid; place-items: center;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.month-nav-btn:hover:not(:disabled) {
+  background: var(--accent-soft); color: var(--accent); border-color: var(--accent-ring);
+}
+.month-nav-btn:disabled {
+  opacity: .4; cursor: not-allowed;
+}
+.month-selector-content {
+  position: relative;
+}
+.month-selector-select {
+  appearance: none; -webkit-appearance: none;
+  font-family: var(--font); font-size: 15px; font-weight: 600; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--line-strong);
+  padding: 8px 36px 8px 14px; border-radius: var(--r-sm);
+  box-shadow: var(--sh-xs); cursor: pointer; min-width: 160px; text-align: center;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.month-selector-select:focus {
+  outline: none; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 3px var(--accent-ring);
+}
+.month-now-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--paper); color: var(--muted);
+  font-size: 12px; border: 1px solid var(--line-strong);
+  cursor: pointer; display: grid; place-items: center;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.month-now-btn:hover {
+  background: var(--accent-soft); color: var(--accent); border-color: var(--accent-ring);
+}
+.month-now-btn.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+
 /* ---- Reste à vivre projeté ---- */
 .rav {
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
@@ -1438,6 +1522,17 @@ thead th {
 .hero-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; opacity: .82; }
 .hero-meta strong { font-weight: 650; }
 .hero-stale { font-weight: 650; }
+
+/* Badge période sur le hero */
+.hero-period-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 3px 9px; border-radius: var(--r-full);
+  background: rgba(255,255,255,.25); color: #fff;
+}
+.hero-period-incomplete {
+  background: rgba(255,255,255,.15); color: var(--warn);
+}
 
 /* ---- Indicateurs clés ---- */
 .kpi-row {

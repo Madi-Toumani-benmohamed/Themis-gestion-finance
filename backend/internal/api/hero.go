@@ -21,36 +21,46 @@ type heroPoint struct {
 func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
 
-	// Mois de référence : le plus récent contenant des transactions.
+	// Mois de référence : paramètre 'month' (YYYY-MM) ou le plus récent contenant des transactions.
+	month := r.URL.Query().Get("month")
 	var ref sql.NullString
-	_ = s.DB.QueryRow(`SELECT to_char(max(tx_date),'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref)
+	if month != "" {
+		ref = sql.NullString{String: month, Valid: true}
+	} else {
+		_ = s.DB.QueryRow(`SELECT to_char(max(tx_date),'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref)
+	}
 	if !ref.Valid {
 		writeJSON(w, http.StatusOK, map[string]any{"available": false})
 		return
 	}
 
-	// Revenus / dépenses du mois (transferts exclus).
+	info, _ := s.getPeriodInfo(owner, ref.String)
+
+	// Revenus / dépenses du mois (transferts exclus) — période observée.
 	var income, spent float64
-	_ = s.DB.QueryRow(`SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
-	                          COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
-	                   FROM transactions WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') = $1`+notTransfer,
-		ref.String, owner).Scan(&income, &spent)
+	dayFilter := ""
+	if info.DaysObserved > 0 && info.IsCurrent {
+		dayFilter = fmt.Sprintf(" AND EXTRACT(DAY FROM tx_date) <= %d", info.DaysObserved)
+	}
+	q := `SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
+		FROM transactions WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') = $1` + notTransfer + dayFilter
+	_ = s.DB.QueryRow(q, ref.String, owner).Scan(&income, &spent)
 	net := income - spent
 
-	// Budgets du mois : combien sont définis, combien sont dépassés.
+	// Budgets du mois : combien sont définis, combien sont dépassés (sur période observée).
 	var totalBudgets, overBudgets int
 	_ = s.DB.QueryRow(`SELECT count(*) FROM budgets WHERE owner_id = $1`, owner).Scan(&totalBudgets)
-	_ = s.DB.QueryRow(`
-		SELECT count(*) FROM budgets b
-		WHERE b.owner_id = $1 AND b.monthly_limit < (
-			SELECT COALESCE(-SUM(t.amount),0) FROM transactions t
-			WHERE t.owner_id = $1 AND t.domain_id = b.domain_id
-			  AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') = $2)`,
-		owner, ref.String).Scan(&overBudgets)
+	if totalBudgets > 0 {
+		q = `SELECT count(*) FROM budgets b
+			WHERE b.owner_id = $1 AND b.monthly_limit < (
+				SELECT COALESCE(-SUM(t.amount),0) FROM transactions t
+				WHERE t.owner_id = $1 AND t.domain_id = b.domain_id
+				  AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') = $2` + dayFilter + `)`
+		_ = s.DB.QueryRow(q, owner, ref.String).Scan(&overBudgets)
+	}
 
 	// Dépenses inhabituelles : le même détecteur que l'onglet anomalies.
-	// Les nouveaux paiements récurrents sont comptés à part : c'est un signal
-	// différent (un engagement qui s'installe, pas une dépense ponctuelle).
 	anomalyCount, newRecurring := 0, 0
 	if rec, err := computeRecurring(s.DB, owner, 2); err == nil {
 		for _, a := range detectAnomalies(rec) {
@@ -62,53 +72,66 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Catégorie en forte hausse vs sa moyenne historique (>30 % et >40 €).
+	// Catégorie en forte hausse vs sa moyenne historique (>30 % et >40 €) — seulement pour mois complet.
 	var upName string
 	var upCur, upAvg float64
-	_ = s.DB.QueryRow(`
-		WITH cur AS (
-			SELECT d.name, -SUM(t.amount) AS dep
-			FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
-			WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') = $1
-			GROUP BY d.name
-		), hist AS (
-			SELECT d.name, -SUM(t.amount) / GREATEST(COUNT(DISTINCT to_char(t.tx_date,'YYYY-MM')),1) AS avg_dep
-			FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
-			WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') < $1
-			GROUP BY d.name
-		)
-		SELECT cur.name, cur.dep, hist.avg_dep FROM cur JOIN hist ON hist.name = cur.name
-		WHERE hist.avg_dep > 0 AND cur.dep > hist.avg_dep * 1.3 AND cur.dep - hist.avg_dep > 40
-		ORDER BY cur.dep - hist.avg_dep DESC LIMIT 1`,
-		ref.String, owner).Scan(&upName, &upCur, &upAvg)
+	if !info.IsCurrent {
+		q = `WITH cur AS (
+				SELECT d.name, -SUM(t.amount) AS dep
+				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
+				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') = $1
+				GROUP BY d.name
+			), hist AS (
+				SELECT d.name, -SUM(t.amount) / GREATEST(COUNT(DISTINCT to_char(t.tx_date,'YYYY-MM')),1) AS avg_dep
+				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
+				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') < $1
+				GROUP BY d.name
+			)
+			SELECT cur.name, cur.dep, hist.avg_dep FROM cur JOIN hist ON hist.name = cur.name
+			WHERE hist.avg_dep > 0 AND cur.dep > hist.avg_dep * 1.3 AND cur.dep - hist.avg_dep > 40
+			ORDER BY cur.dep - hist.avg_dep DESC LIMIT 1`
+		_ = s.DB.QueryRow(q, ref.String, owner).Scan(&upName, &upCur, &upAvg)
+	}
 
-	// Baisse de revenus vs la moyenne des 3 mois précédents (>25 %).
+	// Baisse de revenus vs la moyenne des 3 mois précédents (>25 %) — seulement pour mois complet.
 	var prevIncome sql.NullFloat64
-	_ = s.DB.QueryRow(`
-		SELECT AVG(m.inc) FROM (
-			SELECT to_char(tx_date,'YYYY-MM') AS mth, SUM(amount) FILTER (WHERE amount > 0) AS inc
-			FROM transactions
-			WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') < $1`+notTransfer+`
-			GROUP BY 1 ORDER BY 1 DESC LIMIT 3
-		) m`, ref.String, owner).Scan(&prevIncome)
-	incomeDrop := prevIncome.Valid && prevIncome.Float64 > 100 && income < prevIncome.Float64*0.75
+	var incomeDrop bool
+	if !info.IsCurrent {
+		q = `SELECT AVG(m.inc) FROM (
+				SELECT to_char(tx_date,'YYYY-MM') AS mth, SUM(amount) FILTER (WHERE amount > 0) AS inc
+				FROM transactions
+				WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') < $1` + notTransfer + `
+				GROUP BY 1 ORDER BY 1 DESC LIMIT 3
+			) m`
+		_ = s.DB.QueryRow(q, ref.String, owner).Scan(&prevIncome)
+		incomeDrop = prevIncome.Valid && prevIncome.Float64 > 100 && income < prevIncome.Float64*0.75
+	}
 
 	// ---- Composition de la synthèse ----
 	points := []heroPoint{}
 	if net > 0 {
 		points = append(points, heroPoint{Kind: "savings", Tone: "positive",
-			Text: fmt.Sprintf("Tu as épargné %s ce mois-ci.", euro(net))})
+			Text: fmt.Sprintf("Tu as épargné %s sur la période.", Euro(net))})
 	} else if net < 0 {
-		points = append(points, heroPoint{Kind: "deficit", Tone: "attention",
-			Text: fmt.Sprintf("Le mois est déficitaire de %s.", euro(-net))})
+		tone := "attention"
+		if info.IsCurrent {
+			tone = "neutral" // déficit en cours de mois n'est pas une alerte
+		}
+		points = append(points, heroPoint{Kind: "deficit", Tone: tone,
+			Text: fmt.Sprintf("Solde à date : déficitaire de %s.", Euro(-net))})
 	}
 	if totalBudgets > 0 {
 		if overBudgets == 0 {
 			points = append(points, heroPoint{Kind: "budgets_ok", Tone: "positive",
 				Text: "Tous tes budgets sont respectés."})
 		} else {
-			points = append(points, heroPoint{Kind: "budget_over", Tone: "alert",
-				Text: fmt.Sprintf("%d budget(s) dépassé(s) ce mois-ci.", overBudgets)})
+			// Si mois courant, ne pas alerter sur budget dépassé (projection)
+			tone := "alert"
+			if info.IsCurrent {
+				tone = "attention"
+			}
+			points = append(points, heroPoint{Kind: "budget_over", Tone: tone,
+				Text: fmt.Sprintf("%d budget(s) dépassé(s) sur la période.", overBudgets)})
 		}
 	}
 	if anomalyCount > 0 {
@@ -139,16 +162,30 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 
 	// Ton global et phrase de situation : le pire état l'emporte.
 	tone, headline := "sain", "Situation financière saine."
-	hasAlert := overBudgets > 0 || incomeDrop
-	hasAttention := anomalyCount > 0 || upName != "" || net < 0
+	hasAlert := overBudgets > 0 && !info.IsCurrent || incomeDrop
+	hasAttention := anomalyCount > 0 || upName != "" || (net < 0 && !info.IsCurrent)
 	switch {
 	case hasAlert:
-		tone, headline = "alerte", "Situation sous tension ce mois-ci."
+		tone, headline = "alerte", "Situation sous tension."
 	case hasAttention:
 		tone, headline = "attention", "Situation correcte, quelques points à surveiller."
 	}
 
-	// Période couverte (l'ex-ligne de couverture vit dans le hero).
+	// Adapter le message pour le mois courant.
+	if info.IsCurrent {
+		headline = fmt.Sprintf("Au %d %s : %s de dépenses, %s de revenus (mois en cours).",
+			info.DaysObserved, monthNameFr(ref.String), Euro(spent), Euro(income))
+		if net < 0 {
+			headline += " Le solde est négatif à ce jour, mais le mois n'est pas terminé."
+		}
+		tone = "neutral"
+	} else if info.Status == "incomplete" {
+		headline = fmt.Sprintf("Bilan %s (données sur %d/%d jours) : %s dépenses, %s revenus.",
+			monthNameFr(ref.String), info.DaysObserved, info.DaysInMonth, Euro(spent), Euro(income))
+		headline += " Ce mois semble incomplet — vérifie les relevés manquants."
+	}
+
+	// Période couverte.
 	var lastTx, lastImport sql.NullString
 	_ = s.DB.QueryRow(`SELECT max(tx_date)::text FROM transactions WHERE owner_id = $1`, owner).Scan(&lastTx)
 	_ = s.DB.QueryRow(`SELECT max(uploaded_at)::date::text FROM statements WHERE owner_id = $1`, owner).Scan(&lastImport)
@@ -162,6 +199,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"available": true,
 		"month":     ref.String,
+		"period":    info,
 		"tone":      tone,
 		"headline":  headline,
 		"points":    points,

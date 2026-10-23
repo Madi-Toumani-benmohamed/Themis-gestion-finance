@@ -34,12 +34,23 @@ type evtAct struct {
 // quantité mais la pertinence : on trie par importance et on plafonne.
 func (s *Server) journalFeed(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
+
+	// Mois de référence : paramètre 'month' (YYYY-MM) ou mois le plus récent contenant des transactions.
+	month := r.URL.Query().Get("month")
+	var ref string
+	if month != "" {
+		ref = month
+	} else if s.DB.QueryRow(`SELECT to_char(max(tx_date),'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref); ref == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"events": []event{}})
+		return
+	}
+
 	events := []event{}
 
-	events = append(events, s.eventsFromTransactions(owner)...)
+	events = append(events, s.eventsFromTransactions(owner, ref)...)
 	events = append(events, s.eventsFromAnomalies(owner)...)
 	events = append(events, s.eventsUpcoming(owner)...)
-	events = append(events, s.eventsWins(owner)...)
+	events = append(events, s.eventsWins(owner, ref)...)
 
 	// Tri : les faits les plus significatifs en tête (importance), puis, à
 	// importance égale, le plus récent d'abord. Un journal met en avant ce qui
@@ -64,14 +75,8 @@ func (s *Server) journalFeed(w http.ResponseWriter, r *http.Request) {
 // On ne devine plus à partir du signe (un crédit peut être un remboursement, un
 // virement d'un proche…) : seule l'intention posée par le tag fait foi. C'est
 // fiable et juste, au prix d'exiger que les salaires soient tagués.
-func (s *Server) eventsFromTransactions(owner int64) []event {
+func (s *Server) eventsFromTransactions(owner int64, month string) []event {
 	out := []event{}
-
-	// Mois de référence : le dernier mois contenant des transactions.
-	var ref string
-	if s.DB.QueryRow(`SELECT to_char(max(tx_date),'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref); ref == "" {
-		return out
-	}
 
 	// Cumul des montants (positifs) tagués « salaire » sur ce mois. Le tag est
 	// comparé sans tenir compte de la casse ; on accepte « salaire »/« salaires ».
@@ -87,7 +92,7 @@ func (s *Server) eventsFromTransactions(owner int64) []event {
 		  AND t.amount > 0
 		  AND to_char(t.tx_date,'YYYY-MM') = $2
 		  AND lower(tg.name) IN ('salaire','salaires')`,
-		owner, ref).Scan(&total, &n, &lastDate)
+		owner, month).Scan(&total, &n, &lastDate)
 	if err != nil || n == 0 || total <= 0 {
 		return out // aucun salaire tagué ce mois-ci : pas d'événement (plutôt qu'un chiffre faux)
 	}
@@ -167,7 +172,7 @@ func (s *Server) eventsUpcoming(owner int64) []event {
 		out = append(out, event{
 			Kind: "upcoming", Date: next.Format("2006-01-02"), Tone: "neutral", Importance: 55,
 			Title:  fmt.Sprintf("Habituellement à cette période : %s", g.Label),
-			Detail: fmt.Sprintf("Un prélèvement d'environ %s est généralement observé %s, d'après tes relevés.", euro(g.AvgAmount), relativeDays(days)),
+			Detail: fmt.Sprintf("Un prélèvement d'environ %s est généralement observé %s, d'après tes relevés.", Euro(g.AvgAmount), relativeDays(days)),
 			Amount: -g.AvgAmount,
 		})
 	}
@@ -176,26 +181,23 @@ func (s *Server) eventsUpcoming(owner int64) []event {
 
 // eventsWins : les victoires. Contrepoids délibéré à la détection d'anomalies —
 // thémis célèbre aussi les réussites, pas seulement les problèmes.
-func (s *Server) eventsWins(owner int64) []event {
+func (s *Server) eventsWins(owner int64, month string) []event {
 	out := []event{}
 	today := time.Now().Format("2006-01-02")
 
 	// Victoire 1 : le mois de référence dégage un solde positif.
-	var ref string
-	if s.DB.QueryRow(`SELECT to_char(max(tx_date),'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref); ref != "" {
-		var income, spent float64
-		s.DB.QueryRow(`
-			SELECT COALESCE(SUM(amount) FILTER (WHERE amount>0),0),
-			       COALESCE(-SUM(amount) FILTER (WHERE amount<0),0)
-			FROM transactions WHERE owner_id=$1 AND to_char(tx_date,'YYYY-MM')=$2`+notTransfer, owner, ref).Scan(&income, &spent)
-		if income > 0 && income > spent {
-			out = append(out, event{
-				Kind: "win", Date: today, Tone: "positive", Importance: 60,
-				Title:  "Mois dans le vert",
-				Detail: fmt.Sprintf("Tu as mis de côté %s ce mois-ci. Beau travail.", euro(income-spent)),
-				Amount: income - spent,
-			})
-		}
+	var income, spent float64
+	s.DB.QueryRow(`
+		SELECT COALESCE(SUM(amount) FILTER (WHERE amount>0),0),
+		       COALESCE(-SUM(amount) FILTER (WHERE amount<0),0)
+		FROM transactions WHERE owner_id=$1 AND to_char(tx_date,'YYYY-MM')=$2`+notTransfer, owner, month).Scan(&income, &spent)
+	if income > 0 && income > spent {
+		out = append(out, event{
+			Kind: "win", Date: today, Tone: "positive", Importance: 60,
+			Title:  "Mois dans le vert",
+			Detail: fmt.Sprintf("Tu as mis de côté %s ce mois-ci. Beau travail.", Euro(income-spent)),
+			Amount: income - spent,
+		})
 	}
 
 	// Victoire 2 : tous les budgets du mois sont respectés (aucun dépassement).
@@ -206,8 +208,8 @@ func (s *Server) eventsWins(owner int64) []event {
 			SELECT COALESCE(-SUM(t.amount) FILTER (WHERE t.amount<0),0)
 			FROM transactions t
 			WHERE t.owner_id=$1 AND t.domain_id=b.domain_id
-			  AND to_char(t.tx_date,'YYYY-MM')=to_char(now(),'YYYY-MM')
-		) > b.monthly_limit`, owner).Scan(&overBudget)
+			  AND to_char(t.tx_date,'YYYY-MM')=$2
+		) > b.monthly_limit`, owner, month).Scan(&overBudget)
 	var totalBudgets int
 	s.DB.QueryRow(`SELECT count(*) FROM budgets WHERE owner_id=$1`, owner).Scan(&totalBudgets)
 	if totalBudgets > 0 && overBudget == 0 {

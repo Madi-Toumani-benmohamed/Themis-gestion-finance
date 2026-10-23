@@ -487,6 +487,16 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	}
 
 	systemPrompt := buildSystemPrompt()
+
+	// Enrichir le prompt système avec les connaissances du graphe si dispo.
+	memCtx := ""
+	if mem := s.getMemory(); mem != nil && mem.IsReady(ctx) {
+		memCtx = mem.SearchFacts(ctx, fmt.Sprint(owner), lastUser, 5)
+	}
+	if memCtx != "" {
+		systemPrompt += "\n" + memCtx
+	}
+
 	contextMsgs := buildContextMessages(history, lastUser)
 	toolsDef, _ := json.Marshal([]map[string]string{
 		{"name": "search_transactions", "description": "Rechercher des transactions par période et critère"},

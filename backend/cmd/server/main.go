@@ -14,6 +14,7 @@ import (
 	"themis/internal/config"
 	"themis/internal/db"
 	"themis/internal/llm"
+	"themis/internal/memory"
 	"themis/internal/parser"
 )
 
@@ -31,6 +32,7 @@ func main() {
 
 	srv := &api.Server{DB: database, Cfg: cfg}
 	srv.BackfillDisplayLabels() // noms d'affichage : rattrapage de l'existant
+	srv.Memory = memory.New(memory.Load())
 	mux := http.NewServeMux()
 	mux.Handle("/api/", srv.Router())
 
