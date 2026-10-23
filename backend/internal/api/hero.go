@@ -35,6 +35,13 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info, _ := s.getPeriodInfo(owner, ref.String)
+	complete := !info.IsCurrent && s.heroMonthCovered(owner, ref.String)
+	// Comparaisons uniquement si les trois mois de référence sont documentés.
+	comparable := complete
+	start, _ := time.Parse("2006-01", ref.String)
+	for i := 1; i <= 3 && comparable; i++ {
+		comparable = s.heroMonthCovered(owner, start.AddDate(0, -i, 0).Format("2006-01"))
+	}
 
 	// Revenus / dépenses du mois (transferts exclus) — période observée.
 	var income, spent float64
@@ -63,7 +70,18 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	// Dépenses inhabituelles : le même détecteur que l'onglet anomalies.
 	anomalyCount, newRecurring := 0, 0
 	if rec, err := computeRecurring(s.DB, owner, 2); err == nil {
-		for _, a := range detectAnomalies(rec) {
+		// Le détecteur travaille sur les dernières opérations : ne pas attribuer
+		// à un mois historique des signaux apparus après celui-ci.
+		selected := []recurring{}
+		for _, g := range rec {
+			if len(g.LastDate) >= 7 && g.LastDate[:7] == ref.String {
+				selected = append(selected, g)
+			}
+		}
+		for _, a := range detectAnomalies(selected) {
+			if a.Kind == "subscription_gone" {
+				continue
+			}
 			if a.Kind == "new_recurring" {
 				newRecurring++
 			} else {
@@ -75,7 +93,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	// Catégorie en forte hausse vs sa moyenne historique (>30 % et >40 €) — seulement pour mois complet.
 	var upName string
 	var upCur, upAvg float64
-	if !info.IsCurrent {
+	if comparable {
 		q = `WITH cur AS (
 				SELECT d.name, -SUM(t.amount) AS dep
 				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
@@ -84,7 +102,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 			), hist AS (
 				SELECT d.name, -SUM(t.amount) / GREATEST(COUNT(DISTINCT to_char(t.tx_date,'YYYY-MM')),1) AS avg_dep
 				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
-				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') < $1
+				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') < $1 AND t.tx_date >= ($1 || '-01')::date - interval '3 months'
 				GROUP BY d.name
 			)
 			SELECT cur.name, cur.dep, hist.avg_dep FROM cur JOIN hist ON hist.name = cur.name
@@ -96,11 +114,11 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	// Baisse de revenus vs la moyenne des 3 mois précédents (>25 %) — seulement pour mois complet.
 	var prevIncome sql.NullFloat64
 	var incomeDrop bool
-	if !info.IsCurrent {
+	if comparable {
 		q = `SELECT AVG(m.inc) FROM (
 				SELECT to_char(tx_date,'YYYY-MM') AS mth, SUM(amount) FILTER (WHERE amount > 0) AS inc
 				FROM transactions
-				WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') < $1` + notTransfer + `
+				WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') < $1 AND tx_date >= ($1 || '-01')::date - interval '3 months'` + notTransfer + `
 				GROUP BY 1 ORDER BY 1 DESC LIMIT 3
 			) m`
 		_ = s.DB.QueryRow(q, ref.String, owner).Scan(&prevIncome)
@@ -109,23 +127,12 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 
 	// ---- Composition de la synthèse ----
 	points := []heroPoint{}
-	if net > 0 {
-		points = append(points, heroPoint{Kind: "savings", Tone: "positive",
-			Text: fmt.Sprintf("Tu as épargné %s sur la période.", Euro(net))})
-	} else if net < 0 {
-		tone := "attention"
-		if info.IsCurrent {
-			tone = "neutral" // déficit en cours de mois n'est pas une alerte
-		}
-		points = append(points, heroPoint{Kind: "deficit", Tone: tone,
-			Text: fmt.Sprintf("Solde à date : déficitaire de %s.", Euro(-net))})
-	}
 	if totalBudgets > 0 {
 		if overBudgets == 0 {
 			points = append(points, heroPoint{Kind: "budgets_ok", Tone: "positive",
-				Text: "Tous tes budgets sont respectés."})
+				Text: "Aucun dépassement budgétaire dans les flux enregistrés."})
 		} else {
-			// Si mois courant, ne pas alerter sur budget dépassé (projection)
+			// Le dépassement est observé, indépendamment du calendrier de salaire.
 			tone := "alert"
 			if info.IsCurrent {
 				tone = "attention"
@@ -140,7 +147,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 			plural = "s"
 		}
 		points = append(points, heroPoint{Kind: "anomalies", Tone: "attention",
-			Text: fmt.Sprintf("%d dépense%s inhabituelle%s détectée%s.", anomalyCount, plural, plural, plural)})
+			Text: fmt.Sprintf("%d dépense%s potentiellement inhabituelle%s à examiner.", anomalyCount, plural, plural)})
 	}
 	if newRecurring > 0 {
 		if newRecurring == 1 {
@@ -160,49 +167,30 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 			Text: fmt.Sprintf("Revenus en baisse de %.0f %% par rapport aux mois précédents.", (1-income/prevIncome.Float64)*100)})
 	}
 
-	// Ton global et phrase de situation : le pire état l'emporte.
-	tone, headline := "sain", "Situation financière saine."
-	hasAlert := overBudgets > 0 && !info.IsCurrent || incomeDrop
-	hasAttention := anomalyCount > 0 || upName != "" || (net < 0 && !info.IsCurrent)
-	switch {
-	case hasAlert:
-		tone, headline = "alerte", "Situation sous tension."
-	case hasAttention:
-		tone, headline = "attention", "Situation correcte, quelques points à surveiller."
-	}
-
-	// Adapter le message pour le mois courant.
-	if info.IsCurrent {
-		headline = fmt.Sprintf("Au %d %s : %s de dépenses, %s de revenus (mois en cours).",
-			info.DaysObserved, monthNameFr(ref.String), Euro(spent), Euro(income))
-		if net < 0 {
-			headline += " Le solde est négatif à ce jour, mais le mois n'est pas terminé."
-		}
-		tone = "neutral"
-	} else if info.Status == "incomplete" {
-		headline = fmt.Sprintf("Bilan %s (données sur %d/%d jours) : %s dépenses, %s revenus.",
-			monthNameFr(ref.String), info.DaysObserved, info.DaysInMonth, Euro(spent), Euro(income))
-		headline += " Ce mois semble incomplet — vérifie les relevés manquants."
-	}
+	tone, headline := heroDiagnosis(info.IsCurrent, complete, net, points)
 
 	// Période couverte.
 	var lastTx, lastImport sql.NullString
-	_ = s.DB.QueryRow(`SELECT max(tx_date)::text FROM transactions WHERE owner_id = $1`, owner).Scan(&lastTx)
+	_ = s.DB.QueryRow(`SELECT max(tx_date)::text FROM transactions WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') = $2`, owner, ref.String).Scan(&lastTx)
 	_ = s.DB.QueryRow(`SELECT max(uploaded_at)::date::text FROM statements WHERE owner_id = $1`, owner).Scan(&lastImport)
 	stale := false
-	if lastTx.Valid {
+	if info.IsCurrent && lastTx.Valid {
 		if d, err := time.Parse("2006-01-02", lastTx.String); err == nil {
 			stale = time.Since(d) > 35*24*time.Hour
 		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"available": true,
-		"month":     ref.String,
-		"period":    info,
-		"tone":      tone,
-		"headline":  headline,
-		"points":    points,
+		"available":       true,
+		"month":           ref.String,
+		"income":          income,
+		"expenses":        spent,
+		"net":             net,
+		"period_complete": complete,
+		"period":          info,
+		"tone":            tone,
+		"headline":        headline,
+		"points":          points,
 		"coverage": map[string]any{
 			"last_tx":     lastTx.String,
 			"last_import": lastImport.String,
