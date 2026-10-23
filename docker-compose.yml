@@ -40,16 +40,13 @@ services:
     environment:
       FALKORDB_HOST: falkordb
       FALKORDB_PORT: 6379
-      OLLAMA_URL: http://ollama:11434/v1
+      OLLAMA_URL: ${REMOTE_OLLAMA_BASE_URL:-http://ollama:11434}/v1
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
       OLLAMA_EMBED_MODEL: nomic-embed-text
       KG_SERVICE_PORT: 8100
     depends_on:
       falkordb:
         condition: service_healthy
-      ollama:
-        condition: service_started
-    profiles: ["local-ai"]
     ports:
       - "8100:8100"
 
@@ -61,7 +58,7 @@ services:
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_URL: ${REMOTE_OLLAMA_BASE_URL:-${OLLAMA_URL:-}}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:14b}
       # Knowledge Graph
       MEMORY_SERVICE_URL: http://knowledge-graph:8100
