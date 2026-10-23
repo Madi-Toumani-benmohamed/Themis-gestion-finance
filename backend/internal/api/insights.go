@@ -53,7 +53,7 @@ func (s *Server) listInsights(w http.ResponseWriter, r *http.Request) {
 	if err := s.DB.QueryRow(`SELECT count(*) FROM transactions WHERE domain_id IS NULL AND owner_id = $1`, owner).Scan(&uncat); err == nil && uncat > 0 {
 		out = append(out, insight{
 			Kind: "uncategorized", Severity: "info",
-			Title: fmt.Sprintf("%d transaction%s à trier", uncat, plural(uncat)),
+			Title: fmt.Sprintf("%d transaction%s à trier", uncat, Plural(uncat)),
 			Detail: "Onglet Transactions — ou laisse l'IA les classer si elle est configurée.",
 			Count: uncat,
 		})
@@ -137,13 +137,6 @@ func (s *Server) listInsights(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, out)
-}
-
-func plural(n int) string {
-	if n > 1 {
-		return "s"
-	}
-	return ""
 }
 
 func shorten(s string, n int) string {

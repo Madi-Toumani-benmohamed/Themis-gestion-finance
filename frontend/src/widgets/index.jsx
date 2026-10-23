@@ -106,7 +106,11 @@ const gridProps = (c) => ({ stroke: c.LINE, strokeOpacity: 0.5, vertical: false 
 // changent — jamais quand la fenêtre de la brosse bouge. C'est la clé pour que
 // la brosse reste où on la pose : si le graphe re-render, Recharts réinitialise
 // la brosse. On isole donc le résumé (qui réagit au déplacement) du graphe.
-const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush }) {
+const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, currentMonthIdx, selectedMonthIdx }) {
+  // Ligne verticale pour le mois courant
+  const currentMonthLabel = currentMonthIdx >= 0 ? all[currentMonthIdx]?.label : null
+  // Ligne verticale pour le mois sélectionné (si différent)
+  const selectedMonthLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? all[selectedMonthIdx]?.label : null
   return (
     <ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={all} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -119,6 +123,12 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush }) {
         <YAxis {...axisY(c, 40)} />
         <Tooltip content={<ChartTooltip colors={c} />} />
         <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
+        {currentMonthIdx >= 0 && (
+          <ReferenceLine x={currentMonthLabel} stroke={c.ACCENT} strokeOpacity={0.4} strokeDasharray="4 4" label={{ position: 'top', offset: -10, fill: c.ACCENT, fontSize: 10, value: 'Mois en cours' }} />
+        )}
+        {selectedMonthLabel && (
+          <ReferenceLine x={selectedMonthLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
+        )}
         <Area animationDuration={0} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill="url(#grad-income)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
         <Area animationDuration={0} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill="url(#grad-expenses)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
         <Line animationDuration={0} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
@@ -134,16 +144,23 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush }) {
 }, (prev, next) =>
   prev.all === next.all &&
   prev.initialStart === next.initialStart &&
+  prev.currentMonthIdx === next.currentMonthIdx &&
+  prev.selectedMonthIdx === next.selectedMonthIdx &&
   prev.c.GREEN === next.c.GREEN &&   // re-render seulement si le thème change
   prev.c.PAPER === next.c.PAPER
 )
 
-export function FluxWidget({ data, config }) {
+export function FluxWidget({ data, config, selectedMonth }) {
   // `all` DOIT garder une référence stable : sinon Recharts croit que les
   // données ont changé et réinitialise la brosse.
   const all = useMemo(() => (data.monthly ?? []).map((m) => ({
     ...m, net: +(m.income - m.expenses).toFixed(2), label: monthLabel(m.month),
   })), [data.monthly])
+
+  // Identifier le mois courant
+  const currentMonthIdx = all.findIndex(m => m.is_current || m.status === 'current')
+  // Identifier le mois sélectionné (si différent du mois courant)
+  const selectedMonthIdx = selectedMonth ? all.findIndex(m => m.month === selectedMonth) : -1
 
   const hasBrush = all.length > 14
   const initialStart = useMemo(
@@ -177,15 +194,21 @@ export function FluxWidget({ data, config }) {
     ? `${all[from]?.label} → ${all[to]?.label} · ${to - from + 1} mois`
     : `${all.length} mois`
 
+  // Note pour la moyenne si le mois courant est dans la fenêtre
+  const windowHasCurrent = currentMonthIdx >= from && currentMonthIdx <= to
+  const avgNote = windowHasCurrent && currentMonthIdx === all.length - 1
+    ? ' (incl. mois en cours partiel)'
+    : ''
+
   return (
     <div className="flux-widget">
       <div className="flux-head">
         <span className="flux-span">{span}</span>
         {hasBrush && <span className="flux-hint">tire la brosse pour zoomer</span>}
       </div>
-      <FluxChart all={all} c={c} initialStart={initialStart} onBrush={hasBrush ? onBrush : undefined} />
+      <FluxChart all={all} c={c} initialStart={initialStart} onBrush={hasBrush ? onBrush : undefined} currentMonthIdx={currentMonthIdx} selectedMonthIdx={selectedMonthIdx} />
       <div className="flux-foot">
-        Moyenne sur la fenêtre <b>{eur(avg('income'))}</b> de revenus · <b>{eur(avg('expenses'))}</b> de dépenses
+        Moyenne sur la fenêtre <b>{eur(avg('income'))}</b> de revenus · <b>{eur(avg('expenses'))}</b> de dépenses{avgNote}
       </div>
     </div>
   )
@@ -194,16 +217,21 @@ export function FluxWidget({ data, config }) {
 /* ------------------------------------------------------------------ */
 /* Widget : solde net cumulé                                           */
 /* ------------------------------------------------------------------ */
-export function SoldeWidget({ data, config }) {
+export function SoldeWidget({ data, config, selectedMonth }) {
+  const monthly = (data.monthly ?? []).slice(-(config.months || 12))
+  const currentMonthIdx = monthly.findIndex(m => m.is_current || m.status === 'current')
+  const selectedMonthIdx = selectedMonth ? monthly.findIndex(m => m.month === selectedMonth) : -1
   const series = useMemo(() => {
     let cum = 0
-    return (data.monthly ?? []).slice(-(config.months || 12)).map((m) => {
+    return monthly.map((m) => {
       cum += m.income - m.expenses
       return { label: monthLabel(m.month), cumul: +cum.toFixed(2) }
     })
   }, [data, config.months])
   if (series.length === 0) return <Empty />
   const c = readColors()
+  const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
+  const selectedLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? series[selectedMonthIdx]?.label : null
   return (
     <ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -213,6 +241,12 @@ export function SoldeWidget({ data, config }) {
         <YAxis {...axisY(c, 44)} />
         <Tooltip content={<ChartTooltip colors={c} />} />
         <ReferenceLine y={0} stroke={c.MUTED} strokeOpacity={0.4} strokeDasharray="4 4" />
+        {currentMonthIdx >= 0 && currentMonthIdx === series.length - 1 && (
+          <ReferenceLine x={currentLabel} stroke={c.ACCENT} strokeOpacity={0.4} strokeDasharray="4 4" label={{ position: 'top', offset: -10, fill: c.ACCENT, fontSize: 10, value: 'Mois en cours' }} />
+        )}
+        {selectedLabel && (
+          <ReferenceLine x={selectedLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
+        )}
         <Area animationDuration={700} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill="url(#grad-cumul)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
       </ComposedChart>
     </ResponsiveContainer>
@@ -220,11 +254,15 @@ export function SoldeWidget({ data, config }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Widget : donut des dépenses par catégorie (mois le plus récent)     */
+/* Widget : donut des dépenses par catégorie (mois sélectionné)        */
 /* ------------------------------------------------------------------ */
-export function CategoriesWidget({ data }) {
+export function CategoriesWidget({ data, selectedMonth }) {
   const [active, setActive] = useState(null)
-  const month = data.monthly?.at(-1)?.month
+  // Si un mois est sélectionné, on l'utilise ; sinon le dernier mois disponible
+  const month = selectedMonth || data.monthly?.at(-1)?.month
+  const cur = month ? data.monthly?.find((m) => m.month === month) : data.monthly?.at(-1)
+  const isCurrent = cur?.is_current || cur?.status === 'current'
+  const curStatus = cur?.status === 'incomplete'
   const slices = (data.by_category ?? []).filter((c) => c.month === month && c.total > 0)
   const total = slices.reduce((s, c) => s + c.total, 0)
   if (slices.length === 0) return <Empty />
@@ -261,7 +299,11 @@ export function CategoriesWidget({ data }) {
       </ResponsiveContainer>
       <div className="donut-center">
         <div className="donut-total">{eur(active !== null ? slices[active].total : total)}</div>
-        <div className="donut-label">{active !== null ? slices[active].category : monthLabel(month)}</div>
+        <div className="donut-label">
+          {active !== null ? slices[active].category : monthLabel(month)}
+          {isCurrent && <span className="donut-period-badge">Mois en cours</span>}
+          {curStatus && <span className="donut-period-badge donut-period-incomplete">Incomplet</span>}
+        </div>
       </div>
     </div>
   )
@@ -270,19 +312,23 @@ export function CategoriesWidget({ data }) {
 /* ------------------------------------------------------------------ */
 /* Widget : tendance d'une catégorie                                   */
 /* ------------------------------------------------------------------ */
-export function CategoryTrendWidget({ data, config, editing, onConfig }) {
+export function CategoryTrendWidget({ data, config, editing, onConfig, selectedMonth }) {
   const names = useMemo(
     () => [...new Set((data.by_category ?? []).map((c) => c.category))].sort(),
     [data],
   )
   const cat = config.category || names[0]
-  const months = (data.monthly ?? []).slice(-(config.months || 12)).map((m) => m.month)
+  const months = (data.monthly ?? []).slice(-(config.months || 12))
+  const currentMonthIdx = months.findIndex(m => m.is_current || m.status === 'current')
+  const selectedMonthIdx = selectedMonth ? months.findIndex(m => m.month === selectedMonth) : -1
   const series = months.map((m) => ({
-    label: monthLabel(m),
-    total: +((data.by_category ?? []).find((c) => c.month === m && c.category === cat)?.total ?? 0).toFixed(2),
+    label: monthLabel(m.month),
+    total: +((data.by_category ?? []).find((c) => c.month === m.month && c.category === cat)?.total ?? 0).toFixed(2),
   }))
   const color = (data.by_category ?? []).find((c) => c.category === cat)?.color || GREEN
   const cc = readColors()
+  const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
+  const selectedLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? series[selectedMonthIdx]?.label : null
   return (
     <div>
       <div className="widget-config">
@@ -298,6 +344,12 @@ export function CategoryTrendWidget({ data, config, editing, onConfig }) {
             <XAxis dataKey="label" {...axisX(cc)} />
             <YAxis {...axisY(cc, 40)} />
             <Tooltip content={<ChartTooltip colors={cc} />} cursor={{ fill: cc.LINE, opacity: 0.3, radius: 6 }} />
+            {currentMonthIdx >= 0 && currentMonthIdx === series.length - 1 && (
+              <ReferenceLine x={currentLabel} stroke={cc.ACCENT} strokeOpacity={0.4} strokeDasharray="4 4" label={{ position: 'top', offset: -10, fill: cc.ACCENT, fontSize: 10, value: 'Mois en cours' }} />
+            )}
+            {selectedLabel && (
+              <ReferenceLine x={selectedLabel} stroke={cc.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: cc.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
+            )}
             <Bar animationDuration={600} dataKey="total" name={cat} fill="url(#grad-bar)" maxBarSize={34} radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -307,23 +359,41 @@ export function CategoryTrendWidget({ data, config, editing, onConfig }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Widget : cartes KPI du mois                                         */
+/* Widget : cartes KPI du mois sélectionné                             */
 /* ------------------------------------------------------------------ */
-export function KpiWidget({ data }) {
-  const cur = data.monthly?.at(-1)
-  const prev = data.monthly?.at(-2)
+export function KpiWidget({ data, selectedMonth }) {
+  // Si un mois est sélectionné, on le cherche ; sinon le dernier mois disponible
+  const month = selectedMonth || data.monthly?.at(-1)?.month
+  const cur = month ? data.monthly?.find((m) => m.month === month) : data.monthly?.at(-1)
+  const prevIdx = cur ? data.monthly?.indexOf(cur) - 1 : -1
+  const prev = prevIdx >= 0 ? data.monthly[prevIdx] : undefined
   if (!cur) return <Empty />
   const net = cur.income - cur.expenses
   const savings = cur.income > 0 ? (net / cur.income) * 100 : null
-  const delta = (a, b) => (b ? ((a - b) / b) * 100 : null)
+
+  // Ne pas calculer de delta si le mois courant est incomplet
+  // ou si le mois précédent est incomplet.
+  const isCurrent = cur.is_current || cur.status === 'current'
+  const prevIncomplete = prev && (prev.status === 'incomplete' || prev.is_current)
+
+  const delta = (a, b) => (!isCurrent && !prevIncomplete && b ? ((a - b) / b) * 100 : null)
+
   const kpis = [
     { label: 'Revenus', num: cur.income, fmt: eur, d: delta(cur.income, prev?.income), goodUp: true },
     { label: 'Dépenses', num: cur.expenses, fmt: eur, d: delta(cur.expenses, prev?.expenses), goodUp: false },
     { label: 'Net', num: net, fmt: eur, cls: net >= 0 ? 'credit' : 'debit' },
     { label: "Taux d'épargne", num: savings, fmt: (v) => (v === null ? '—' : `${v.toFixed(0)} %`), cls: savings >= 0 ? 'credit' : 'debit' },
   ]
+
+  const periodBadge = isCurrent ? (
+    <span className="kpi-period-badge">Mois en cours — {cur.days_observed}/{cur.days_in_month} jours</span>
+  ) : cur.status === 'incomplete' ? (
+    <span className="kpi-period-badge kpi-period-incomplete">Incomplet — {cur.days_observed}/{cur.days_in_month} jours</span>
+  ) : null
+
   return (
     <div className="kpi-grid">
+      {periodBadge && <div className="kpi-period-row">{periodBadge}</div>}
       {kpis.map((k) => (
         <div className="kpi-card" key={k.label}>
           <div className="label">{k.label}</div>
@@ -342,29 +412,57 @@ export function KpiWidget({ data }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Widget : top dépenses du mois                                       */
+/* Widget : top dépenses du mois sélectionné                           */
 /* ------------------------------------------------------------------ */
-export function TopWidget({ config }) {
+export function TopWidget({ config, selectedMonth, data }) {
   const [rows, setRows] = useState(null)
+  const [periodInfo, setPeriodInfo] = useState(null)
   useEffect(() => {
+    let cancelled = false
     // Les transferts internes (virements entre comptes personnels) ne sont
     // pas des dépenses : on les exclut du top.
-    Promise.all([api.summary(1), api.categories()]).then(([d, cats]) => {
-      const month = d.monthly?.at(-1)?.month
-      if (!month) return setRows([])
+    const now = new Date()
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const monthToUse = selectedMonth || data?.monthly?.at(-1)?.month || currentMonthStr
+
+    const cur = data?.monthly?.find((m) => m.month === monthToUse) || data?.monthly?.at(-1)
+    if (!cur) {
+      if (!cancelled) {
+        setRows([])
+        setPeriodInfo(null)
+      }
+      return
+    }
+    if (!cancelled) {
+      setPeriodInfo({ isCurrent: cur.is_current || cur.status === 'current', incomplete: cur.status === 'incomplete' })
+    }
+
+    api.categories().then((cats) => {
+      if (cancelled) return
       const transferIds = new Set((cats || []).filter((c) => c.is_transfer).map((c) => c.id))
-      api.transactions({ month }).then((txs) => {
+      api.transactions({ month: monthToUse }).then((txs) => {
+        if (cancelled) return
         setRows(txs.filter((t) => t.amount < 0 && !transferIds.has(t.domain_id))
           .sort((a, b) => a.amount - b.amount)
           .slice(0, config.count || 5))
+      }).catch(() => {
+        if (!cancelled) setRows([])
       })
-    }).catch(() => setRows([]))
-  }, [config.count])
+    }).catch(() => {
+      if (!cancelled) setRows([])
+    })
+    return () => { cancelled = true }
+  }, [config.count, selectedMonth, data?.monthly?.length])
   if (rows === null) return <Loading />
   if (rows.length === 0) return <Empty />
   const max = -rows[0].amount
   return (
     <div className="top-list">
+      {(periodInfo?.isCurrent || periodInfo?.incomplete) && (
+        <div className="top-period-badge">
+          {periodInfo.isCurrent ? `Mois en cours` : `Incomplet`}
+        </div>
+      )}
       {rows.map((t) => (
         <div className="top-row" key={t.id}>
           <div className="top-bar" style={{ width: `${(-t.amount / max) * 100}%` }} />
@@ -379,9 +477,9 @@ export function TopWidget({ config }) {
 /* ------------------------------------------------------------------ */
 /* Widget : budgets (mini-jauges)                                      */
 /* ------------------------------------------------------------------ */
-export function BudgetsWidget() {
+export function BudgetsWidget({ selectedMonth }) {
   const [budgets, setBudgets] = useState(null)
-  useEffect(() => { api.budgets().then(setBudgets).catch(() => setBudgets([])) }, [])
+  useEffect(() => { api.budgets(selectedMonth).then(setBudgets).catch(() => setBudgets([])) }, [selectedMonth])
   if (budgets === null) return <Loading />
   if (budgets.length === 0) return <Empty text="Aucun budget — onglet Budgets pour en créer." />
   return (
@@ -436,11 +534,11 @@ const Loading = () => <div className="widget-empty"><span className="spinner" />
 /* ------------------------------------------------------------------ */
 /* Registre                                                            */
 /* ------------------------------------------------------------------ */
-export function AttentionWidget({ onNavigate }) {
+export function AttentionWidget({ onNavigate, selectedMonth }) {
   const [items, setItems] = useState(null)
   useEffect(() => {
-    api.anomalies().then((d) => setItems(d.anomalies || [])).catch(() => setItems([]))
-  }, [])
+    api.anomalies(selectedMonth).then((d) => setItems(d.anomalies || [])).catch(() => setItems([]))
+  }, [selectedMonth])
   if (items === null) return <Loading />
   if (items.length === 0) return <Empty text="Rien à signaler — aucune anomalie détectée." />
   const icon = { subscription_up: '↗', unusual: '!', new_recurring: '+', subscription_gone: '×' }

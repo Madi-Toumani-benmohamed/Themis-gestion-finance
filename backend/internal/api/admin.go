@@ -13,6 +13,7 @@ import (
 
 	"themis/internal/config"
 	"themis/internal/llm"
+	"themis/internal/memory"
 )
 
 // ---------- Configuration IA modifiable à chaud ----------
@@ -113,6 +114,9 @@ func (s *Server) getLLM() llm.Client {
 	defer s.ai.mu.RUnlock()
 	return s.ai.client
 }
+
+// getMemory retourne le client knowledge graph, ou nil s'il n'est pas configuré.
+func (s *Server) getMemory() *memory.Client { return s.Memory }
 
 // aiContext renvoie les instructions personnalisées de l'utilisateur (peut être
 // vide), APRÈS sanitisation contre l'injection de prompt. Utilisé pour enrichir
@@ -275,7 +279,7 @@ func (s *Server) adminTestAI(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "detail": "aucun fournisseur configuré"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), llm.TestTimeout())
 	defer cancel()
 
 	if o, ok := client.(*llm.Ollama); ok {

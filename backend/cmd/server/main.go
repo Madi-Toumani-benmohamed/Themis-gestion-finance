@@ -14,6 +14,7 @@ import (
 	"themis/internal/config"
 	"themis/internal/db"
 	"themis/internal/llm"
+	"themis/internal/memory"
 	"themis/internal/parser"
 )
 
@@ -31,6 +32,7 @@ func main() {
 
 	srv := &api.Server{DB: database, Cfg: cfg}
 	srv.BackfillDisplayLabels() // noms d'affichage : rattrapage de l'existant
+	srv.Memory = memory.New(memory.Load())
 	mux := http.NewServeMux()
 	mux.Handle("/api/", srv.Router())
 
@@ -62,6 +64,7 @@ func main() {
 		log.Printf("ATTENTION — OCR indisponible : %s ; les relevés sans couche texte (Crédit Agricole…) nécessiteront ANTHROPIC_API_KEY", detail)
 	}
 	srv.InitAI() // env, ou config admin persistée en base si présente
+	llm.ConfigTimeouts(cfg)
 	srv.StartSessionCleanup()
 	if o, ok := srv.GetLLMForCheck().(*llm.Ollama); ok {
 		if err := o.Ping(context.Background()); err != nil {

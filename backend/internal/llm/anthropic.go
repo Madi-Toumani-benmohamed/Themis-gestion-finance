@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 const anthropicURL = "https://api.anthropic.com/v1/messages"
@@ -55,7 +54,7 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, maxTokens
 	req.Header.Set("x-api-key", a.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: cloudTimeout()}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err

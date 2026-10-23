@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"themis/internal/llm"
 )
@@ -135,7 +134,7 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 			fmt.Fprintf(&b, "id=%d | %.2f € | %s\n", t.ID, t.Amount, t.Label)
 		}
 
-		callCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		callCtx, cancel := context.WithTimeout(ctx, llm.CategorizeTimeout())
 		raw, err := client.Complete(callCtx, enrichSystem, b.String(), 4000, true)
 		cancel()
 		if err != nil {

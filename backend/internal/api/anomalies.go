@@ -57,7 +57,21 @@ var noiseLabels = []string{
 // inhabituellement élevées, abonnements disparus. Tout est déterministe et
 // prudent : mieux vaut manquer un signal que crier au loup à tort.
 func (s *Server) anomalies(w http.ResponseWriter, r *http.Request) {
-	rec, err := computeRecurring(s.DB, s.ownerID(r), 2)
+	owner := s.ownerID(r)
+
+	// Mois de référence : paramètre 'month' (YYYY-MM) ou mois le plus récent contenant des transactions.
+	month := r.URL.Query().Get("month")
+	var ref string
+	if month != "" {
+		ref = month
+	} else if err := s.DB.QueryRow(`SELECT to_char(max(tx_date), 'YYYY-MM') FROM transactions WHERE owner_id = $1`, owner).Scan(&ref); err != nil || ref == "" {
+		writeJSON(w, http.StatusOK, map[string]any{"anomalies": []anomaly{}, "count": 0, "period": map[string]any{"month": "", "status": "none"}})
+		return
+	}
+
+	info, _ := s.getPeriodInfo(owner, ref)
+
+	rec, err := computeRecurring(s.DB, owner, 2)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -72,7 +86,7 @@ func (s *Server) anomalies(w http.ResponseWriter, r *http.Request) {
 			out = kept
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"anomalies": out, "count": len(out)})
+	writeJSON(w, http.StatusOK, map[string]any{"anomalies": out, "count": len(out), "period": info})
 }
 
 // aiFilterAnomalies demande au modèle quels signaux méritent l'attention. Rend
@@ -165,7 +179,7 @@ func detectAnomalies(rec []recurring) []anomaly {
 				MerchantKind: g.MerchantKind,
 				Kind:         "subscription_up", Severity: "warn",
 				Title:  fmt.Sprintf("%s a augmenté", g.Label),
-				Detail: fmt.Sprintf("%s → %s par mois (+%.0f %%).", euro(prev), euro(last), pct),
+				Detail: fmt.Sprintf("%s → %s par mois (+%.0f %%).", Euro(prev), Euro(last), pct),
 				Amount: -last, Label: g.Label,
 			})
 			seen[g.Label] = true
@@ -180,7 +194,7 @@ func detectAnomalies(rec []recurring) []anomaly {
 				MerchantKind: g.MerchantKind,
 				Kind:         "new_recurring", Severity: "info",
 				Title:  fmt.Sprintf("Nouveau prélèvement régulier : %s", g.Label),
-				Detail: fmt.Sprintf("Un paiement récurrent semble apparaître : %s par mois depuis %d mois.", euro(last), len(g.Months)),
+				Detail: fmt.Sprintf("Un paiement récurrent semble apparaître : %s par mois depuis %d mois.", Euro(last), len(g.Months)),
 				Amount: -last, Label: g.Label,
 			})
 			seen[g.Label] = true
@@ -194,7 +208,7 @@ func detectAnomalies(rec []recurring) []anomaly {
 				MerchantKind: g.MerchantKind,
 				Kind:         "unusual", Severity: "warn",
 				Title:  fmt.Sprintf("Dépense inhabituelle : %s", g.Label),
-				Detail: fmt.Sprintf("%s cette fois, soit %.0f %% au-dessus de ta moyenne habituelle (%s).", euro(last), (last-g.AvgAmount)/g.AvgAmount*100, euro(g.AvgAmount)),
+				Detail: fmt.Sprintf("%s cette fois, soit %.0f %% au-dessus de ta moyenne habituelle (%s).", Euro(last), (last-g.AvgAmount)/g.AvgAmount*100, Euro(g.AvgAmount)),
 				Amount: -last, Label: g.Label,
 			})
 			seen[g.Label] = true
@@ -216,7 +230,7 @@ func detectAnomalies(rec []recurring) []anomaly {
 				MerchantKind: g.MerchantKind,
 				Kind:         "subscription_gone", Severity: "info",
 				Title:  fmt.Sprintf("%s ne prélève plus", g.Label),
-				Detail: fmt.Sprintf("Dernier prélèvement de %s le %s. Résiliation ou incident ?", euro(g.Amount), frDate(g.LastDate)),
+				Detail: fmt.Sprintf("Dernier prélèvement de %s le %s. Résiliation ou incident ?", Euro(g.Amount), frDate(g.LastDate)),
 				Amount: -g.Amount, Label: g.Label,
 			})
 		}
