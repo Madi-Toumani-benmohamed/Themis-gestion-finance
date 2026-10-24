@@ -79,6 +79,8 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /api/budgets", s.upsertBudget)
 	mux.HandleFunc("DELETE /api/budgets/{id}", s.deleteBudget)
 	mux.HandleFunc("GET /api/recurring", s.listRecurring)
+	mux.HandleFunc("GET /api/recurring/review", s.listRecurringReview)
+	mux.HandleFunc("PUT /api/recurring/review/{key}", s.updateRecurringReview)
 	mux.HandleFunc("POST /api/enrich/ai", s.aiEnrich)
 	mux.HandleFunc("GET /api/admin/config", s.adminGetConfig)
 	mux.HandleFunc("PUT /api/admin/config", s.adminPutConfig)
@@ -593,7 +595,17 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 			q += fmt.Sprintf(" AND t.id IN (SELECT tt2.transaction_id FROM transaction_tags tt2 JOIN tags tg2 ON tg2.id = tt2.tag_id WHERE tg2.name = $%d)", len(args))
 		}
 	}
-	q += " GROUP BY t.id ORDER BY t.tx_date DESC, t.id DESC LIMIT 1000"
+	offset := int64(0)
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		var err error
+		offset, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || offset < 0 || offset > 10000000 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("page de sources invalide"))
+			return
+		}
+	}
+	args = append(args, offset)
+	q += fmt.Sprintf(" GROUP BY t.id ORDER BY t.tx_date DESC, t.id DESC LIMIT 1000 OFFSET $%d", len(args))
 
 	rows, err := s.DB.Query(q, args...)
 	if err != nil {

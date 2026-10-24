@@ -49,8 +49,10 @@ func (s *Server) journalFeed(w http.ResponseWriter, r *http.Request) {
 	events := []event{}
 
 	events = append(events, s.eventsFromTransactions(owner, ref)...)
-	events = append(events, s.eventsFromAnomalies(owner)...)
-	events = append(events, s.eventsUpcoming(owner)...)
+	events = append(events, s.eventsFromAnomalies(owner, ref)...)
+	if ref == time.Now().Format("2006-01") {
+		events = append(events, s.eventsUpcoming(owner)...)
+	}
 	events = append(events, s.eventsWins(owner, ref)...)
 
 	// Tri : les faits les plus significatifs en tête (importance), puis, à
@@ -111,8 +113,8 @@ func (s *Server) eventsFromTransactions(owner int64, month string) []event {
 
 // eventsFromAnomalies réutilise le moteur d'anomalies existant : chaque
 // anomalie devient un événement daté d'aujourd'hui (elle vient d'être détectée).
-func (s *Server) eventsFromAnomalies(owner int64) []event {
-	rec, err := computeRecurring(s.DB, owner, 2)
+func (s *Server) eventsFromAnomalies(owner int64, month string) []event {
+	rec, err := computeRecurringForMonth(s.DB, owner, 2, month)
 	if err != nil {
 		return nil
 	}
@@ -157,14 +159,12 @@ func (s *Server) eventsUpcoming(owner int64) []event {
 		if looksLikeNoise(g.Label, g.AvgAmount) {
 			continue
 		}
-		last, err := time.Parse("2006-01-02", g.LastDate)
-		if err != nil {
+		if g.EstimatedNextDate == nil {
 			continue
 		}
-		// Prochaine occurrence estimée = dernière + ~1 mois, ramenée dans le futur.
-		next := last.AddDate(0, 1, 0)
-		for next.Before(now) {
-			next = next.AddDate(0, 1, 0)
+		next, err := time.Parse("2006-01-02", *g.EstimatedNextDate)
+		if err != nil || next.Before(now) {
+			continue
 		}
 		days := int(next.Sub(now).Hours() / 24)
 		if days < 0 || days > 20 {

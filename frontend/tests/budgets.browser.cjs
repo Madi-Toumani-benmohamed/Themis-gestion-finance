@@ -4,6 +4,16 @@ const { AxeBuilder } = require('@axe-core/playwright')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const current = new Date().toISOString().slice(0, 7)
+const shiftMonth = (month, offset) => {
+  const date = new Date(`${month}-01T12:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + offset)
+  return date.toISOString().slice(0, 7)
+}
+const stalePeriod = shiftMonth(current, -2),
+  selectedPeriod = shiftMonth(current, -1)
+const selectedMonthName = new Date(
+  `${selectedPeriod}-01T12:00:00Z`,
+).toLocaleDateString('fr-FR', { month: 'short', timeZone: 'UTC' })
 const categories = [
   { id: 1, name: 'Courses', parent_id: null },
   { id: 2, name: 'Logement', parent_id: null },
@@ -232,11 +242,9 @@ async function main() {
     1,
   )
   const expenseSection = page.locator('.budget-envelopes')
-  const food = expenseSection
-    .locator('.budget-envelope')
-    .filter({
-      has: page.getByRole('heading', { name: 'Courses', exact: true }),
-    })
+  const food = expenseSection.locator('.budget-envelope').filter({
+    has: page.getByRole('heading', { name: 'Courses', exact: true }),
+  })
   // Modify and persist a ceiling; the observed spending remains unchanged.
   await food.getByRole('button', { name: 'Modifier le plafond' }).click()
   await page
@@ -281,14 +289,29 @@ async function main() {
   )
   // Month switch and stale response must never change the selected period.
   const monthInput = page.getByLabel('Mois consulté', { exact: true })
-  slowMonth = '2026-06'
-  await monthInput.fill('2026-06')
-  await monthInput.fill('2026-07')
-  await page.locator('.budget-period').filter({ hasText: 'juil.' }).waitFor()
+  slowMonth = stalePeriod
+  await monthInput.fill(stalePeriod)
+  await page
+    .getByRole('status')
+    .filter({ hasText: 'Chargement des budgets' })
+    .waitFor()
+  await monthInput.fill(selectedPeriod)
+  await page
+    .locator('.budget-period')
+    .filter({ hasText: selectedMonthName })
+    .waitFor()
   await page.waitForTimeout(800)
-  assert.equal(await monthInput.inputValue(), '2026-07')
-  assert.match(await page.locator('.budget-period').innerText(), /juil\./)
-  assert.ok(seen.some((u) => u.includes('/api/recurring/review?month=2026-07')))
+  assert.equal(await monthInput.inputValue(), selectedPeriod)
+  assert.ok(
+    (await page.locator('.budget-period').innerText()).includes(
+      selectedMonthName,
+    ),
+  )
+  assert.ok(
+    seen.some((u) =>
+      u.includes(`/api/recurring/review?month=${selectedPeriod}`),
+    ),
+  )
   // Deterministic economic groups and user review actions.
   for (const label of [
     'Abonnements',
@@ -300,11 +323,9 @@ async function main() {
       await page.getByRole('heading', { name: label, exact: true }).count(),
       1,
     )
-  const netflix = page
-    .locator('.budget-recurrence')
-    .filter({
-      has: page.locator('summary strong').filter({ hasText: 'NETFLIX TEST' }),
-    })
+  const netflix = page.locator('.budget-recurrence').filter({
+    has: page.locator('summary strong').filter({ hasText: 'NETFLIX TEST' }),
+  })
   await netflix.locator('summary').focus()
   await page.keyboard.press('Enter')
   if (!(await netflix.evaluate((el) => el.open)))
@@ -335,6 +356,29 @@ async function main() {
     .getByRole('checkbox', { name: 'Inclure les détections ignorées' })
     .check()
   await netflix.waitFor()
+  const edf = page.locator('.budget-recurrence').filter({
+    has: page.locator('summary strong').filter({ hasText: 'EDF TEST' }),
+  })
+  await edf.locator('summary').click()
+  await edf
+    .getByRole('button', { name: 'Confirmer, corriger ou ignorer' })
+    .click()
+  await page
+    .getByRole('combobox', { name: 'Nature économique', exact: true })
+    .selectOption('variable_recurring')
+  await page
+    .getByRole('button', { name: 'Enregistrer la décision', exact: true })
+    .click()
+  await page
+    .locator('.budget-recurrence-group')
+    .filter({
+      has: page.getByRole('heading', {
+        name: 'Dépenses variables récurrentes',
+        exact: true,
+      }),
+    })
+    .getByText('EDF TEST', { exact: true })
+    .waitFor()
   // Exact budget source drilldown, not a label or overbroad category search.
   const sourceRequest = page.waitForRequest(
     (request) =>
@@ -354,8 +398,98 @@ async function main() {
       (u) =>
         u.includes('/api/transactions?') &&
         u.includes('budget_id=1') &&
-        u.includes('month=2026-07'),
+        u.includes(`month=${selectedPeriod}`),
     ),
+  )
+  await page
+    .locator('.sidebar-nav button')
+    .filter({ hasText: 'Budgets' })
+    .click()
+  await expenseSection.waitFor()
+  await settle()
+  const edfSource = page.locator('.budget-recurrence').filter({
+    has: page.locator('summary strong').filter({ hasText: 'EDF TEST' }),
+  })
+  await edfSource.locator('summary').click()
+  const sourceIDsRequest = page.waitForRequest(
+    (request) =>
+      request.url().includes('/api/transactions?') &&
+      request.url().includes('ids='),
+  )
+  await edfSource
+    .getByRole('button', { name: 'Voir les opérations sources', exact: true })
+    .click()
+  const exactRequest = new URL((await sourceIDsRequest).url())
+  assert.deepEqual(
+    exactRequest.searchParams
+      .get('ids')
+      .split(',')
+      .map(Number)
+      .sort((a, b) => a - b),
+    [101, 102, 103],
+  )
+  assert.ok(
+    exactRequest.searchParams.get('from') &&
+      exactRequest.searchParams.get('to'),
+  )
+  await page
+    .locator('.sidebar-nav button')
+    .filter({ hasText: 'Budgets' })
+    .click()
+  await expenseSection.waitFor()
+  await settle()
+  // Source groups beyond the historical cap remain fully consultable.
+  recurrenceItems = recurrenceItems.map((item) =>
+    item.label === 'EDF TEST'
+      ? {
+          ...item,
+          transaction_ids: Array.from({ length: 1001 }, (_, i) => i + 1),
+          occurrence_count: 1001,
+          average_denominator: 1001,
+        }
+      : item,
+  )
+  await page.getByLabel('Mois consulté', { exact: true }).fill(selectedPeriod)
+  const largeSource = page
+    .locator('.budget-recurrence')
+    .filter({
+      has: page.locator('summary strong').filter({ hasText: 'EDF TEST' }),
+    })
+  await largeSource.locator('summary').click()
+  const firstSourcePage = page.waitForRequest(
+    (request) =>
+      request.url().includes('/api/transactions?') &&
+      new URL(request.url()).searchParams.has('ids'),
+  )
+  await largeSource
+    .getByRole('button', {
+      name: 'Voir les 1001 opérations sources',
+      exact: true,
+    })
+    .click()
+  assert.equal(
+    new URL((await firstSourcePage).url()).searchParams.get('ids').split(',')
+      .length,
+    1000,
+  )
+  const nextSourcePage = page.waitForRequest(
+    (request) =>
+      request.url().includes('/api/transactions?') &&
+      new URL(request.url()).searchParams.get('ids') === '1',
+  )
+  await page
+    .getByRole('button', { name: 'Sources suivantes', exact: true })
+    .click()
+  await nextSourcePage
+  recurrenceItems = recurrenceItems.map((item) =>
+    item.label === 'EDF TEST'
+      ? {
+          ...item,
+          transaction_ids: [101, 102, 103],
+          occurrence_count: 3,
+          average_denominator: 3,
+        }
+      : item,
   )
   await page
     .locator('.sidebar-nav button')
@@ -397,6 +531,20 @@ async function main() {
       )
     }
   }
+  await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.locator('.sidebar-footer .theme-toggle').click()
+  await settle()
+  const lightAxe = await new AxeBuilder({ page })
+    .include('.budgets-page')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+    .analyze()
+  assert.deepEqual(
+    lightAxe.violations.map((v) => ({
+      id: v.id,
+      nodes: v.nodes.map((n) => n.target),
+    })),
+    [],
+  )
   // Loading, failure and empty are distinct; retry must clear the error.
   budgetFailure = true
   await page

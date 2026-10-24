@@ -1,28 +1,35 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"themis/internal/money"
+	"time"
 )
 
 // ---------- Dépenses récurrentes / abonnements ----------
 
 type recurring struct {
-	Label        string    `json:"label"`      // libellé normalisé représentatif
-	Amount       float64   `json:"amount"`     // dernier montant (positif)
-	AvgAmount    float64   `json:"avg_amount"` // moyenne (positif)
-	Months       []string  `json:"months"`     // mois où la dépense apparaît
-	LastDate     string    `json:"last_date"`
-	DomainID     *int64    `json:"domain_id"`
-	Regular      bool      `json:"regular"`                 // montant stable (< 15 % d'écart) → abonnement probable
-	MerchantKind string    `json:"merchant_kind,omitempty"` // savings | tax | benefit | health
-	Amounts      []float64 `json:"-"`                       // montants ordonnés par date (usage interne : insights)
+	Label             string    `json:"label"`      // libellé normalisé représentatif
+	Amount            float64   `json:"amount"`     // dernier montant (positif)
+	AvgAmount         float64   `json:"avg_amount"` // moyenne (positif)
+	Months            []string  `json:"months"`     // mois où la dépense apparaît
+	LastDate          string    `json:"last_date"`
+	DomainID          *int64    `json:"domain_id"`
+	Regular           bool      `json:"regular"`                 // cadence mensuelle documentée, nature abonnement/charge fixe
+	MerchantKind      string    `json:"merchant_kind,omitempty"` // savings | tax | benefit | health
+	Key               string    `json:"key,omitempty"`
+	Nature            string    `json:"nature,omitempty"`
+	Confidence        string    `json:"confidence,omitempty"`
+	Frequency         *string   `json:"frequency"`
+	EstimatedNextDate *string   `json:"estimated_next_date"`
+	Amounts           []float64 `json:"-"` // montants ordonnés par date (usage interne : insights)
 }
 
 var reRecNoise = regexp.MustCompile(`\d{2}[./]\d{2}(?:[./]\d{2,4})?|\d{4,}|\b\d+[hH]\d{2}\b`)
@@ -58,15 +65,20 @@ func normalizeRecLabel(label string) string {
 	return strings.Join(kept, " ")
 }
 
-// listRecurring détecte les dépenses récurrentes : même libellé normalisé
-// présent sur au moins minMonths mois distincts. Celles au montant stable
-// (écart max < 15 %) sont marquées comme abonnements probables.
+// listRecurring preserves the historical array contract. Regular now requires
+// documented monthly cadence and an eligible economic nature; avg_amount is
+// explicitly a per-transaction mean, never a monthly total.
 func (s *Server) listRecurring(w http.ResponseWriter, r *http.Request) {
 	minMonths := 2
 	if v, err := strconv.Atoi(r.URL.Query().Get("min_months")); err == nil && v > 1 {
 		minMonths = v
 	}
-	out, err := computeRecurring(s.DB, s.ownerID(r), minMonths)
+	month := r.URL.Query().Get("month")
+	if _, _, _, err := reliabilityWindow(month, time.Now()); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	out, err := computeRecurringForMonth(s.DB, s.ownerID(r), minMonths, month)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -74,98 +86,40 @@ func (s *Server) listRecurring(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// computeRecurring regroupe les dépenses des 12 derniers mois par marchand,
-// pour un utilisateur donné.
+// Compatibility adapter: amounts retain the legacy JSON shape, but detection
+// and economic nature now come from the same deterministic source as Budgets.
 func computeRecurring(db *sql.DB, ownerID int64, minMonths int) ([]recurring, error) {
-	rows, err := db.Query(`
-		SELECT t.tx_date::text, t.label, t.amount, t.domain_id, t.merchant, t.display_label, t.label_kind
-		FROM transactions t
-		WHERE t.amount < 0 AND t.owner_id = $1 AND (t.domain_id IS NULL OR t.domain_id NOT IN (SELECT id FROM domains WHERE is_transfer)) 
-		  AND t.tx_date >= now() - INTERVAL '12 months'
-		ORDER BY t.tx_date`, ownerID)
+	return computeRecurringForMonth(db, ownerID, minMonths, "")
+}
+func computeRecurringForMonth(db *sql.DB, ownerID int64, minMonths int, month string) ([]recurring, error) {
+	server := Server{DB: db}
+	report, err := server.loadRecurringReview(context.Background(), ownerID, month, time.Now())
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	type acc struct {
-		label      string
-		kind       string
-		amounts    []float64
-		months     map[string]bool
-		lastDate   string
-		lastAmount float64
-		domainID   *int64
-	}
-	groups := map[string]*acc{}
-	for rows.Next() {
-		var date, label, merchant, display, lkind string
-		var amount float64
-		var catID *int64
-		if err := rows.Scan(&date, &label, &amount, &catID, &merchant, &display, &lkind); err != nil {
+	return legacyRecurringItems(report.Items, minMonths)
+}
+func legacyRecurringItems(items []recurringReviewItem, minMonths int) ([]recurring, error) {
+	out := []recurring{}
+	for _, item := range items {
+		if len(item.Months) < minMonths || item.Status == "ignored" || item.Nature == "transfer_savings" || (item.protected && item.Nature == "variable_recurring") || item.Direction == "credit" {
+			continue
+		}
+		last, err := money.Parse(string(item.LastAmount))
+		if err != nil {
 			return nil, err
 		}
-		// Le marchand normalisé regroupe mieux que le libellé brut : la même
-		// enseigne avec des références de carte ou dates différentes devient
-		// UN seul flux récurrent.
-		key := merchant
-		if key == "" {
-			key = normalizeRecLabel(label)
+		average, err := money.Parse(string(item.AveragePerTransaction))
+		if err != nil {
+			return nil, err
 		}
-		if key == "" {
-			continue
+		amounts := make([]float64, len(item.SourceAmounts))
+		for i, amount := range item.SourceAmounts {
+			amounts[i] = float64(amount) / 100
 		}
-		g, ok := groups[key]
-		if !ok {
-			lbl := display
-			if lbl == "" {
-				lbl = label
-			}
-			g = &acc{label: lbl, kind: lkind, months: map[string]bool{}}
-			groups[key] = g
-		}
-		g.amounts = append(g.amounts, -amount)
-		g.months[date[:7]] = true
-		g.lastDate = date
-		g.lastAmount = -amount
-		if catID != nil {
-			g.domainID = catID
-		}
+		regular := item.Confidence == "probable" && item.Frequency != nil && *item.Frequency == "monthly" && (item.Nature == "subscription" || item.Nature == "fixed_charge")
+		out = append(out, recurring{Key: item.Key, Label: item.Label, Amount: float64(last) / 100, AvgAmount: float64(average) / 100, Months: item.Months, LastDate: item.LastDate, DomainID: item.DomainID, Regular: regular, MerchantKind: item.MerchantKind, Amounts: amounts, Nature: item.Nature, Confidence: item.Confidence, Frequency: item.Frequency, EstimatedNextDate: item.EstimatedNextDate})
 	}
-
-	out := []recurring{}
-	for _, g := range groups {
-		if len(g.months) < minMonths {
-			continue
-		}
-		sum, min, max := 0.0, math.MaxFloat64, 0.0
-		for _, a := range g.amounts {
-			sum += a
-			if a < min {
-				min = a
-			}
-			if a > max {
-				max = a
-			}
-		}
-		months := make([]string, 0, len(g.months))
-		for m := range g.months {
-			months = append(months, m)
-		}
-		sortStrings(months)
-		out = append(out, recurring{
-			Label:        g.label,
-			MerchantKind: g.kind,
-			Amount:       g.lastAmount,
-			AvgAmount:    math.Round(sum/float64(len(g.amounts))*100) / 100,
-			Months:       months,
-			LastDate:     g.lastDate,
-			DomainID:     g.domainID,
-			Regular:      max > 0 && (max-min)/max < 0.15,
-			Amounts:      g.amounts,
-		})
-	}
-	// abonnements d'abord, puis par montant décroissant
 	sortRecurring(out)
 	return out, nil
 }

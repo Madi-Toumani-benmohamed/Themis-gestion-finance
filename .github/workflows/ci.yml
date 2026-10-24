@@ -89,6 +89,43 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+  budgets-ui:
+    name: Budgets browser and accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install isolated browser tooling
+        run: |
+          npm install --prefix "$RUNNER_TEMP/themis-ui" --no-audit --no-fund playwright@1.64.1 @axe-core/playwright@4.14.0
+          "$RUNNER_TEMP/themis-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Check budgets flows, responsive layout and accessibility
+        env:
+          NODE_PATH: ${{ runner.temp }}/themis-ui/node_modules
+          THEMIS_UI_ARTIFACTS: ${{ runner.temp }}/themis-budgets-ui
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5176 > "$RUNNER_TEMP/themis-ui-vite.log" 2>&1 &
+          THEMIS_UI_PID=$!
+          trap 'kill "$THEMIS_UI_PID" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:5176; then break; fi
+            echo "Waiting for UI server ($attempt/30)..."
+            sleep 1
+          done
+          node tests/budgets.browser.cjs
+
   memory:
     name: Knowledge Graph Python
     runs-on: ubuntu-latest
@@ -108,7 +145,7 @@ jobs:
 
   docker:
     name: Build and publish Docker image
-    needs: [backend, frontend, memory, compose]
+    needs: [backend, frontend, budgets-ui, memory, compose]
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
