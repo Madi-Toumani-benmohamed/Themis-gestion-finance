@@ -77,7 +77,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 
 	// Dépenses inhabituelles : le même détecteur que l'onglet anomalies.
 	anomalyCount, newRecurring := 0, 0
-	if rec, err := computeRecurring(s.DB, owner, 2); err == nil {
+	if rec, err := computeRecurringForMonth(s.DB, owner, 2, ref.String); err == nil {
 		// Le détecteur travaille sur les dernières opérations : ne pas attribuer
 		// à un mois historique des signaux apparus après celui-ci.
 		selected := []recurring{}

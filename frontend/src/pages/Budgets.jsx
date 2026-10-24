@@ -345,7 +345,7 @@ function Envelope({ row, onEdit, onDelete, onInspect }) {
       {row.transaction_count > 1000 && (
         <p className="budget-note">
           Cette enveloppe compte {row.transaction_count} opérations sources ; la
-          liste affiche au maximum les 1 000 premières. Le total budgétaire
+          liste permet de les consulter par pages de 1 000. Le total budgétaire
           inclut toutes les sources.
         </p>
       )}
@@ -472,7 +472,7 @@ function Recurrence({ item, onReview, onInspect }) {
           </button>
           <button className="link" disabled={!ids.length} onClick={onInspect}>
             {ids.length > 1000
-              ? `Voir les 1 000 premières sources sur ${ids.length}`
+              ? `Voir les ${ids.length} opérations sources`
               : 'Voir les opérations sources'}
           </button>
         </div>
@@ -602,7 +602,7 @@ export default function Budgets({ onNavigate }) {
     onNavigate?.('transactions', { month, budget_id: row.id })
   const goRecurrence = (item) =>
     onNavigate?.('transactions', {
-      ids: (item.transaction_ids ?? []).slice(0, 1000),
+      ids: item.transaction_ids ?? [],
       from: recReport.observation_start,
       to: recReport.observation_end,
     })
@@ -752,6 +752,11 @@ export default function Budgets({ onNavigate }) {
                 Le restant correspond aux plafonds moins les débits observés. Ce
                 n’est pas ton solde bancaire. Les plafonds sont mensuels et ne
                 sont pas proratisés.
+              </p>
+              <p>
+                Chaque opération est affectée à l’enveloppe de sa catégorie si
+                elle existe, sinon à celle du parent. Les opérations d’une
+                enveloppe enfant ne sont pas recomptées dans celle du parent.
               </p>
               <p>
                 Dépenses observées hors transferts :{' '}
