@@ -24,6 +24,8 @@ export function budgetMonth(offset = 0, from) {
 export function budgetEnvelope(row) {
   const limit = budgetCents(row.monthly_limit),
     spent = budgetCents(row.spent)
+  if (!['expense', 'transfer'].includes(row.scope))
+    throw new Error('Périmètre financier de l’enveloppe non établi.')
   const remaining = limit - spent
   if (limit <= 0 || spent < 0)
     throw new Error('Enveloppe budgétaire incohérente.')
@@ -60,6 +62,32 @@ export function budgetPageModel(report) {
       )
   if (report.summary.over_count !== overCount)
     throw new Error('Le nombre de dépassements est incohérent.')
+  const observedExpenses = budgetCents(report.summary.observed_expenses)
+  const coveredExpenses = budgetCents(report.summary.covered_expenses)
+  const unclassified = budgetCents(report.summary.uncategorized_spent)
+  const credits = budgetCents(report.summary.credits_observed)
+  const unclassifiedCount = report.summary.uncategorized_count
+  if (
+    observedExpenses < spent ||
+    coveredExpenses !== spent ||
+    unclassified < 0 ||
+    unclassified > observedExpenses ||
+    credits < 0 ||
+    !Number.isInteger(unclassifiedCount) ||
+    unclassifiedCount < 0
+  )
+    throw new Error('Périmètres des dépenses observées incohérents.')
+  const expectedCoverage =
+    observedExpenses > 0 ? coveredExpenses / observedExpenses : null
+  if (
+    expectedCoverage === null
+      ? report.summary.coverage_ratio !== null
+      : !Number.isFinite(report.summary.coverage_ratio) ||
+        Math.abs(report.summary.coverage_ratio - expectedCoverage) > 1e-12
+  )
+    throw new Error(
+      'La couverture budgétaire ne correspond pas aux dépenses observées.',
+    )
   return {
     expenses,
     transfers,
@@ -69,10 +97,10 @@ export function budgetPageModel(report) {
     overCount,
     ratio: allocated ? spent / allocated : null,
     coverageRatio: report.summary.coverage_ratio,
-    unclassified: budgetCents(report.summary.uncategorized_spent ?? 0),
-    unclassifiedCount: report.summary.uncategorized_count ?? 0,
-    observedExpenses: budgetCents(report.summary.observed_expenses ?? 0),
-    credits: budgetCents(report.summary.credits_observed ?? 0),
+    unclassified,
+    unclassifiedCount,
+    observedExpenses,
+    credits,
     complete: report.period?.completeness === 'complete',
     current: report.period?.is_current === true,
   }
