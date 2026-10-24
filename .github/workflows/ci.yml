@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, fix/budget-financial-invariants, feat/budgets-ux]
   workflow_dispatch:
 
 permissions:
