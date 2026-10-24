@@ -67,7 +67,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    document.documentElement.style.background = theme === 'dark' ? '#0F0F14' : '#FBFBFD'
+    document.documentElement.style.background = theme === 'dark' ? '#10111B' : '#F4F4F9'
     try { localStorage.setItem('themis-theme', theme) } catch { /* stockage indisponible */ }
   }, [theme])
   const [txSearch, setTxSearch] = useState('')
@@ -271,7 +271,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-brand brand">
           <Logo size={24} className="brand-logo" animate />
-          <h1>thémis<span className="tick">.</span></h1>
+          <div className="sidebar-wordmark"><h1>thémis<span className="tick">.</span></h1><span className="sidebar-tagline">Finances personnelles</span></div>
         </div>
         <nav className="sidebar-nav" role="tablist">
           {[...NAV_BASE, aiEnabled && ['Intelligence', [['assistant', 'Assistant']]]].filter(Boolean).map(([group, items]) => (
@@ -281,6 +281,8 @@ export default function App() {
                 <button
                   key={id}
                   role="tab"
+                  aria-label={label}
+                  title={label}
                   aria-selected={tab === id}
                   className={tab === id ? 'active' : ''}
                   onClick={() => setTab(id)}
@@ -299,6 +301,8 @@ export default function App() {
           {me?.role === 'admin' && (
             <button
               role="tab"
+              aria-label="Admin"
+              title="Admin"
               aria-selected={tab === 'admin'}
               className={tab === 'admin' ? 'active' : ''}
               onClick={() => setTab('admin')}
@@ -329,8 +333,12 @@ export default function App() {
 
       <div className="app-main">
       <header className="topbar">
-        <span className="topbar-title">{(TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>
+        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span></div>
         <div className="topbar-right">
+          <button className="topbar-search" aria-label="Rechercher dans Thémis" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            <span>Rechercher</span><kbd>⌘ K</kbd>
+          </button>
           <div className="slot-wrap">
           {accounts.length > 1 && (
             <select
@@ -345,11 +353,14 @@ export default function App() {
           )}
           <label
           className={'slot' + (drag ? ' drag' : '') + (uploading ? ' busy' : '')}
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter') fileRef.current?.click() }}
+          role="button"
+          aria-label="Importer un ou plusieurs relevés"
+          aria-disabled={uploading}
+          tabIndex={uploading ? -1 : 0}
+          onKeyDown={(e) => { if (!uploading && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fileRef.current?.click() } }}
         >
           <span className="slot-text">
-            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer un ou plusieurs relevés'}
+            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer'}
           </span>
           <input
             ref={fileRef}
@@ -361,6 +372,15 @@ export default function App() {
           />
         </label>
         </div>
+        <details className="topbar-profile" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
+          <summary aria-label="Menu du compte" title="Menu du compte"><span aria-hidden="true">{me.username.slice(0, 1).toUpperCase()}</span></summary>
+          <div className="topbar-profile-panel">
+            <strong>{me.username}</strong>
+            <span>{me.role === 'admin' ? 'Administrateur' : 'Espace personnel'}</span>
+            <button onClick={e => { setTheme(t => t === 'dark' ? 'light' : 'dark'); e.currentTarget.closest('details').open = false }}>Changer de thème</button>
+            <button onClick={logout}>Se déconnecter</button>
+          </div>
+        </details>
         </div>
       </header>
 
@@ -388,7 +408,7 @@ export default function App() {
       <footer className="colophon">
         <span>thémis — comptes personnels</span>
         <span className="colophon-rule" aria-hidden="true" />
-        <span>traitement en local · tes relevés ne quittent pas ta machine</span>
+        <span>Un regard clair sur tes finances.</span>
       </footer>
       </div>{/* /app-main */}
       </div>{/* /app-shell */}

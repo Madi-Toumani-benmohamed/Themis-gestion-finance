@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from 'react'
 import { api, eur } from '../api'
 import { financialSummaryModel } from './financialSummaryModel.mjs'
 import './FinancialSummary.css'
+import { Logo } from '../Logo'
 
 const dateLabel = value => value ? new Date(value.slice(0, 10) + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null
 const periodLabel = month => new Date(`${month}-01T12:00:00`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
@@ -24,7 +25,7 @@ export function FinancialSummary({ selectedMonth, onInspectCoverage }) {
   const model = financialSummaryModel(h)
   const renderPoint = (point, index) => (
     <li className={`financial-summary-point financial-summary-point-${point.tone}`} key={`${point.kind}-${index}`}>
-      <span className="financial-summary-mark" aria-hidden="true">{point.tone === 'alert' ? '!' : point.tone === 'attention' ? '△' : '✓'}</span>
+      <span className="financial-summary-mark" aria-hidden="true">{point.tone === 'alert' ? '!' : point.tone === 'attention' ? '↗' : point.tone === 'positive' ? '✓' : '·'}</span>
       <span>{point.text}</span>
     </li>
   )
@@ -37,17 +38,18 @@ export function FinancialSummary({ selectedMonth, onInspectCoverage }) {
       </header>
       <div className="financial-summary-body">
         <div className="financial-summary-result">
+          <Logo size={176} className="financial-summary-watermark" />
           <div className="financial-summary-label">{model.resultLabel}</div>
           <div className="financial-summary-amount">{amount(h.net)}</div>
           <p className="financial-summary-diagnosis">{h.headline}</p>
           <dl className="financial-summary-flows">
-            <div><dt>Revenus</dt><dd>{amount(h.income)}</dd></div>
-            <div><dt>Dépenses</dt><dd>{amount(h.expenses)}</dd></div>
+            <div><dt><span className="financial-flow-icon" aria-hidden="true">↙</span> Revenus</dt><dd>{amount(h.income)}</dd></div>
+            <div><dt><span className="financial-flow-icon" aria-hidden="true">↗</span> Dépenses</dt><dd>{amount(h.expenses)}</dd></div>
           </dl>
           <p className="financial-summary-note">Flux enregistrés sur la période · Ce résultat ne représente pas le solde bancaire.</p>
         </div>
         <div className="financial-summary-attention">
-          <h3>Points d’attention</h3>
+          <div className="financial-summary-attention-heading"><h3>Points d’attention</h3><span className="financial-summary-count">{model.attention.length}</span></div>
           {model.attention.length ? <ul className="financial-summary-points">{model.attention.map(renderPoint)}</ul> : <p className="financial-summary-empty">{model.complete ? 'Aucune alerte détectée sur les données disponibles.' : 'Aucune alerte établie à ce stade. Les flux de la période restent incomplets.'}</p>}
           {model.observations.length > 0 && <div className="financial-summary-observations"><h4>Repères</h4><ul className="financial-summary-points">{model.observations.map(renderPoint)}</ul></div>}
         </div>
