@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"log"
 	"strings"
 
@@ -10,65 +11,115 @@ import (
 // normalizerVersion doit être incrémenté quand le dictionnaire ou le pipeline
 // de normalisation évolue : toutes les transactions seront alors re-normalisées
 // au prochain démarrage (idempotent, quelques millisecondes à l'échelle perso).
-const normalizerVersion = "3"
+// Version 4 also repairs display aliases previously mixed across owners. Raw
+// bank labels, dates, categories and monetary amounts are never changed.
+const normalizerVersion = "4"
 
-// BackfillDisplayLabels normalise les transactions qui ne le sont pas encore :
-// celles d'avant la migration 014, et toutes si le normaliseur a évolué.
 func (s *Server) BackfillDisplayLabels() {
+	if err := s.backfillDisplayLabels(); err != nil {
+		// SQL errors can contain user values; keep banking data out of logs.
+		log.Print("normalisation: actualisation interrompue, aucun changement validé")
+	}
+}
+
+func (s *Server) backfillDisplayLabels() error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	var stored string
-	_ = s.DB.QueryRow(`SELECT value #>> '{}' FROM settings WHERE key = 'normalizer_version'`).Scan(&stored)
+	err = tx.QueryRow(`SELECT value #>> '{}' FROM settings WHERE key='normalizer_version' AND owner_id IS NULL`).Scan(&stored)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
 	where := `display_label = ''`
 	if stored != normalizerVersion {
 		where = `TRUE`
 	}
-	rows, err := s.DB.Query(`SELECT id, label, amount FROM transactions WHERE ` + where)
+	rows, err := tx.Query(`SELECT id,owner_id,label,amount FROM transactions WHERE ` + where)
 	if err != nil {
-		log.Printf("normalisation: lecture impossible: %v", err)
-		return
+		return err
 	}
 	type row struct {
 		id     int64
+		owner  sql.NullInt64
 		label  string
 		amount float64
 	}
 	var todo []row
 	for rows.Next() {
 		var r row
-		if rows.Scan(&r.id, &r.label, &r.amount) == nil {
-			todo = append(todo, r)
+		if err = rows.Scan(&r.id, &r.owner, &r.label, &r.amount); err != nil {
+			rows.Close()
+			return err
+		}
+		todo = append(todo, r)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	type aliasKey struct {
+		owner    int64
+		merchant string
+	}
+	aliases := map[aliasKey]string{}
+	type patternAlias struct{ key, display string }
+	patterns := map[int64][]patternAlias{}
+	arows, err := tx.Query(`SELECT owner_id,lower(match_key),display,is_pattern FROM merchant_aliases ORDER BY length(match_key) DESC,match_key`)
+	if err != nil {
+		return err
+	}
+	for arows.Next() {
+		var owner int64
+		var key, display string
+		var pattern bool
+		if err = arows.Scan(&owner, &key, &display, &pattern); err != nil {
+			arows.Close()
+			return err
+		}
+		if pattern {
+			patterns[owner] = append(patterns[owner], patternAlias{key, display})
+		} else {
+			aliases[aliasKey{owner, key}] = display
 		}
 	}
-	rows.Close()
-	// Surnoms utilisateur : chargés une fois, ils priment sur le nom auto.
-	aliases := map[string]string{}
-	if arows, aerr := s.DB.Query(`SELECT lower(match_key), display FROM merchant_aliases`); aerr == nil {
-		for arows.Next() {
-			var k, d string
-			if arows.Scan(&k, &d) == nil {
-				aliases[k] = d
-			}
-		}
-		arows.Close()
+	err = arows.Err()
+	arows.Close()
+	if err != nil {
+		return err
 	}
 	for _, r := range todo {
 		n := normalize.Label(r.label, r.amount)
-		disp := n.Display
-		// le surnom prime : clé = marchand normalisé, sinon libellé brut
+		display := n.Display
 		key := strings.ToLower(n.Merchant)
 		if key == "" {
 			key = strings.ToLower(r.label)
 		}
-		if alias, ok := aliases[key]; ok {
-			disp = alias
+		if r.owner.Valid {
+			if alias, ok := aliases[aliasKey{r.owner.Int64, key}]; ok {
+				display = alias
+			} else {
+				for _, alias := range patterns[r.owner.Int64] {
+					if strings.Contains(key, alias.key) || strings.Contains(strings.ToLower(r.label), alias.key) {
+						display = alias.display
+						break
+					}
+				}
+			}
 		}
-		_, _ = s.DB.Exec(`UPDATE transactions SET display_label = $1, merchant = $2, label_kind = $3 WHERE id = $4`, disp, n.Merchant, n.Kind, r.id)
+		if _, err = tx.Exec(`UPDATE transactions SET display_label=$1,merchant=$2,label_kind=$3 WHERE id=$4 AND owner_id IS NOT DISTINCT FROM $5`, display, n.Merchant, n.Kind, r.id, r.owner); err != nil {
+			return err
+		}
 	}
-	if len(todo) > 0 {
-		log.Printf("normalisation: %d libellé(s) d'affichage calculé(s)", len(todo))
+	_, err = tx.Exec(`INSERT INTO settings(key,value,owner_id) VALUES('normalizer_version',to_jsonb($1::text),NULL)
+ ON CONFLICT (COALESCE(owner_id,0),key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`, normalizerVersion)
+	if err != nil {
+		return err
 	}
-	_, _ = s.DB.Exec(`
-		INSERT INTO settings (key, value) VALUES ('normalizer_version', to_jsonb($1::text))
-		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, normalizerVersion)
+	return tx.Commit()
 }
 
 // renormalizeMatching recalcule le nom auto des transactions d'une clé donnée

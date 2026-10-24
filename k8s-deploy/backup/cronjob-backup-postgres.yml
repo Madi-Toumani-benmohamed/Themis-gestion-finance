@@ -9,9 +9,21 @@ spec:
     spec:
       template:
         spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 70
+            runAsGroup: 70
+            fsGroup: 70
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: backup-postgres
               image: postgres:16-alpine # Utilisez une version de PostgreSQL qui convient à vos besoins
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
               envFrom:
                 - configMapRef:
                     name: postgres-cm
@@ -23,12 +35,26 @@ spec:
                     secretKeyRef:
                       name: postgres-secret
                       key: POSTGRES_PASSWORD
-              command: ["sh", "-c",
-                        "exec pg_dump -h db -U $POSTGRES_USER -d $POSTGRES_DB | gzip > /backup/themis-$(date +\"%Y%m%d-%H%M%S\").sql.gz"]
+              command:
+                - sh
+                - -c
+                - |
+                  set -eu
+                  set -o pipefail
+                  umask 077
+                  backup_file="/backup/themis-$(date +%Y%m%d-%H%M%S).sql.gz"
+                  temporary_file="$backup_file.partial"
+                  trap 'rm -f "$temporary_file"' EXIT
+                  pg_dump -h db -U "$POSTGRES_USER" -d "$POSTGRES_DB" | gzip > "$temporary_file"
+                  mv "$temporary_file" "$backup_file"
               volumeMounts:
                 - name: backup-pvc
                   mountPath: /backup
+                - name: backup-tmp
+                  mountPath: /tmp
           volumes:
+            - name: backup-tmp
+              emptyDir: {}
             - name: backup-pvc
               persistentVolumeClaim:
                 claimName: postgres-backup-pvc # Le nom de la PVC pour stocker les sauvegardes

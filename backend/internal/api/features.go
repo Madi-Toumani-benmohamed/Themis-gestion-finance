@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -149,41 +151,95 @@ func sortRecurring(rs []recurring) {
 
 // exportTransactions produit un CSV (mêmes filtres que /api/transactions).
 func (s *Server) exportTransactions(w http.ResponseWriter, r *http.Request) {
-	q := `SELECT t.tx_date::text, t.label, t.amount, COALESCE(d.name, '')
-	      FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id WHERE t.owner_id = $1`
-	args := []any{s.ownerID(r)}
-	if m := r.URL.Query().Get("month"); reMonth.MatchString(m) {
-		args = append(args, m)
-		q += fmt.Sprintf(" AND to_char(t.tx_date, 'YYYY-MM') = $%d", len(args))
+	view := r.URL.Query().Get("view")
+	if view != "" && view != "report" {
+		writeErr(w, 400, fmt.Errorf("vue invalide"))
+		return
 	}
-	q += " ORDER BY t.tx_date, t.id"
-
-	rows, err := s.DB.Query(q, args...)
+	f, err := parseTransactionFilter(r.URL.Query(), s.ownerID(r), view == "report", time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeErr(w, 400, err)
+		return
+	}
+	if f.budgetID != 0 {
+		exists, err := s.transactionBudgetExists(r.Context(), s.ownerID(r), f.budgetID)
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("budget indisponible"))
+			return
+		}
+		if !exists {
+			writeErr(w, 404, fmt.Errorf("budget indisponible"))
+			return
+		}
+	}
+	// A single SQL snapshot, identical filters and no page limit: exporting page
+	// two still exports the whole explicit scope, never a silent first 1000 rows.
+	rows, err := s.DB.QueryContext(r.Context(), `SELECT t.tx_date::text,t.label,t.amount::text,COALESCE(d.name,'')
+ FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id
+ WHERE `+f.where+` ORDER BY t.tx_date,t.id`, f.args...)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("export indisponible"))
 		return
 	}
 	defer rows.Close()
-
+	// Stage with mode0600 and remove on every exit. A database/scan/disk error
+	// must return an error, rather than a successful but incomplete financial CSV.
+	staged, err := os.CreateTemp("", "themis-export-*.csv")
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("export indisponible"))
+		return
+	}
+	defer os.Remove(staged.Name())
+	defer staged.Close()
+	cw := csv.NewWriter(staged)
+	cw.Comma = ';' // convention FR : Excel/LibreOffice ouvrent directement
+	if err = cw.Write([]string{"date", "libelle", "montant", "categorie"}); err != nil {
+		writeErr(w, 500, fmt.Errorf("export interrompu"))
+		return
+	}
+	for rows.Next() {
+		var date, label, amount, cat string
+		if err := rows.Scan(&date, &label, &amount, &cat); err != nil {
+			writeErr(w, 500, fmt.Errorf("export interrompu"))
+			return
+		}
+		exact, err := money.Parse(amount)
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("montant exporté invalide"))
+			return
+		}
+		if err = cw.Write([]string{date, csvSafe(label), strings.Replace(exact.String(), ".", ",", 1), csvSafe(cat)}); err != nil {
+			writeErr(w, 500, fmt.Errorf("export interrompu"))
+			return
+		}
+	}
+	if rows.Err() != nil {
+		writeErr(w, 500, fmt.Errorf("export interrompu"))
+		return
+	}
+	rows.Close()
+	cw.Flush()
+	if cw.Error() != nil {
+		writeErr(w, 500, fmt.Errorf("export interrompu"))
+		return
+	}
+	info, err := staged.Stat()
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("export interrompu"))
+		return
+	}
+	if _, err = staged.Seek(0, io.SeekStart); err != nil {
+		writeErr(w, 500, fmt.Errorf("export interrompu"))
+		return
+	}
 	name := "transactions"
-	if m := r.URL.Query().Get("month"); m != "" {
-		name += "-" + m
+	if month := r.URL.Query().Get("month"); month != "" {
+		name += "-" + month
 	}
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.csv"`)
-
-	cw := csv.NewWriter(w)
-	cw.Comma = ';' // convention FR : Excel/LibreOffice ouvrent directement
-	_ = cw.Write([]string{"date", "libelle", "montant", "categorie"})
-	for rows.Next() {
-		var date, label, cat string
-		var amount float64
-		if err := rows.Scan(&date, &label, &amount, &cat); err != nil {
-			return
-		}
-		_ = cw.Write([]string{date, csvSafe(label), strings.Replace(fmt.Sprintf("%.2f", amount), ".", ",", 1), csvSafe(cat)})
-	}
-	cw.Flush()
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	_, _ = io.Copy(w, staged) // A transport failure cannot be retried after headers.
 }
 
 // csvSafe neutralise l'injection de formule CSV : un tableur (Excel,

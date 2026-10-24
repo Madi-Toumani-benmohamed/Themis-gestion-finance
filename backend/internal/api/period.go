@@ -89,7 +89,9 @@ func (s *Server) getComparableMonths(owner int64, refMonth string, daysObserved 
 	}
 	// Candidats historiques ; la couverture est vérifiée après fermeture du curseur.
 	var months []string
-	query := `
+	// Audited: compile-time SQL constants only; all external values use PostgreSQL bind parameters.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
+	const query = `
 		SELECT to_char(tx_date,'YYYY-MM') AS mth
 		FROM transactions
 		WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') < $2` + notTransfer + `

@@ -469,33 +469,3 @@ func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
-
-// setTransactionTags remplace l'ensemble des tags d'une transaction
-// (créés à la volée s'ils n'existent pas).
-func (s *Server) setTransactionTags(txID, ownerID int64, names []string) error {
-	tx, err := s.DB.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM transaction_tags WHERE transaction_id = $1`, txID); err != nil {
-		return err
-	}
-	for _, raw := range names {
-		name := strings.ToLower(strings.TrimSpace(raw))
-		if name == "" || len(name) > 40 {
-			continue
-		}
-		var tagID int64
-		if err := tx.QueryRow(`INSERT INTO tags (name, owner_id) VALUES ($1, $2)
-		                       ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name
-		                       RETURNING id`, name, ownerID).Scan(&tagID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO transaction_tags (transaction_id, tag_id) VALUES ($1, $2)
-		                      ON CONFLICT DO NOTHING`, txID, tagID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}

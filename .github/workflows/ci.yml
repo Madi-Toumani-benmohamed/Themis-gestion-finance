@@ -90,7 +90,7 @@ jobs:
         run: npm run build
 
   budgets-ui:
-    name: Budgets browser and accessibility
+    name: Financial pages browser and accessibility
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -111,10 +111,11 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/themis-ui" --no-audit --no-fund playwright@1.64.1 @axe-core/playwright@4.14.0
           "$RUNNER_TEMP/themis-ui/node_modules/.bin/playwright" install --with-deps chromium
-      - name: Check budgets flows, responsive layout and accessibility
+      - name: Check transactions, budgets and simulation flows, responsive layout and accessibility
         env:
           NODE_PATH: ${{ runner.temp }}/themis-ui/node_modules
           THEMIS_UI_ARTIFACTS: ${{ runner.temp }}/themis-budgets-ui
+          THEMIS_TRANSACTIONS_ARTIFACTS: ${{ runner.temp }}/themis-transactions-ui
         run: |
           npm run dev -- --host 127.0.0.1 --port 5176 > "$RUNNER_TEMP/themis-ui-vite.log" 2>&1 &
           THEMIS_UI_PID=$!
@@ -124,7 +125,9 @@ jobs:
             echo "Waiting for UI server ($attempt/30)..."
             sleep 1
           done
+          node tests/transactions.browser.cjs
           node tests/budgets.browser.cjs
+          node tests/simulation.browser.cjs
 
   memory:
     name: Knowledge Graph Python
@@ -142,6 +145,9 @@ jobs:
 
       - name: Check Python syntax
         run: python -m compileall -q memory
+
+      - name: Test diagnostic HTTP transport
+        run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
 
   docker:
     name: Build and publish Docker image

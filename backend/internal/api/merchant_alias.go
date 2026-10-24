@@ -19,7 +19,10 @@ func (s *Server) aliasFor(owner int64, merchant, rawLabel string) (string, bool)
 		key = rawLabel
 	}
 	var disp string
-	err := s.DB.QueryRow(`SELECT display FROM merchant_aliases WHERE owner_id = $1 AND lower(match_key) = lower($2)`, owner, key).Scan(&disp)
+	err := s.DB.QueryRow(`SELECT display FROM merchant_aliases WHERE owner_id=$1 AND (
+ (NOT is_pattern AND lower(match_key)=lower($2)) OR
+ (is_pattern AND (strpos(lower($2),lower(match_key))>0 OR strpos(lower($3),lower(match_key))>0)))
+ ORDER BY is_pattern,length(match_key) DESC,match_key LIMIT 1`, owner, key, rawLabel).Scan(&disp)
 	if err == nil && disp != "" {
 		return disp, true
 	}
@@ -79,7 +82,7 @@ func (s *Server) setAlias(w http.ResponseWriter, r *http.Request) {
 	if in.IsPattern {
 		res, _ = s.DB.Exec(`
 			UPDATE transactions SET display_label = $1
-			WHERE owner_id = $2 AND (label ILIKE '%'||$3||'%' OR merchant ILIKE '%'||$3||'%')`,
+			WHERE owner_id = $2 AND (strpos(lower(label),lower($3))>0 OR strpos(lower(merchant),lower($3))>0)`,
 			in.Display, owner, in.MatchKey)
 	} else {
 		res, _ = s.DB.Exec(`

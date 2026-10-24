@@ -52,6 +52,8 @@ export const api = {
   summary: (months = 12, month) => fetch(`/api/summary?months=${months}` + (month ? `&month=${month}` : '')).then(json),
   transactions: (params = {}) =>
     fetch('/api/transactions?' + new URLSearchParams(params)).then(json),
+  period: month => G('/api/period?' + new URLSearchParams({ month })),
+  transactionReport: (params = {}, options = {}) => fetch('/api/transactions?' + new URLSearchParams({ ...params, view: 'report' }), { credentials: 'same-origin', signal: options.signal }).then(json),
   categories: () => fetch('/api/categories').then(json),
   rules: () => fetch('/api/rules').then(json),
   deleteRule: (id) => fetch(`/api/rules/${id}`, { method: 'DELETE', credentials: 'same-origin' }).then((r) => r.ok),
@@ -124,6 +126,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(value),
     }).then(json),
+  exportTransactionsUrl: (params = {}) => '/api/transactions/export?' + new URLSearchParams({ ...params, view: 'report' }),
   exportUrl: (month) => '/api/transactions/export' + (month ? `?month=${month}` : ''),
   getAnalysis: (month) => fetch(`/api/analyses/${month}`).then(json),
   createAnalysis: (month) => fetch(`/api/analyses/${month}`, { method: 'POST' }).then(json),
