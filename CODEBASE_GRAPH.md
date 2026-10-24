@@ -522,3 +522,10 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `Transactions.jsx/.css`, `TransactionDetails.jsx`, `transactionPageModel.mjs` : largeur ciblée1600, trois indicateurs, filtres communs export/liste, groupes journaliers, drawer clavier, édition multiple confirmée et résultats partiels. Mois courant/couverture distingués ; les groupes de plus de1000 sources sont des lots explicitement incomplets.
 - Tests Go/PostgreSQL/API/export/IA/migration/rollback, Node et `frontend/tests/transactions.browser.cjs`. Job CI `budgets-ui` conservé et étendu aux trois pages financières Transactions/Budgets/Simulation ; aucun contrôle désactivé.
 - Diagnostic priorisé : `docs/TRANSACTIONS_AUDIT.md`. Contrats, règles, validations et limites : `docs/TRANSACTIONS_IMPLEMENTATION.md`.
+
+### Validation des contrôles Security après synchronisation main (2026-10-24)
+
+- SQL du chat et des séries par tag paramétré ; quatre faux positifs d'audit Semgrep annotés et justifiés avec tests, sans désactivation de contrôle global.
+- Images mémoire/PostgreSQL d'initialisation/frontend autonome non root ; Nginx autonome sur8080 avec PID temporaire. Contextes de sécurité Kubernetes et volumes temporaires explicités ; backup atomique et privé.
+- Diagnostic Python historique : transport HTTP(S) contrôlé, TLS vérifié, cookies associés ; tests isolés `tests/test_navigation_transport.py` exécutés dans la CI.
+- Vérifications, justification des annotations, port du frontend autonome et contraintes des volumes : `docs/DEPLOYMENT_SECURITY.md`. Aucun manifeste appliqué sur un cluster ni volume réel modifié pour ces essais.

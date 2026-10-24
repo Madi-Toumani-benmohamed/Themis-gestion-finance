@@ -4,13 +4,26 @@ metadata:
   name: temp-verification-pod
   namespace: dev
 spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 70
+    fsGroup: 70
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: busybox
       image: busybox
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
       command: ["sh", "-c", "tail -f /dev/null"]
       volumeMounts:
         - mountPath: "/backup"
           name: backup-volume
+          readOnly: true
   volumes:
     - name: backup-volume
       persistentVolumeClaim:

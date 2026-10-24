@@ -146,6 +146,9 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q memory
 
+      - name: Test diagnostic HTTP transport
+        run: PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
+
   docker:
     name: Build and publish Docker image
     needs: [backend, frontend, budgets-ui, memory, compose]

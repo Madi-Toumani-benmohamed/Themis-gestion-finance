@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/lib/pq"
 )
 
 // tagsInCategory : répartition des dépenses par tag à l'intérieur d'une
@@ -93,18 +95,28 @@ func (s *Server) tagSeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(tagNames) == 0 {
-		trows, err := s.DB.Query(`
-			SELECT tg.name FROM tags tg
-			JOIN transaction_tags tt ON tt.tag_id = tg.id
-			JOIN transactions t ON t.id = tt.transaction_id AND t.amount < 0 AND t.owner_id = $1 AND (t.domain_id IS NULL OR t.domain_id NOT IN (SELECT id FROM domains WHERE is_transfer)) 
-			GROUP BY tg.name ORDER BY -SUM(t.amount) DESC LIMIT 6`, s.ownerID(r))
-		if err == nil {
-			for trows.Next() {
-				var n string
-				trows.Scan(&n)
-				tagNames = append(tagNames, n)
+		trows, err := s.DB.Query(`SELECT tg.name FROM tags tg
+ JOIN transaction_tags tt ON tt.tag_id=tg.id JOIN transactions t ON t.id=tt.transaction_id
+ WHERE t.amount<0 AND t.owner_id=$1 AND tg.owner_id=t.owner_id`+notTransferT+`
+ GROUP BY tg.name ORDER BY -SUM(t.amount) DESC LIMIT 6`, s.ownerID(r))
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("séries de tags indisponibles"))
+			return
+		}
+		for trows.Next() {
+			var name string
+			if err = trows.Scan(&name); err != nil {
+				trows.Close()
+				writeErr(w, 500, fmt.Errorf("séries de tags indisponibles"))
+				return
 			}
-			trows.Close()
+			tagNames = append(tagNames, name)
+		}
+		err = trows.Err()
+		trows.Close()
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("séries de tags interrompues"))
+			return
 		}
 	}
 	if len(tagNames) == 0 {
@@ -112,25 +124,15 @@ func (s *Server) tagSeries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Un point par (tag, bucket temporel).
-	args := []any{s.ownerID(r)}
-	ph := make([]string, 0, len(tagNames))
-	for _, n := range tagNames {
-		args = append(args, n)
-		ph = append(ph, fmt.Sprintf("$%d", len(args)))
-	}
-	sql := fmt.Sprintf(`
-		SELECT tg.name,
-		       to_char(date_trunc('%s', t.tx_date), '%s') AS bucket,
-		       -SUM(t.amount) AS spent
-		FROM transactions t
-		JOIN transaction_tags tt ON tt.transaction_id = t.id
-		JOIN tags tg ON tg.id = tt.tag_id
-		WHERE t.amount < 0 AND t.owner_id = $1 AND (t.domain_id IS NULL OR t.domain_id NOT IN (SELECT id FROM domains WHERE is_transfer)) AND tg.name IN (%s)
-		GROUP BY tg.name, bucket
-		ORDER BY bucket`, trunc, keyFmt, strings.Join(ph, ","))
-
-	rows, err := s.DB.Query(sql, args...)
+	// Date granularity, format and tag array are bound values, never SQL text.
+	// Audited: compile-time SQL constants only; all external values use PostgreSQL bind parameters.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
+	const query = `SELECT tg.name,to_char(date_trunc($2::text,t.tx_date),$3) AS bucket,-SUM(t.amount) AS spent
+ FROM transactions t JOIN transaction_tags tt ON tt.transaction_id=t.id
+ JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id
+ WHERE t.amount<0 AND t.owner_id=$1 AND tg.name=ANY($4::text[])` + notTransferT + `
+ GROUP BY tg.name,bucket ORDER BY bucket`
+	rows, err := s.DB.Query(query, s.ownerID(r), trunc, keyFmt, pq.Array(tagNames))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -154,6 +156,10 @@ func (s *Server) tagSeries(w http.ResponseWriter, r *http.Request) {
 		byTag[name][bucket] = spent
 	}
 
+	if rows.Err() != nil {
+		writeErr(w, 500, fmt.Errorf("séries de tags interrompues"))
+		return
+	}
 	buckets := make([]string, 0, len(bucketSet))
 	for b := range bucketSet {
 		buckets = append(buckets, b)
@@ -178,4 +184,3 @@ func (s *Server) tagSeries(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{"buckets": buckets, "series": series})
 }
-
