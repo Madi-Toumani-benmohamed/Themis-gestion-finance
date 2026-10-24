@@ -13,6 +13,16 @@ Thémis est une application auto-hébergée de gestion de finances personnelles 
 - **Interface** : thèmes clair et sombre, design sobre à accent indigo `#5B5BD6`, polices embarquées, disposition responsive et palette de commande `Ctrl/Cmd+K`.
 - **Multi-utilisateurs** : authentification par session, rôles administrateur/utilisateur et données rattachées à leur propriétaire. Création du premier administrateur au premier lancement.
 
+### Vérifier un import avant son enregistrement
+
+Le dépôt d’un PDF ou CSV ouvre désormais un aperçu avant toute écriture de relevé ou de transaction. Il présente le compte cible, la période extraite (ou les dates des opérations pour un CSV), les opérations détectées, les doublons et le contrôle comptable lorsque les soldes sont disponibles. Les opérations sont filtrables et paginées ; comparer toujours l’aperçu au document original, car le parseur peut ignorer des lignes non exploitables.
+
+**Confirmer l’import** utilise les données analysées côté serveur, sans analyser une seconde fois le document. **Annuler ce fichier** ne crée ni relevé ni transaction. En import multiple, chaque fichier est examiné séparément. Les doublons suivent les règles existantes et sont revérifiés à l’insertion : les nombres définitifs peuvent varier si un autre import a eu lieu entre-temps.
+
+Les aperçus sont conservés uniquement en mémoire serveur pendant 15 minutes, liés à l’utilisateur et au compte cible. Ils disparaissent après annulation, confirmation, expiration ou redémarrage. Leur nombre et leur mémoire totale sont limités ; les aperçus de plus de 20 000 opérations sont refusés. L’analyse initiale peut déjà utiliser le fournisseur IA configuré ; les règles et la catégorisation automatique s’exécutent après confirmation.
+
+L’API historique `POST /api/statements` reste un import direct pour les clients existants. L’interface utilise `POST /api/statements/previews`, puis `POST /api/statements/previews/{token}/confirm` ou `DELETE /api/statements/previews/{token}`. Les jetons sont éphémères et à usage unique. Pour un déploiement multi-instance, ce stockage mémoire nécessite que l’aperçu et sa confirmation atteignent la même instance.
+
 ### Fiabilité des données
 
 Dans **Relevés**, le centre de fiabilité permet de choisir un mois et d’examiner la couverture compte par compte. Il distingue les périodes documentées par des relevés validés, les intervalles non documentés et les imports à vérifier. Les relevés dont la période est inconnue restent visibles sans être attribués arbitrairement au mois choisi.
