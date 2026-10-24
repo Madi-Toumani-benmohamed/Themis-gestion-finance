@@ -475,3 +475,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `period.go` réutilise `loadReliability` et expose `completeness` (`complete`, `partial`, `unknown`) ; la dernière transaction ne prouve plus la couverture. Comparaisons limitées aux mois documentés. `summary` filtre le mois avant LIMIT et expose le même état.
 - Pulse : aucune qualification négative d'un déficit provisoire ; comparaison catégorie suspendue faute de couverture homogène. Mémoire IA explicitement indicative, heuristique de complétude fondée sur les volumes supprimée.
 - CI backend : PostgreSQL 16 isolé active les tests d'intégration auparavant optionnels. Tests financiers dans `money`, `parser/financial_invariants_test.go`, `api/period_invariants_test.go` et extensions du test d'import PostgreSQL.
+
+### Budgets — audit et fiabilisation métier (2026-10-24)
+
+- `api/budgets.go` centralise plafonds, consommation brute exacte, crédits séparés, couverture documentaire et affectation unique catégorie/enfant. `GET /api/budgets` conserve son tableau ; `GET /api/budgets/report` ajoute synthèse, dates et sources explicables.
+- Les sources `/api/transactions?budget_id=...` réutilisent le même périmètre ; `ids` permet une liste exacte d'identifiants, limitée à 1 000 et toujours cloisonnée au propriétaire.
+- Projections uniformes désactivées (`projected:null`) ; transferts hérités et mouvements normalisés d'épargne exclus des flux de consommation via `transfer.go`. Hero, journal et signaux de dépassement réutilisent le service budgétaire.
+- `components/money.mjs` et modèle du widget : différences en centimes, égalité au plafond distincte du dépassement, état d'erreur explicite. Pas de migration de données financières.
+- Audit initial et organisation en trois lots : `docs/BUDGETS_AUDIT.md`. Tests `budgets*_test.go`, `transaction_sources_test.go`, tests Node du widget.
