@@ -62,16 +62,17 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	}
 	net := income - spent
 
-	// Budgets du mois : combien sont définis, combien sont dépassés (sur période observée).
-	var totalBudgets, overBudgets int
-	_ = s.DB.QueryRow(`SELECT count(*) FROM budgets WHERE owner_id = $1`, owner).Scan(&totalBudgets)
-	if totalBudgets > 0 {
-		q = `SELECT count(*) FROM budgets b
-			WHERE b.owner_id = $1 AND b.monthly_limit < (
-				SELECT COALESCE(-SUM(t.amount),0) FROM transactions t
-				WHERE t.owner_id = $1 AND t.domain_id = b.domain_id
-				  AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') = $2` + dayFilter + `)`
-		_ = s.DB.QueryRow(q, owner, ref.String).Scan(&overBudgets)
+	// Le dashboard et la page Budgets partagent les mêmes périmètres et seuils.
+	budgetReport, budgetErr := s.loadBudgetReport(r.Context(), owner, ref.String, time.Now())
+	if budgetErr != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("lecture des budgets indisponible"))
+		return
+	}
+	totalBudgets, overBudgets := 0, budgetReport.Summary.OverCount
+	for _, budget := range budgetReport.Budgets {
+		if budget.Scope == "expense" {
+			totalBudgets++
+		}
 	}
 
 	// Dépenses inhabituelles : le même détecteur que l'onglet anomalies.
