@@ -87,6 +87,9 @@ export const api = {
   confirmStatementPreview: token => J(`/api/statements/previews/${encodeURIComponent(token)}/confirm`, 'POST'),
   cancelStatementPreview: token => J(`/api/statements/previews/${encodeURIComponent(token)}`, 'DELETE'),
   uploadProgress: (token) => fetch(`/api/upload/progress?token=${encodeURIComponent(token)}`).then(json),
+  budgetReport: month => G('/api/budgets/report?' + new URLSearchParams({ month })),
+  recurringReview: month => G('/api/recurring/review?' + new URLSearchParams({ month })),
+  updateRecurringReview: (key, patch, month) => J(`/api/recurring/review/${encodeURIComponent(key)}${month ? '?' + new URLSearchParams({ month }) : ''}`, 'PUT', patch),
   budgets: (month) => fetch('/api/budgets' + (month ? `?month=${month}` : '')).then(json),
   setBudget: (domainId, monthlyLimit) =>
     fetch('/api/budgets', {
