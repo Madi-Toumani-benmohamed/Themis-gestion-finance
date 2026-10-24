@@ -286,16 +286,16 @@ export default function App() {
                 <button
                   key={id}
                   role="tab"
-                  aria-label={label}
+                  aria-label={id === 'transactions' && unsorted > 0 ? `${label} ${unsorted}` : label}
                   title={label}
                   aria-selected={tab === id}
                   className={tab === id ? 'active' : ''}
                   onClick={() => setTab(id)}
                 >
                   <span className="nav-icon" aria-hidden="true">{ICONS[id]}</span>
-                  <span className="nav-label">{label}</span>
+                  <span className="nav-label">{label}</span>{' '}
                   {id === 'transactions' && unsorted > 0 && (
-                    <span className="nav-count" title={`${unsorted} transaction${unsorted > 1 ? 's' : ''} sans catégorie`}>{unsorted}</span>
+                    <span className="nav-count" aria-hidden="true" title={`${unsorted} transaction${unsorted > 1 ? 's' : ''} sans catégorie`}>{unsorted}</span>
                   )}
                 </button>
               ))}
@@ -320,7 +320,7 @@ export default function App() {
             className="theme-toggle"
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             title={theme === 'dark' ? 'Passer en clair' : 'Passer en sombre'}
-            aria-label="Basculer le thème clair/sombre"
+            aria-label={theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre'}
           >
             {theme === 'dark' ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
@@ -340,7 +340,7 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span></div>
         <div className="topbar-right">
-          <button className="topbar-search" aria-label="Rechercher dans Thémis" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
+          <button className="topbar-search" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
             <span>Rechercher</span><kbd>⌘ K</kbd>
           </button>
@@ -356,26 +356,25 @@ export default function App() {
               {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           )}
-          <label
+          <button type="button"
           className={'slot' + (drag ? ' drag' : '') + (uploading ? ' busy' : '')}
-          role="button"
           aria-label="Importer un ou plusieurs relevés"
-          aria-disabled={uploading}
-          tabIndex={uploading ? -1 : 0}
-          onKeyDown={(e) => { if (!uploading && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fileRef.current?.click() } }}
+          disabled={uploading}
+          onClick={() => fileRef.current?.click()}
         >
           <span className="slot-text">
             {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer'}
           </span>
+        </button>
           <input
             ref={fileRef}
             type="file"
+            hidden
             multiple
             disabled={uploading}
             accept=".pdf,.csv,application/pdf,text/csv"
             onChange={(e) => doUploadMany(e.target.files)}
           />
-        </label>
         </div>
         <details className="topbar-profile" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
           <summary aria-label="Menu du compte" title="Menu du compte"><span aria-hidden="true">{me.username.slice(0, 1).toUpperCase()}</span></summary>
@@ -396,7 +395,7 @@ export default function App() {
       )}
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
-      <main className="page" key={tab + ':' + refreshKey}>
+      <main className={`page${tab === 'transactions' ? ' transactions-main' : ''}`} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
         {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse onNavigate={navigateTo} />}

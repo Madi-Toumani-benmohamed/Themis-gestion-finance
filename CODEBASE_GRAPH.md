@@ -44,6 +44,8 @@ themis/
 | Fichier | Responsabilité | Endpoints principaux |
 |---------|---------------|---------------------|
 | `handlers.go` | Router + handlers core | `/api/health`, `/api/statements*`, `/api/transactions*`, `/api/summary`, `/api/upload/progress`, `/api/period`, `/api/period/compare` |
+| `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
+| `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
 | `chat.go` | Assistant conversationnel | `POST /api/chat` (orchestration outils) |
 | `pulse.go` | Synthèse rapide (mois demandé) | `GET /api/pulse?month=YYYY-MM` |
 | `hero.go` | Conclusion analyse (ton + points) | `GET /api/hero?month=YYYY-MM` |
@@ -80,7 +82,7 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - Appelé par `chat.go` (enrichit prompt) et `handlers.go` (apprend à l'import)
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `019_chat.sql` (appliquées 1x via `schema_migrations`)
+- `001_init.sql` → `021_transaction_classification.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites hors du dossier embarqué)
 
 ---
 
@@ -90,7 +92,7 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 | Page | Description |
 |------|-------------|
 | `Dashboard.jsx` | Vue principale (Hero, KPI, Journal, widgets grid) |
-| `Transactions.jsx` | Liste + filtres + édition inline |
+| `Transactions.jsx` | Synthèse filtrée, pagination serveur, classement, sélection et drawer |
 | `Analyse.jsx` | Analyse mensuelle IA + graphiques |
 | `Assistant.jsx` | Chat IA full-screen |
 | `Budgets.jsx` | CRUD budgets + suivi |
@@ -508,3 +510,15 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `api/simulation.go`, extrait de `features3.go` : trois mois civils terminés, diviseur commun, couverture documentaire explicite, transferts exclus des crédits et débits, rationnels exacts pour moyennes et crédit. URL et champs historiques conservés ; provenance et disponibilité ajoutées.
 - Tests Go unitaires/PostgreSQL ; `frontend/tests/simulation.browser.cjs` vérifie interactions, accessibilité et six formats avec des API entièrement simulées. Pas de nouvelle dépendance runtime ni de migration.
 - Diagnostic, alternatives UX, formules, reproduction des contrôles et limites : `docs/SIMULATOR_UX.md`.
+
+### Transactions — gestion, traçabilité et fiabilité (2026-10-24)
+
+- `api/transactions.go` extrait du routeur : GET tableau historique conservé, option `view=report` (total, page, agrégats NUMERIC exacts, centimes, compte, relevé, classification et propositions), mêmes filtres pour l'export CSV, requêtes obsolètes annulables. Dates calendaires et propriété des catégories/tags/comptes contrôlées.
+- PATCH atomique catégorie/tags, ajout/retrait de tags depuis l'état verrouillé, décision explicite `discard_suggestion`. Aucune écriture de montant/date/libellé via cette API. Les origines historiques restent inconnues.
+- Migration021 : provenance de catégorie, propositions séparées et index `(owner_id,tx_date,id)`. Rollback manuel conserve les transactions et leurs catégories/tags ; testé sur un schéma isolé.
+- `categorize.CompilePattern` réutilisé par import, application et comptage des règles ; les tags à l'import sont limités au nouveau relevé. Domaines étrangers ignorés. `ai/enrich.go` génère des propositions sans appliquer catégorie/tag.
+- `financialsql` partage les exclusions par propriétaire (transfert, parent, épargne) entre API et analyse IA. Les liens historiques vers une catégorie étrangère ne peuvent plus influencer les flux ; ils apparaissent sans catégorie dans le rapport. Analyse et principaux outils de synthèse/recherche du chat conservent des décimaux exacts et indiquent une couverture inconnue.
+- `normalize_backfill.go` et `merchant_alias.go` : surnoms exacts/motifs séparés par propriétaire, priorité déterministe identique à l’import/redémarrage et version du normaliseur atomique. Réparation des affichages antérieurement mélangés, libellés bancaires bruts conservés.
+- `Transactions.jsx/.css`, `TransactionDetails.jsx`, `transactionPageModel.mjs` : largeur ciblée1600, trois indicateurs, filtres communs export/liste, groupes journaliers, drawer clavier, édition multiple confirmée et résultats partiels. Mois courant/couverture distingués ; les groupes de plus de1000 sources sont des lots explicitement incomplets.
+- Tests Go/PostgreSQL/API/export/IA/migration/rollback, Node et `frontend/tests/transactions.browser.cjs`. Job CI `budgets-ui` conservé et étendu aux trois pages financières Transactions/Budgets/Simulation ; aucun contrôle désactivé.
+- Diagnostic priorisé : `docs/TRANSACTIONS_AUDIT.md`. Contrats, règles, validations et limites : `docs/TRANSACTIONS_IMPLEMENTATION.md`.
