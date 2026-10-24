@@ -77,6 +77,15 @@ export const api = {
     if (progressToken) fd.append('progress_token', progressToken)
     return fetch('/api/statements', { method: 'POST', body: fd, credentials: 'same-origin' }).then(json)
   },
+  previewStatement: (file, accountId, progressToken) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (accountId) fd.append('account_id', String(accountId))
+    if (progressToken) fd.append('progress_token', progressToken)
+    return fetch('/api/statements/previews', { method: 'POST', body: fd, credentials: 'same-origin' }).then(json)
+  },
+  confirmStatementPreview: token => J(`/api/statements/previews/${encodeURIComponent(token)}/confirm`, 'POST'),
+  cancelStatementPreview: token => J(`/api/statements/previews/${encodeURIComponent(token)}`, 'DELETE'),
   uploadProgress: (token) => fetch(`/api/upload/progress?token=${encodeURIComponent(token)}`).then(json),
   budgets: (month) => fetch('/api/budgets' + (month ? `?month=${month}` : '')).then(json),
   setBudget: (domainId, monthlyLimit) =>

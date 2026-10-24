@@ -444,3 +444,12 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `uncoveredStatementDates` est partagé avec `heroSpansCover` : continuité des relevés validés, y compris cycles clôturés le 21. Pas de nouveau calcul financier ou de migration.
 - `DataReliability.jsx` dans Relevés : choix du mois, détails par compte, bouton pour filtrer les relevés concernés et accès à l’import existant. Lien depuis le pied de FinancialSummary transmettant le mois du dashboard.
 - Tests Go des intervalles/statuts et test PostgreSQL optionnel `TestReliabilityPostgres` (`THEMIS_TEST_DATABASE_URL`, tables temporaires), tests Node `dataReliabilityModel.test.mjs`.
+
+### Prévisualisation des imports
+
+- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` calcule les doublons selon les empreintes existantes et décrit les soldes/écarts disponibles.
+- Aperçus en mémoire du `Server`, liés au propriétaire et au compte : TTL 15 min, 3 par utilisateur, 32 au total et budget estimé de 32 Mio ; limite de 20 000 opérations par aperçu. Suppression sur expiration par timer, annulation ou confirmation.
+- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Déduplication définitive par la contrainte SQL existante.
+- Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
+- `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
+- Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
