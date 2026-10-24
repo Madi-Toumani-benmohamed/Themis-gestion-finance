@@ -1,20 +1,35 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { api, eur, monthLabel, kindIcon } from '../api'
+import { api, monthLabel, kindIcon } from '../api'
 import { useToast } from '../Toast'
 import SortStack from './SortStack'
 import MerchantRenamer from './MerchantRenamer'
 import MerchantList from './MerchantList'
+import { transactionReportModel, transactionDayTotal, transactionMoney, transactionCents } from '../components/transactionPageModel.mjs'
+import { TransactionDrawer, TransactionBulkDialog } from '../components/TransactionDetails'
+import './Transactions.css'
 
 export default function Transactions({ initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
   const toast = useToast()
+  const [compactTable, setCompactTable] = useState(() => window.matchMedia('(max-width: 760px)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 760px)')
+    const update = () => setCompactTable(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
   const [txs, setTxs] = useState([])
-  const [month, setMonth] = useState(initialMonth)
+  const [month, setMonth] = useState(initialMonth || (initialSearch || initialDomain || initialBudget || initialTransactionIds.length || initialFrom || initialTo ? '' : new Date().toISOString().slice(0, 7)))
   const [from, setFrom] = useState(initialFrom)
   const [to, setTo] = useState(initialTo)
   const [showDates, setShowDates] = useState(Boolean(initialFrom || initialTo))
   const [domainFilter, setDomainFilter] = useState(initialDomain)
   const [sourceFilter, setSourceFilter] = useState({ budget: initialBudget, ids: initialTransactionIds.slice().reverse() })
   const [sourcePage, setSourcePage] = useState(0)
+  const [page, setPage] = useState(0), [report, setReport] = useState(null)
+  const [accountFilter, setAccountFilter] = useState(''), [accounts, setAccounts] = useState([]), [typeFilter, setTypeFilter] = useState('')
+  const [reliability, setReliability] = useState(null), [selected, setSelected] = useState(new Set()), [detail, setDetail] = useState(null), [bulk, setBulk] = useState(null)
+  const [showTools, setShowTools] = useState(false)
+  const abortRequest = useRef(null), periodTouched = useRef(false)
   const [fetching, setFetching] = useState(false)
   const requestEpoch = useRef(0)
   const [search, setSearch] = useState(initialSearch)
@@ -26,8 +41,6 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
   const [domains, setDomains] = useState([])
   const [tagFilter, setTagFilter] = useState('')
   const [allTags, setAllTags] = useState([])
-  const [tagEdit, setTagEdit] = useState(null)
-  const [tagDraft, setTagDraft] = useState('')
   const [manageDomains, setManageDomains] = useState(false)
   const [showAllDomains, setShowAllDomains] = useState(false)
   const [showRenamer, setShowRenamer] = useState(false)
@@ -42,6 +55,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     api.health().then((h) => setAiEnabled(h.ai_enabled)).catch(() => {})
     api.domains().then((x) => setDomains(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
     api.tags().then(setAllTags).catch(() => {})
+    api.accounts().then(x => setAccounts(Array.isArray(x) ? x : [])).catch(e => setErr(e.message))
     api.summary(24).then((d) => {
       const ms = (d.monthly ?? []).map((m) => m.month).reverse()
       setMonths(ms)
@@ -49,54 +63,80 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
       // avec une recherche ou un mois déjà imposé (ex. clic sur une anomalie qui
       // concerne un autre mois). Sinon on garde « tous les mois » pour ne pas
       // masquer les transactions ciblées.
-      if (ms[0] && !initialSearch && !initialMonth && !initialDomain && !initialBudget && !initialTransactionIds.length && !initialFrom && !initialTo) setMonth(ms[0])
+      if (ms[0] && !periodTouched.current && !initialSearch && !initialMonth && !initialDomain && !initialBudget && !initialTransactionIds.length && !initialFrom && !initialTo) setMonth(ms[0])
     }).catch((e) => setErr(e.message))
   }, [])
 
-  const reload = () => {
+  const queryParams = () => {
     const params = {}
-    // Une période explicite (du/au) prime sur le sélecteur de mois.
-    if (from || to) {
-      if (from) params.from = from
-      if (to) params.to = to
-    } else if (month) {
-      params.month = month
-    }
-    if (sourceFilter.budget) { params.budget_id = sourceFilter.budget; params.offset = sourcePage * 1000 }
+    if (from || to) { params.from = from; params.to = to }
+    else if (month) params.month = month
+    else params.all = 1
+    if (sourceFilter.budget) params.budget_id = sourceFilter.budget
     if (sourceFilter.ids.length) params.ids = sourceFilter.ids.slice(sourcePage * 1000, (sourcePage + 1) * 1000).join(',')
     if (domainFilter) params.domain = domainFilter
+    if (accountFilter) params.account = accountFilter
+    if (typeFilter) params.type = typeFilter
     if (search) params.q = search
     if (tagFilter) params.tag = tagFilter
+    return params
+  }
+  const reload = async () => {
+    abortRequest.current?.abort()
+    const controller = new AbortController()
+    abortRequest.current = controller
     const epoch = ++requestEpoch.current
-    setFetching(true); setErr(null); setTxs([])
-    api.transactions(params).then(x => { if (epoch === requestEpoch.current) setTxs(Array.isArray(x) ? x : []) }).catch(e => { if (epoch === requestEpoch.current) setErr(e.message) }).finally(() => { if (epoch === requestEpoch.current) setFetching(false) })
+    const params = { ...queryParams(), limit: 100, offset: page * 100 }
+    setFetching(true); setErr(null); setReport(null); setTxs([])
+    if (showDates && (!from || !to || from > to)) {
+      setErr('Choisis une date de début et de fin dans l’ordre chronologique.'); setFetching(false); return
+    }
+    try {
+      const data = transactionReportModel(await api.transactionReport(params, { signal: controller.signal }))
+      if (epoch !== requestEpoch.current) return
+      if (page > 0 && page * 100 >= data.total) { setPage(Math.max(0, Math.ceil(data.total / 100) - 1)); return }
+      setReport(data); setTxs(data.transactions); setDetail(current => current ? data.transactions.find(row => row.id === current.id) || current : null)
+    } catch (error) { if (epoch === requestEpoch.current && error.name !== 'AbortError') setErr(error.message) }
+    finally { if (epoch === requestEpoch.current) setFetching(false) }
   }
 
-  useEffect(() => { setSourcePage(0) }, [month, domainFilter, search, tagFilter, from, to, sourceFilter])
+  useEffect(() => { setPage(0); setSelected(new Set()) }, [month, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
+  useEffect(() => { setSelected(new Set()) }, [page])
   useEffect(() => {
-    const t = setTimeout(reload, search ? 250 : 0)
-    return () => { clearTimeout(t); requestEpoch.current++ }
-  }, [month, domainFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
+    const timer = setTimeout(reload, search ? 250 : 0)
+    return () => { clearTimeout(timer); requestEpoch.current++; abortRequest.current?.abort() }
+  }, [month, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage, page])
+  useEffect(() => {
+    let active = true
+    setReliability(null)
+    if (month && !from && !to) api.period(month).then(data => { if (active) setReliability(data) }).catch(() => {})
+    return () => { active = false }
+  }, [month, from, to])
 
+  const resetFilters = () => {
+    periodTouched.current = true
+    setMonth(months[0] || new Date().toISOString().slice(0, 7)); setFrom(''); setTo(''); setShowDates(false)
+    setSearch(''); setDomainFilter(''); setAccountFilter(''); setTypeFilter(''); setTagFilter(''); setSourceFilter({ budget: '', ids: [] }); setSourcePage(0); setPage(0)
+  }
+  const saveTransaction = async (tx, patch) => {
+    await api.setTransactionMeta(tx.id, patch)
+    setDetail(current => current?.id === tx.id ? { ...current, ...patch, classification_source: Object.hasOwn(patch, 'domain_id') ? 'manual' : current.classification_source, financial_type: Object.hasOwn(patch, 'domain_id') ? undefined : current.financial_type, suggestion: Object.hasOwn(patch, 'domain_id') || patch.discard_suggestion ? null : current.suggestion } : current)
+    await reload()
+    api.tags().then(setAllTags).catch(() => {})
+  }
+  const applyBulk = async (rows, change) => {
+    const failed = []; let succeeded = 0
+    for (const tx of rows) {
+      const patch = change.action === 'category' ? { domain_id: change.domain_id } : { [change.action]: change.tags }
+      try { await api.setTransactionMeta(tx.id, patch); succeeded++ }
+      catch (error) { failed.push({ id: tx.id, error: error.message }) }
+    }
+    setSelected(new Set(failed.map(item => item.id)))
+    await reload(); api.tags().then(setAllTags).catch(() => {})
+    return { succeeded, failed }
+  }
   const topDomains = useMemo(() => domains.filter((d) => !d.parent_id), [domains])
   const domainById = useMemo(() => Object.fromEntries(domains.map((d) => [d.id, d])), [domains])
-
-  const tagSuggestions = useMemo(() => {
-    if (tagEdit === null) return []
-    const parts = tagDraft.split(',')
-    const current = parts[parts.length - 1].trim().toLowerCase()
-    const already = new Set(parts.slice(0, -1).map((p) => p.trim().toLowerCase()))
-    if (current === '') return []
-    return allTags.map((t) => t.name)
-      .filter((n) => n.includes(current) && n !== current && !already.has(n))
-      .slice(0, 6)
-  }, [tagDraft, tagEdit, allTags])
-
-  const applySuggestion = (sug) => {
-    const parts = tagDraft.split(',')
-    parts[parts.length - 1] = ' ' + sug
-    setTagDraft(parts.join(',').replace(/^ /, '') + ', ')
-  }
 
   // motif suggéré : le mot le plus distinctif du libellé (le plus long,
   // hors préfixes bancaires et nombres) — bien plus fiable que "le 1er mot".
@@ -120,18 +160,8 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     const domainId = value === '' ? null : +value
     try {
       await api.setTransactionMeta(tx.id, { domain_id: domainId })
-      setTxs((list) => list.map((x) => (x.id === tx.id ? { ...x, domain_id: domainId } : x)))
+      await reload()
       if (domainId) proposeRule(tx, domainId)
-    } catch (e) { toast.err(e.message) }
-  }
-
-  const saveTags = async (tx) => {
-    const tags = tagDraft.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
-    try {
-      await api.setTransactionMeta(tx.id, { tags })
-      setTxs((list) => list.map((x) => (x.id === tx.id ? { ...x, tags } : x)))
-      setTagEdit(null); setTagDraft('')
-      api.tags().then(setAllTags).catch(() => {})
     } catch (e) { toast.err(e.message) }
   }
 
@@ -139,9 +169,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     setEnrichBusy(true)
     try {
       const r = await api.aiEnrich(month || undefined)
-      toast.ok(r.domains_set > 0 || r.tags_set > 0
-        ? `IA : ${r.domains_set} catégorie(s) et ${r.tags_set} tag(s) attribués.`
-        : "l'IA n'a rien proposé de plus.")
+      toast.ok(r.suggested > 0 ? `${r.suggested} proposition(s) IA à vérifier dans le détail des opérations. Aucune catégorie ni aucun tag appliqué automatiquement.` : 'Aucune nouvelle proposition IA.')
       reload()
       api.tags().then(setAllTags).catch(() => {})
     } catch (e) { toast.err(e.message) } finally { setEnrichBusy(false) }
@@ -165,6 +193,8 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     try {
       await api.deleteDomain(d.id)
       setDomains((list) => list.filter((x) => x.id !== d.id))
+      if (String(domainFilter) === String(d.id)) setDomainFilter('')
+      reload()
       toast.ok('Catégorie retirée.')
     } catch (e2) { toast.err(e2.message) }
   }
@@ -173,7 +203,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     setDomains((list) => list.map((x) => (x.id === d.id ? { ...x, color } : x)))
     try {
       await api.updateDomain(d.id, { color })
-    } catch (e2) { toast.err(e2.message) }
+    } catch (e2) { setDomains(list => list.map(x => x.id === d.id ? { ...x, color: d.color } : x)); toast.err(e2.message) }
   }
 
   const createRule = async (pattern, domainId) => {
@@ -259,10 +289,17 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     return acc
   }, {})
   const dayLabel = (d) =>
-    new Date(d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+    new Date(`${d}T12:00:00Z`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
 
   return (
-    <div className="section">
+    <div className="section transactions-page">
+      <header className="transactions-heading"><div><span className="eyebrow">Gestion des opérations</span><h1>Transactions</h1><p>{from || to ? `${from || '…'} — ${to || '…'}` : month ? monthLabel(month) : 'Tous les mois'} · mouvements observés</p></div><button className="btn-secondary" onClick={() => setShowTools(value => !value)} aria-expanded={showTools} aria-controls="transaction-tools">{showTools ? 'Fermer les outils' : 'Outils de classement'}</button></header>
+      <div className="transactions-period"><span className="transaction-status">{reliability?.completeness === 'complete' ? 'Période complète documentée' : reliability?.completeness === 'partial' ? 'Période partielle' : month === new Date().toISOString().slice(0, 7) && !from && !to ? 'Mois en cours · couverture inconnue' : 'Complétude non établie'}</span><span>Les indicateurs portent sur toutes les opérations correspondant aux filtres, au-delà de cette page.</span></div>
+      <dl className="transactions-summary" aria-label="Synthèse des opérations filtrées">{[['Dépenses observées', 'expenses'], ['Revenus et crédits', 'income'], ['Flux net hors transferts', 'net']].map(([label, key]) => <div key={key}><dt>{label}</dt><dd>{report ? transactionMoney(report.money[key]) : '—'}</dd></div>)}</dl>
+      <p className="transaction-note">Débits et crédits observés, transferts et épargne exclus. Les crédits peuvent inclure des remboursements ou annulations non rapprochés. Un solde temporaire ne préjuge pas de la situation du mois ; les revenus peuvent arriver en fin de mois.</p>
+      {report && (report.money.transfer_debits > 0 || report.money.transfer_credits > 0) && <p className="transaction-note">Mouvements de transfert et d’épargne exclus de ces indicateurs : sorties {transactionMoney(report.money.transfer_debits)} · entrées {transactionMoney(report.money.transfer_credits)}. Ils restent consultables dans la liste.</p>}
+      {report && <p className="transaction-query-period">Périmètre interrogé : {report.query_from || 'début de l’historique'} → {report.query_to || 'fin de l’historique'}.{accountFilter && ' La couverture documentaire indiquée reste celle de l’ensemble des comptes.'}</p>}
+
       {sorting && (
         <SortStack
           transactions={txs.filter((t) => !t.domain_id)}
@@ -271,6 +308,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
           onSorted={(id, domainId) => setTxs((list) => list.map((x) => x.id === id ? { ...x, domain_id: domainId } : x))}
         />
       )}
+      <div id="transaction-tools" className="transaction-tools" hidden={!showTools}>
       <div className="domains-bar">
         <span className="domains-label">Catégories</span>
         {(showAllDomains || manageDomains ? topDomains : topDomains.slice(0, 4)).map((d) => (
@@ -278,11 +316,11 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
             <span className="dom-dot" />{d.name}
             {manageDomains && (
               <label className="domain-color" title="Changer la couleur">
-                <input type="color" value={d.color || '#8A8A99'}
+                <input type="color" value={d.color || '#8A8A99'} aria-label={`Couleur de ${d.name}`}
                        onChange={(e) => changeDomainColor(d, e.target.value)} />
               </label>
             )}
-            {manageDomains && <button className="domain-x" onClick={() => removeDomain(d)} title="Retirer">×</button>}
+            {manageDomains && <button className="domain-x" onClick={() => removeDomain(d)} title="Retirer" aria-label={`Retirer ${d.name}`}>×</button>}
           </span>
         ))}
         {!manageDomains && !showAllDomains && topDomains.length > 4 && (
@@ -297,7 +335,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
         )}
         {manageDomains && (
           <form className="domain-add" onSubmit={addDomain}>
-            <input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="nouvelle catégorie" />
+            <input value={newDomain} onChange={(e) => setNewDomain(e.target.value)} placeholder="nouvelle catégorie" aria-label="Nom de la nouvelle catégorie" />
             <button type="submit" title="Ajouter">＋</button>
           </form>
         )}
@@ -334,7 +372,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
                     <td>
                       {editingPattern === r.id ? (
                         <input
-                          className="rule-input"
+                          className="rule-input" aria-label="Motif de la règle"
                           defaultValue={r.pattern}
                           autoFocus
                           onBlur={(e) => saveRulePattern(r, e.target.value)}
@@ -356,7 +394,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
                         <span className="dom-dot" />
                         <select className="dom-select" value={r.domain_id}
                                 onChange={(e) => saveRuleDomain(r, e.target.value)}
-                                title="Changer la catégorie">
+                                title="Changer la catégorie" aria-label={`Catégorie de la règle ${r.pattern}`}>
                           {topDomains.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                       </span>
@@ -366,7 +404,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
                       <input
                         className="rule-tags-input"
                         defaultValue={(r.tags || []).join(', ')}
-                        placeholder="+ tags…"
+                        placeholder="+ tags…" aria-label={`Tags de la règle ${r.pattern}`}
                         title="Tags posés automatiquement, séparés par des virgules"
                         onBlur={(e) => saveRuleTags(r, e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
@@ -404,15 +442,14 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
         </div>
       )}
 
-      {(sourceFilter.budget || sourceFilter.ids.length > 0) && <div className="notice">Vue des opérations contribuant {sourceFilter.budget ? "à l’enveloppe sélectionnée" : "à la récurrence sélectionnée"}. Les crédits sont affichés avec leur signe. <button className="link" onClick={() => setSourceFilter({ budget: '', ids: [] })}>Retirer ce filtre de provenance</button></div>}
-      {!(sourceFilter.budget || sourceFilter.ids.length) && txs.length === 1000 && <p className="notice">Affichage limité à 1 000 opérations. D’autres opérations peuvent contribuer aux totaux : affine la période pour examiner les sources restantes. Cette liste n’est pas une preuve de réconciliation complète.</p>}
-      {fetching && <p role="status" className="notice">Chargement des opérations sources…</p>}
-      {(sourceFilter.budget || sourceFilter.ids.length > 1000) && <nav aria-label="Pagination des sources" className="notice" style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}><button className="link" disabled={fetching || sourcePage === 0} onClick={() => setSourcePage(p => p - 1)}>Sources précédentes</button><span>Page {sourcePage + 1}{sourceFilter.ids.length ? ` sur ${Math.ceil(sourceFilter.ids.length / 1000)}` : ''} · 1 000 opérations maximum par page</span><button className="link" disabled={fetching || (sourceFilter.ids.length ? (sourcePage + 1) * 1000 >= sourceFilter.ids.length : txs.length < 1000)} onClick={() => setSourcePage(p => p + 1)}>Sources suivantes</button></nav>}
-      <div className="toolbar">
+      </div>
+      {(sourceFilter.budget || sourceFilter.ids.length > 0) && <div className="notice">Opérations contribuant {sourceFilter.budget ? 'à l’enveloppe sélectionnée' : 'à la récurrence sélectionnée'}. <button className="link" onClick={() => { setSourceFilter({ budget: '', ids: [] }); setSourcePage(0) }}>Retirer le filtre de provenance</button></div>}
+      {sourceFilter.ids.length > 1000 && <nav className="transaction-source-nav" aria-label="Lots de provenance"><button className="btn-secondary" disabled={fetching || sourcePage === 0} onClick={() => { setSourcePage(value => value - 1); setPage(0) }}>Lot précédent</button><span>Lot de sources {sourcePage + 1} sur {Math.ceil(sourceFilter.ids.length / 1000)}. Synthèse limitée aux 1 000 identifiants de ce lot et aux filtres actifs ; elle ne représente pas toutes les sources.</span><button className="btn-secondary" disabled={fetching || (sourcePage + 1) * 1000 >= sourceFilter.ids.length} onClick={() => { setSourcePage(value => value + 1); setPage(0) }}>Lot suivant</button></nav>}
+      <div className="toolbar transaction-filters" aria-label="Filtres des transactions">
         {!showDates ? (
-          <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Mois">
+          <select value={month} onChange={(e) => { periodTouched.current = true; setMonth(e.target.value) }} aria-label="Mois">
             <option value="">Tous les mois</option>
-            {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            {[...new Set([month, ...months].filter(Boolean))].sort().reverse().map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}
           </select>
         ) : (
           <span className="date-range">
@@ -423,35 +460,37 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
         )}
         <button
           className={`btn-period ${showDates ? 'active' : ''}`}
-          onClick={() => { setShowDates((v) => !v); if (showDates) { setFrom(''); setTo('') } else { setMonth('') } }}
+          onClick={() => { periodTouched.current = true; setShowDates((v) => !v); if (showDates) { setFrom(''); setTo('') } else { setMonth('') } }}
           title="Basculer entre mois et période personnalisée"
         >
           {showDates ? '← par mois' : 'par période'}
         </button>
-        <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} aria-label="Domaine">
+        <select value={domainFilter} onChange={(e) => setDomainFilter(e.target.value)} aria-label="Catégorie">
           <option value="">Toutes les catégories</option>
           <option value="none">Sans catégorie</option>
-          {topDomains.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          {domains.map((d) => <option key={d.id} value={d.id}>{d.parent_id ? '↳ ' : ''}{d.name}</option>)}
         </select>
         <input
           type="search"
-          placeholder="Rechercher un libellé…"
+          placeholder="Marchand, libellé, montant…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           aria-label="Recherche"
           style={{ flex: 1, minWidth: 160 }}
         />
-        <span style={{ color: 'var(--muted)', fontSize: 13 }}>{txs.length} transaction{txs.length > 1 ? 's' : ''}</span>
+        <select value={accountFilter} onChange={event => setAccountFilter(event.target.value)} aria-label="Compte bancaire"><option value="">Tous les comptes</option><option value="none">Compte non documenté</option>{accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}</select>
+        <select value={typeFilter} onChange={event => setTypeFilter(event.target.value)} aria-label="Type d’opération"><option value="">Tous les types</option><option value="debit">Débits hors transferts</option><option value="credit">Crédits hors transferts</option><option value="transfer">Transferts et épargne</option><option value="neutral">Montants nuls</option></select>
         {allTags.length > 0 && (
           <select value={tagFilter} onChange={(e) => setTagFilter(e.target.value)} aria-label="Tag">
             <option value="">Tous les tags</option>
             <option value="__none__">— Sans tag —</option>
-            {allTags.map((t) => <option key={t.name} value={t.name}>#{t.name} ({t.count})</option>)}
+            {allTags.map((t) => <option key={t.name} value={t.name}>#{t.name}</option>)}
           </select>
         )}
-        <a className="btn-secondary" href={api.exportUrl(search ? '' : month)} download>Exporter CSV</a>
+        <button className="btn-secondary" onClick={resetFilters}>Réinitialiser les filtres</button>
+        {report && !fetching ? <a className="btn-secondary" href={api.exportTransactionsUrl(queryParams())} download>Exporter ces résultats (CSV)</a> : <button className="btn-secondary" disabled>Exporter ces résultats (CSV)</button>}
         {txs.some((t) => !t.domain_id) && (
-          <button className="btn-secondary" onClick={applyRules} disabled={applyBusy}
+          <button className="btn-secondary" onClick={() => { if (confirm('Appliquer les règles déterministes existantes à toutes les opérations non catégorisées de l’historique, indépendamment des filtres ?')) applyRules() }} disabled={applyBusy}
                   title="Ranger les transactions sans catégorie selon les règles existantes">
             {applyBusy ? 'Application…' : 'Appliquer les règles'}
           </button>
@@ -462,103 +501,27 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
           </button>
         )}
         {aiEnabled && txs.some((t) => !t.domain_id) && (
-          <button className="btn-secondary ai" onClick={runAiEnrich} disabled={enrichBusy}>
-            {enrichBusy ? 'Tri en cours…' : 'Trier catégories & tags (IA)'}
+          <button className="btn-secondary ai" onClick={runAiEnrich} disabled={enrichBusy || !month || Boolean(from || to)} title="Propositions pour le mois sélectionné, à vérifier et appliquer individuellement. Les autres filtres ne limitent pas la recherche IA.">
+            {enrichBusy ? 'Suggestions en cours…' : 'Suggérer catégories et tags (IA)'}
           </button>
         )}
       </div>
 
-      {err && <div className="notice err">{err}</div>}
-
-      {txs.length === 0 ? (
-        <div className="empty">Aucune transaction pour ces filtres.</div>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th style={{ width: 96 }}>Date</th>
-              <th>Libellé</th>
-              <th style={{ width: 150 }}>Catégorie</th>
-              <th style={{ width: 220 }}>Tags</th>
-              <th className="num" style={{ width: 110 }}>Montant</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(byDay).map(([date, rows]) => {
-              const net = rows.reduce((s, t) => s + t.amount, 0)
-              return (
-                <Fragment key={date}>
-                  <tr className="tx-day">
-                    <td colSpan={5}>
-                      {dayLabel(date)}
-                      <span className={'tx-day-total' + (net >= 0 ? ' pos' : '')}>
-                        {net >= 0 ? '+' : ''}{eur(net)}
-                      </span>
-                    </td>
-                  </tr>
-                  {rows.map((t) => (
-                    <tr key={t.id}>
-                <td className="amt" style={{ color: 'var(--muted)', fontSize: 13 }}>{t.date}</td>
-                <td>
-                  <div className="tx-label">
-                    {kindIcon(t.kind) && <span className="kicon" aria-hidden="true">{kindIcon(t.kind)}</span>}
-                    {t.display_label || t.label}
-                  </div>
-                  {t.display_label && t.display_label !== t.label && (
-                    <div className="tx-raw">{t.label}</div>
-                  )}
-                </td>
-                <td className="dom-cell">
-                  <div className={'dom-pick' + (t.domain_id ? ' set' : '')}
-                       style={t.domain_id ? { '--dc': domainById[t.domain_id]?.color || 'var(--muted)' } : {}}>
-                    <span className="dom-dot" />
-                    <select className="dom-select" value={t.domain_id ?? ''}
-                            onChange={(e) => changeDomain(t, e.target.value)}>
-                      <option value="">— à ranger —</option>
-                      {topDomains.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                  </div>
-                </td>
-                <td className="tag-cell">
-                  {tagEdit === t.id ? (
-                    <form className="tag-edit" onSubmit={(e) => { e.preventDefault(); saveTags(t) }}>
-                      <div className="tag-edit-field">
-                        <input autoFocus value={tagDraft} placeholder="loyer, loyer janvier…"
-                               onChange={(e) => setTagDraft(e.target.value)}
-                               onKeyDown={(e) => { if (e.key === 'Escape') setTagEdit(null) }} />
-                        {tagSuggestions.length > 0 && (
-                          <div className="tag-suggest">
-                            {tagSuggestions.map((sug) => (
-                              <button type="button" key={sug} className="tag-suggest-item"
-                                      onMouseDown={(e) => { e.preventDefault(); applySuggestion(sug) }}>
-                                #{sug}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <button type="submit" title="Enregistrer">✓</button>
-                    </form>
-                  ) : (
-                    <div className="tag-row" onClick={() => { setTagEdit(t.id); setTagDraft((t.tags || []).join(', ')) }}
-                         title="Cliquer pour éditer les tags">
-                      {(t.tags || []).length > 0
-                        ? t.tags.map((tag) => <span key={tag} className="tag-pill">{tag}</span>)
-                        : <span className="tag-add">+ ajouter</span>}
-                    </div>
-                  )}
-                </td>
-                <td className={'num amt ' + (t.amount >= 0 ? 'credit' : 'debit')}>
-                  {t.amount >= 0 ? '+' : ''}{eur(t.amount)}
-                </td>
-              </tr>
-                  ))}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
-      )}
+      <div className="transaction-list-heading"><p aria-live="polite">{report ? `${report.total} opération${report.total > 1 ? 's' : ''} correspondant aux filtres · ${txs.length} sur cette page` : 'Nombre d’opérations indisponible'}</p>{selected.size > 0 && <div className="transaction-selection"><strong>{selected.size} sélectionnée(s)</strong><button className="btn-secondary" disabled={!txs.some(tx => selected.has(tx.id))} onClick={() => setBulk(txs.filter(tx => selected.has(tx.id)))}>Modifier la sélection</button><button className="link" onClick={() => setSelected(new Set())}>Désélectionner</button></div>}</div>
+      {err && <div className="notice err" role="alert">{err} <button className="link" onClick={reload}>Réessayer</button></div>}
+      {fetching && <p role="status" className="notice">Chargement des transactions…</p>}
+      {!fetching && !err && txs.length === 0 ? <div className="empty">Aucune transaction pour ces filtres.</div> : txs.length > 0 && <div className="transactions-table-wrap"><table className="transactions-table"><caption className="sr-only">Transactions regroupées par date, selon les filtres actifs</caption>
+        <thead><tr><th className="transaction-check"><input type="checkbox" aria-label="Sélectionner toutes les opérations de cette page" checked={txs.length > 0 && txs.every(tx => selected.has(tx.id))} onChange={event => setSelected(event.target.checked ? new Set(txs.map(tx => tx.id)) : new Set())}/></th><th>Libellé et compte</th><th className="transaction-category-column">Catégorie</th><th className="transaction-tags-column">Tags</th><th className="num">Montant</th></tr></thead>
+        <tbody>{Object.entries(byDay).map(([date, rows]) => <Fragment key={date}><tr className="tx-day"><td colSpan={compactTable ? 3 : 5}><time dateTime={date}>{dayLabel(date)}</time><span className="tx-day-total" title="Somme signée des écritures de ce jour présentes sur cette page, transferts inclus">{transactionMoney(transactionDayTotal(rows))} <small>sur cette page</small></span></td></tr>{rows.map(tx => <tr key={tx.id} className={selected.has(tx.id) ? 'transaction-selected' : ''}>
+          <td className="transaction-check"><input type="checkbox" aria-label={`Sélectionner l’opération ${tx.id}`} checked={selected.has(tx.id)} onChange={event => setSelected(current => { const next = new Set(current); event.target.checked ? next.add(tx.id) : next.delete(tx.id); return next })}/></td>
+          <td className="transaction-description"><button id={`transaction-open-${tx.id}`} className="transaction-open" onClick={() => setDetail(tx)} aria-label={`Détail de ${tx.display_label || tx.merchant || tx.label}`}><span className="tx-label">{kindIcon(tx.kind) && <span aria-hidden="true">{kindIcon(tx.kind)} </span>}{tx.display_label || tx.merchant || tx.label}</span></button><div className="tx-raw">{tx.label}</div><div className="transaction-row-meta"><span>{tx.account_name || 'Compte non documenté'}</span>{tx.financial_type === 'transfer' && <span className="transaction-status">Transfert / épargne</span>}{!tx.domain_id && <span>Sans catégorie</span>}{tx.suggestion && <span>Suggestion IA à vérifier</span>}</div><div className="transaction-mobile-meta">{domainById[tx.domain_id]?.name || 'Sans catégorie'}{tx.tags?.length ? ` · ${tx.tags.map(tag => `#${tag}`).join(' ')}` : ''}</div></td>
+          <td className="transaction-category-column"><select aria-label={`Catégorie de l’opération ${tx.id}`} value={tx.domain_id ?? ''} onChange={event => changeDomain(tx, event.target.value)}><option value="">Sans catégorie</option>{domains.map(domain => <option key={domain.id} value={domain.id}>{domain.parent_id ? '↳ ' : ''}{domain.name}</option>)}</select></td>
+          <td className="transaction-tags-column"><button className="transaction-tags" onClick={() => setDetail(tx)} aria-label={`Modifier les tags de l’opération ${tx.id} : ${tx.tags?.length ? tx.tags.join(' ') : 'Ajouter des tags'}`}>{tx.tags?.length ? tx.tags.map(tag => <Fragment key={tag}><span className="tag-pill">{tag}</span>{' '}</Fragment>) : <span>Ajouter des tags</span>}</button></td>
+          <td className="num amt">{transactionMoney(transactionCents(tx))}</td>
+        </tr>)}</Fragment>)}</tbody></table></div>}
+      {report && <nav className="transaction-pagination" aria-label="Pagination des transactions"><button className="btn-secondary" disabled={fetching || page === 0} onClick={() => setPage(value => value - 1)}>Précédent</button><span>Page {page + 1} sur {Math.max(1, Math.ceil(report.total / 100))} · 100 opérations maximum</span><button className="btn-secondary" disabled={fetching || (page + 1) * 100 >= report.total} onClick={() => setPage(value => value + 1)}>Suivant</button></nav>}
+      {detail && <TransactionDrawer key={detail.id} transaction={detail} domains={domains} allTags={allTags} onSave={saveTransaction} onClose={() => setDetail(null)}/>}
+      {bulk && <TransactionBulkDialog rows={bulk} domains={domains} onApply={applyBulk} onClose={() => setBulk(null)}/>}
     </div>
   )
 }

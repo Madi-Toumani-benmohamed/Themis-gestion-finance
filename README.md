@@ -5,7 +5,7 @@ Thémis est une application auto-hébergée de gestion de finances personnelles 
 ## Fonctionnalités
 
 - **Import PDF et CSV** : extraction du texte, OCR local si nécessaire, déduplication et validation comptable des relevés lorsque les soldes de contrôle sont disponibles. Les CSV restent à vérifier faute de ces soldes.
-- **Classement des transactions** : domaines/catégories, tags multiples, règles automatiques, renommage des marchands et tri en pile. La catégorisation IA complète les règles sans remplacer un classement déjà posé.
+- **Classement des transactions** : domaines/catégories, tags multiples, règles automatiques, renommage des marchands et tri en pile. Les propositions IA restent séparées et nécessitent une validation explicite avant affectation.
 - **Dashboard personnalisable** : navigation mensuelle, synthèse financière, revenus/dépenses, graphiques Recharts, principales dépenses, budgets, récurrences et journal d’événements.
 - **Points d’attention** : dépassements budgétaires, dépenses potentiellement inhabituelles et signaux sur les paiements récurrents, calculés par des règles déterministes.
 - **Analyse et simulation** : évolution des dépenses, croisements catégories/tags, suivi des comptes, crédits et taxes, simulation budgétaire.
@@ -19,7 +19,7 @@ Le dépôt d’un PDF ou CSV ouvre désormais un aperçu avant toute écriture d
 
 **Confirmer l’import** utilise les données analysées côté serveur, sans analyser une seconde fois le document. **Annuler ce fichier** ne crée ni relevé ni transaction. En import multiple, chaque fichier est examiné séparément. Les doublons suivent les règles existantes et sont revérifiés à l’insertion : les nombres définitifs peuvent varier si un autre import a eu lieu entre-temps.
 
-Les aperçus sont conservés uniquement en mémoire serveur pendant 15 minutes, liés à l’utilisateur et au compte cible. Ils disparaissent après annulation, confirmation, expiration ou redémarrage. Leur nombre et leur mémoire totale sont limités ; les aperçus de plus de 20 000 opérations sont refusés. L’analyse initiale peut déjà utiliser le fournisseur IA configuré ; les règles et la catégorisation automatique s’exécutent après confirmation.
+Les aperçus sont conservés uniquement en mémoire serveur pendant 15 minutes, liés à l’utilisateur et au compte cible. Ils disparaissent après annulation, confirmation, expiration ou redémarrage. Leur nombre et leur mémoire totale sont limités ; les aperçus de plus de 20 000 opérations sont refusés. L’analyse initiale peut déjà utiliser le fournisseur IA configuré ; les règles et la génération de suggestions IA s’exécutent après confirmation. Les propositions IA restent séparées des catégories et tags appliqués : leur validation se fait explicitement dans le détail d’une transaction.
 
 L’API historique `POST /api/statements` reste un import direct pour les clients existants. L’interface utilise `POST /api/statements/previews`, puis `POST /api/statements/previews/{token}/confirm` ou `DELETE /api/statements/previews/{token}`. Les jetons sont éphémères et à usage unique. Pour un déploiement multi-instance, ce stockage mémoire nécessite que l’aperçu et sa confirmation atteignent la même instance.
 
@@ -165,7 +165,7 @@ Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé di
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Configuration Anthropic. |
 | `MISTRAL_API_KEY`, `MISTRAL_MODEL` | Configuration Mistral. |
 | `FREELLM_API_KEY`, `FREELLM_URL`, `FREELLM_MODEL` | Fournisseur compatible OpenAI FreeLLM. |
-| `AI_AUTO_CATEGORIZE` | Catégorisation IA à l’import (`true` par défaut). |
+| `AI_AUTO_CATEGORIZE` | Génération de suggestions IA à l’import (`true` par défaut), sans affectation automatique. Validation dans le détail de la transaction. |
 | `MEMORY_ENABLED`, `MEMORY_SERVICE_URL` | Activation et adresse du service mémoire pour le backend. |
 | `COOKIE_SECURE` | Activer avec `true` lorsque l’application est servie en HTTPS. |
 

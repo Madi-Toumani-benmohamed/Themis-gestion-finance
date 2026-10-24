@@ -410,10 +410,14 @@ func (s *Server) adminReapplyRules(w http.ResponseWriter, r *http.Request) {
 // applyAllRules réapplique les règles d'un utilisateur à ses transactions sans
 // domaine. Partagé entre l'action admin et le bouton « Appliquer les règles ».
 func (s *Server) applyAllRules(ownerID int64) (int, error) {
+	return s.applyAllRulesForStatement(ownerID, 0)
+}
+
+func (s *Server) applyAllRulesForStatement(ownerID, statementID int64) (int, error) {
 	// On parcourt les règles de l'utilisateur (avec leurs tags) et on applique
 	// chacune : catégorie sur les transactions non classées + tags sur toutes
 	// celles qui correspondent. Une seule logique, partagée avec la création.
-	rows, err := s.DB.Query(`SELECT pattern, domain_id, tags FROM rules WHERE owner_id = $1 ORDER BY length(pattern) DESC`, ownerID)
+	rows, err := s.DB.Query(`SELECT r.pattern,r.domain_id,r.tags FROM rules r JOIN domains d ON d.id=r.domain_id AND d.owner_id=r.owner_id WHERE r.owner_id=$1 ORDER BY length(r.pattern) DESC,r.id`, ownerID)
 	if err != nil {
 		return 0, err
 	}
@@ -431,11 +435,18 @@ func (s *Server) applyAllRules(ownerID int64) (int, error) {
 		}
 		rules = append(rules, rl)
 	}
+	err = rows.Err()
 	rows.Close()
-
+	if err != nil {
+		return 0, err
+	}
 	total := 0
 	for _, rl := range rules {
-		total += int(s.applyRuleToTransactions(ownerID, rl.pattern, rl.dom, rl.tags))
+		n, err := s.applyRuleToTransactionsScoped(ownerID, rl.pattern, rl.dom, rl.tags, statementID)
+		if err != nil {
+			return total, err
+		}
+		total += int(n)
 	}
 	return total, nil
 }

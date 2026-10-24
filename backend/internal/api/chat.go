@@ -75,37 +75,39 @@ func toolSearchTransactions(db *sql.DB, owner int64, args map[string]any) toolRe
 	if v, ok := args["merchant"].(string); ok {
 		merchant = v
 	}
-	q := `SELECT t.tx_date::text, t.label, t.amount, COALESCE(d.name,'Sans domaine')
-		  FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
-		  WHERE t.owner_id = $1 AND t.tx_date >= $2::date AND t.tx_date <= $3::date` + notTransfer
-	args2 := []any{owner, startDate, endDate}
-	argIdx := 4
+	// Audited: compile-time SQL constants only; all external values use PostgreSQL bind parameters.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
+	const query = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,COALESCE(d.name,'Sans domaine')
+ FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id
+ WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date` + notTransferT + `
+ AND ($4='' OR t.label ILIKE $4 OR t.display_label ILIKE $4 OR t.merchant ILIKE $4)
+ ORDER BY t.tx_date DESC,t.id DESC LIMIT $5`
+	pattern := ""
 	if merchant != "" {
-		args2 = append(args2, "%"+strings.ToLower(merchant)+"%")
-		q += fmt.Sprintf(" AND (ILIKE t.label $%d OR ILIKE t.display_label $%d)", argIdx, argIdx)
-		argIdx++
+		pattern = "%" + strings.ToLower(merchant) + "%"
 	}
-	q += fmt.Sprintf(" ORDER BY t.tx_date DESC LIMIT $%d", argIdx)
-	args2 = append(args2, limit)
-
-	rows, err := db.Query(q, args2...)
+	rows, err := db.Query(query, owner, startDate, endDate, pattern, limit)
 	if err != nil {
 		return toolResult{Error: err.Error()}
 	}
 	defer rows.Close()
 	type tx struct {
-		Date  string  `json:"date"`
-		Label string  `json:"label"`
-		Amt   float64 `json:"amount"`
-		Cat   string  `json:"category"`
+		ID    int64       `json:"id"`
+		Date  string      `json:"date"`
+		Label string      `json:"label"`
+		Amt   json.Number `json:"amount"`
+		Cat   string      `json:"category"`
 	}
 	out := []tx{}
 	for rows.Next() {
 		var x tx
-		if err := rows.Scan(&x.Date, &x.Label, &x.Amt, &x.Cat); err != nil {
-			continue
+		if err := rows.Scan(&x.ID, &x.Date, &x.Label, &x.Amt, &x.Cat); err != nil {
+			return toolResult{Error: "lecture des sources interrompue"}
 		}
 		out = append(out, x)
+	}
+	if rows.Err() != nil {
+		return toolResult{Error: "lecture des sources interrompue"}
 	}
 	b, _ := json.Marshal(out)
 	return toolResult{Content: string(b)}
@@ -129,17 +131,22 @@ func toolFinancialSummary(db *sql.DB, owner int64, args map[string]any) toolResu
 		}
 	}
 	if groupBy == "none" {
-		var income, expenses float64
+		var incomeText, expensesText string
 		err := db.QueryRow(`
-			SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
-			       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
+			SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0)::text,
+			       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)::text
 			FROM transactions
 			WHERE owner_id = $1 AND tx_date >= $2::date AND tx_date <= $3::date`+notTransfer,
-			owner, startDate, endDate).Scan(&income, &expenses)
+			owner, startDate, endDate).Scan(&incomeText, &expensesText)
 		if err != nil {
 			return toolResult{Error: err.Error()}
 		}
-		b, _ := json.Marshal(map[string]any{"income": income, "expenses": expenses, "net": income - expenses})
+		income, e1 := parseTransactionAggregate(incomeText)
+		expenses, e2 := parseTransactionAggregate(expensesText)
+		if e1 != nil || e2 != nil {
+			return toolResult{Error: "montants sources invalides"}
+		}
+		b, _ := json.Marshal(map[string]any{"income": json.Number(income.String()), "expenses": json.Number(expenses.String()), "net": json.Number((income - expenses).String()), "query_from": startDate, "query_to": endDate, "source": "transactions PostgreSQL de l'utilisateur, transferts exclus", "completeness": "unknown"})
 		return toolResult{Content: string(b)}
 	}
 	col := "COALESCE(d.name, 'Sans domaine')"
@@ -148,27 +155,38 @@ func toolFinancialSummary(db *sql.DB, owner int64, args map[string]any) toolResu
 	}
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT %s,
-		       COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
-		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
-		FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
-		WHERE t.owner_id = $1 AND t.tx_date >= $2::date AND t.tx_date <= $3::date`+notTransfer+`
+		       COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0)::text,
+		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)::text
+		FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
+		WHERE t.owner_id = $1 AND t.tx_date >= $2::date AND t.tx_date <= $3::date`+notTransferT+`
 		GROUP BY 1 ORDER BY 3 DESC`, col), owner, startDate, endDate)
 	if err != nil {
 		return toolResult{Error: err.Error()}
 	}
 	defer rows.Close()
 	type row struct {
-		Key      string  `json:"key"`
-		Income   float64 `json:"income"`
-		Expenses float64 `json:"expenses"`
+		Key      string      `json:"key"`
+		Income   json.Number `json:"income"`
+		Expenses json.Number `json:"expenses"`
 	}
 	out := []row{}
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.Key, &r.Income, &r.Expenses); err != nil {
-			continue
+		var incomeText, expensesText string
+		if err := rows.Scan(&r.Key, &incomeText, &expensesText); err != nil {
+			return toolResult{Error: "lecture des sources interrompue"}
 		}
+		income, e1 := parseTransactionAggregate(incomeText)
+		expenses, e2 := parseTransactionAggregate(expensesText)
+		if e1 != nil || e2 != nil {
+			return toolResult{Error: "montants sources invalides"}
+		}
+		r.Income = json.Number(income.String())
+		r.Expenses = json.Number(expenses.String())
 		out = append(out, r)
+	}
+	if rows.Err() != nil {
+		return toolResult{Error: "lecture des sources interrompue"}
 	}
 	b, _ := json.Marshal(out)
 	return toolResult{Content: string(b)}
@@ -212,12 +230,12 @@ func toolComparePeriods(db *sql.DB, owner int64, args map[string]any) toolResult
 			WITH cur AS (
 				SELECT COALESCE(d.name,'Sans domaine') AS k, %s AS v
 				FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id
-				WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date`+notTransfer+`
+				WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date`+notTransferT+`
 				GROUP BY k
 			), hist AS (
 				SELECT COALESCE(d.name,'Sans domaine') AS k, %s AS v
 				FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id
-				WHERE t.owner_id=$1 AND t.tx_date>=$4::date AND t.tx_date<=$5::date`+notTransfer+`
+				WHERE t.owner_id=$1 AND t.tx_date>=$4::date AND t.tx_date<=$5::date`+notTransferT+`
 				GROUP BY k
 			)
 			SELECT COALESCE(cur.k,hist.k), COALESCE(cur.v,0), COALESCE(hist.v,0)
@@ -296,7 +314,7 @@ func toolCategoryBreakdown(db *sql.DB, owner int64, args map[string]any) toolRes
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT COALESCE(d.name,'Sans domaine') AS cat, %s AS total
 		FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id
-		WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date`+notTransfer+`
+		WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date`+notTransferT+`
 		GROUP BY 1 ORDER BY total DESC LIMIT $4`, op), owner, startDate, endDate, limit)
 	if err != nil {
 		return toolResult{Error: err.Error()}
@@ -576,7 +594,7 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	return &chatResult{
 		Answer:      finalAnswer,
 		Evidence:    evidence,
-		DataQuality: map[string]any{"status": "complete"},
+		DataQuality: map[string]any{"status": "unknown", "reason": "La réponse ne constitue pas une preuve de couverture documentaire"},
 		Status:      status,
 	}, nil
 }

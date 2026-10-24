@@ -201,7 +201,12 @@ async function main() {
         r.key === key ? { ...r, ...patch } : r,
       )
       data = { status: 'ok' }
-    } else if (path === '/api/transactions') data = []
+    } else if (path === '/api/transactions') data = url.searchParams.get('view') === 'report' ? {
+      transactions: [], total: 0, limit: 100, offset: Number(url.searchParams.get('offset') || 0),
+      query_from: url.searchParams.get('from') || '', query_to: url.searchParams.get('to') || '',
+      summary: { expenses: 0, income: 0, net: 0, transfer_debits: 0, transfer_credits: 0, uncategorized_count: 0 },
+    } : []
+    else if (path === '/api/period') data = { month: url.searchParams.get('month'), completeness: 'unknown' }
     return route.fulfill({
       status,
       contentType: 'application/json',
@@ -391,8 +396,10 @@ async function main() {
   await sourceRequest
   await page
     .locator('.notice')
-    .filter({ hasText: 'Vue des opérations contribuant' })
+    .filter({ hasText: 'Opérations contribuant' })
     .waitFor()
+  await page.locator('.transaction-list-heading').filter({ hasText: '0 opération' }).waitFor()
+  assert.equal(await page.getByRole('alert').count(), 0)
   assert.ok(
     seen.some(
       (u) =>
@@ -478,7 +485,7 @@ async function main() {
       new URL(request.url()).searchParams.get('ids') === '1',
   )
   await page
-    .getByRole('button', { name: 'Sources suivantes', exact: true })
+    .getByRole('button', { name: 'Lot suivant', exact: true })
     .click()
   await nextSourcePage
   recurrenceItems = recurrenceItems.map((item) =>

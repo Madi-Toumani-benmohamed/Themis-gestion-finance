@@ -11,29 +11,51 @@ import urllib.parse
 import http.cookiejar
 import os
 import ssl
+import http.client
 
 BASE_URL = "http://localhost:8080"
 COOKIE_JAR_FILE = "/tmp/test_themis_cookies.txt"
-__ctx = ssl._create_unverified_context()
+__ctx = ssl.create_default_context()
+
+def _request(url, cookie_jar, data=None):
+    base = urllib.parse.urlsplit(BASE_URL)
+    target = urllib.parse.urlsplit(url)
+    if (target.scheme not in ("http", "https") or target.username or target.password
+            or (target.scheme, target.hostname, target.port) != (base.scheme, base.hostname, base.port)):
+        raise ValueError("Only the configured HTTP(S) test origin is allowed")
+    request = urllib.request.Request(url, data=data)
+    if data is not None:
+        request.add_header("Content-Type", "application/json")
+    cookie_jar.add_cookie_header(request)
+    if target.scheme == "https":
+        # Explicit verified SSLContext (CERT_REQUIRED + hostname checks), covered by isolated tests.
+        # nosemgrep: python.lang.security.audit.httpsconnection-detected.httpsconnection-detected
+        connection = http.client.HTTPSConnection(target.hostname, target.port, timeout=20, context=__ctx)
+    else:
+        connection = http.client.HTTPConnection(target.hostname, target.port, timeout=20)
+    path = urllib.parse.urlunsplit(("", "", target.path or "/", target.query, ""))
+    try:
+        connection.request("POST" if data is not None else "GET", path, body=data, headers=dict(request.header_items()))
+        response = connection.getresponse()
+        cookie_jar.extract_cookies(response, request)
+        if response.status < 200 or response.status >= 300:
+            raise urllib.error.HTTPError(url, response.status, response.reason, response.headers, None)
+        return json.loads(response.read().decode())
+    finally:
+        connection.close()
+
 
 def login(username, password):
     cj = http.cookiejar.MozillaCookieJar(COOKIE_JAR_FILE)
-    req = urllib.request.Request(
-        f"{BASE_URL}/api/auth/login",
-        data=json.dumps({"username": username, "password": password}).encode(),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req, context=__ctx) as resp:
-        pass
+    _request(f"{BASE_URL}/api/auth/login", cj,
+             json.dumps({"username": username, "password": password}).encode())
     cj.save(ignore_discard=True, ignore_expires=True)
     return cj
 
+
 def fetch(url, cookie_jar):
-    req = urllib.request.Request(url)
-    for cookie in cookie_jar:
-        req.add_header("Cookie", f"{cookie.name}={cookie.value}")
-    with urllib.request.urlopen(req, context=__ctx) as resp:
-        return json.loads(resp.read().decode())
+    return _request(url, cookie_jar)
+
 
 def test_month_selector_logic():
     print("\n=== Test 1: Logique MonthSelector ===")
