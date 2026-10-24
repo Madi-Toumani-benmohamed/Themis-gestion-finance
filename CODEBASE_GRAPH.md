@@ -483,3 +483,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Projections uniformes désactivées (`projected:null`) ; transferts hérités et mouvements normalisés d'épargne exclus des flux de consommation via `transfer.go`. Hero, journal et signaux de dépassement réutilisent le service budgétaire.
 - `components/money.mjs` et modèle du widget : différences en centimes, égalité au plafond distincte du dépassement, état d'erreur explicite. Pas de migration de données financières.
 - Audit initial et organisation en trois lots : `docs/BUDGETS_AUDIT.md`. Tests `budgets*_test.go`, `transaction_sources_test.go`, tests Node du widget.
+
+### Simulateur budgétaire — UX et cohérence des calculs (2026-10-24)
+
+- `pages/Simulate.jsx` + CSS local : synthèse à cinq indicateurs, catégories dépliables avec recherche/filtre des modifications, saisie de pourcentage, résultats immédiats, panneau sticky calé sur le header et rappel mobile. Hypothèses secondaires dans des sections natives.
+- `components/simulationModel.mjs` : calcul pur en centimes/BigInt, réconciliation de la référence, crédits et réductions cohérents au centime. Tests Node pris par la CI existante.
+- `api/simulation.go`, extrait de `features3.go` : trois mois civils terminés, diviseur commun, couverture documentaire explicite, transferts exclus des crédits et débits, rationnels exacts pour moyennes et crédit. URL et champs historiques conservés ; provenance et disponibilité ajoutées.
+- Tests Go unitaires/PostgreSQL ; `frontend/tests/simulation.browser.cjs` vérifie interactions, accessibilité et six formats avec des API entièrement simulées. Pas de nouvelle dépendance runtime ni de migration.
+- Diagnostic, alternatives UX, formules, reproduction des contrôles et limites : `docs/SIMULATOR_UX.md`.
