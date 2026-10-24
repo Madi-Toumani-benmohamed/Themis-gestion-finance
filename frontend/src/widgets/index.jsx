@@ -268,6 +268,7 @@ export function CategoriesWidget({ data, selectedMonth }) {
   if (slices.length === 0) return <Empty />
   const cc = readColors()
   return (
+    <div className="category-overview">
     <div className="donut-wrap">
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>
@@ -305,6 +306,16 @@ export function CategoriesWidget({ data, selectedMonth }) {
           {curStatus && <span className="donut-period-badge donut-period-incomplete">Incomplet</span>}
         </div>
       </div>
+    </div>
+    <ul className="category-legend" aria-label="Montants par catégorie">
+      {slices.map((category, index) => (
+        <li key={category.category}>
+          <span className="category-legend-dot" style={{ background: category.color || cc.VIZ[index % cc.VIZ.length] }} aria-hidden="true" />
+          <span>{category.category}</span>
+          <strong>{eur(category.total)}</strong>
+        </li>
+      ))}
+    </ul>
     </div>
   )
 }

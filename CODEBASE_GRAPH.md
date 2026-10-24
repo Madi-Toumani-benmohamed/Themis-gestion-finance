@@ -453,3 +453,10 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
 - `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
 - Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
+
+### Refonte graphique du cockpit (2026-10-24)
+
+- `frontend/src/cockpit.css`, chargé après les styles existants : palette violet, thèmes clair/sombre, navigation et mises en page responsive. Police Fraunces importée dans `main.jsx`.
+- `App.jsx` : barre de recherche ouvrant la palette existante, navigation et menu de compte sur petits écrans. `Dashboard.jsx` : nouvelle hiérarchie visuelle et classes par type de widget.
+- `FinancialSummary.jsx` et son CSS : présentation des flux et points d’attention ; les calculs et qualifications de périodes restent dans le modèle existant. `widgets/index.jsx` ajoute les montants par catégorie à la légende.
+- Validation : tests Node des trois modèles frontend et build de production réussis ; image Docker reconstruite et application vérifiée par HTTP.
