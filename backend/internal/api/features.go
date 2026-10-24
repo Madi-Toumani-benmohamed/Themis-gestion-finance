@@ -3,125 +3,26 @@ package api
 import (
 	"database/sql"
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
-
-// ---------- Budgets ----------
-
-type budgetStatus struct {
-	ID           int64   `json:"id"`
-	DomainID   int64   `json:"domain_id"`
-	DomainName string  `json:"domain_name"`
-	MonthlyLimit float64 `json:"monthly_limit"`
-	Spent        float64 `json:"spent"`   // dépenses du mois courant (positif)
-	Ratio        float64 `json:"ratio"`   // spent / limit
-	Projected    float64 `json:"projected"` // projection fin de mois au rythme actuel
-}
-
-// listBudgets retourne les budgets avec la consommation du mois demandé
-// (?month=YYYY-MM, défaut : mois courant).
-func (s *Server) listBudgets(w http.ResponseWriter, r *http.Request) {
-	month := r.URL.Query().Get("month")
-	if !reMonth.MatchString(month) {
-		month = time.Now().Format("2006-01")
-	}
-	rows, err := s.DB.Query(`
-		SELECT b.id, b.domain_id, d.name, b.monthly_limit,
-		       COALESCE(-SUM(t.amount) FILTER (WHERE t.amount < 0), 0) AS spent
-		FROM budgets b
-		JOIN domains d ON d.id = b.domain_id
-		LEFT JOIN transactions t
-		       ON t.domain_id = b.domain_id AND t.owner_id = b.owner_id
-		      AND to_char(t.tx_date, 'YYYY-MM') = $1
-		WHERE b.owner_id = $2
-		GROUP BY b.id, b.domain_id, d.name, b.monthly_limit
-		ORDER BY COALESCE(-SUM(t.amount) FILTER (WHERE t.amount < 0), 0) / b.monthly_limit DESC`, month, s.ownerID(r))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-
-	// projection : dépense actuelle extrapolée au prorata des jours écoulés
-	// (uniquement si le mois demandé est le mois courant)
-	prorata := 1.0
-	if month == time.Now().Format("2006-01") {
-		now := time.Now()
-		daysIn := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, time.UTC).Day()
-		prorata = float64(daysIn) / float64(now.Day())
-	}
-
-	out := []budgetStatus{}
-	for rows.Next() {
-		var b budgetStatus
-		if err := rows.Scan(&b.ID, &b.DomainID, &b.DomainName, &b.MonthlyLimit, &b.Spent); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		b.Ratio = b.Spent / b.MonthlyLimit
-		b.Projected = math.Round(b.Spent*prorata*100) / 100
-		out = append(out, b)
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// upsertBudget crée ou met à jour le budget d'une catégorie.
-func (s *Server) upsertBudget(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		DomainID     int64   `json:"domain_id"`
-		MonthlyLimit float64 `json:"monthly_limit"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	if in.DomainID == 0 || in.MonthlyLimit <= 0 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("domain_id et monthly_limit (> 0) requis"))
-		return
-	}
-	_, err := s.DB.Exec(`
-		INSERT INTO budgets (domain_id, monthly_limit, owner_id) VALUES ($1, $2, $3)
-		ON CONFLICT (owner_id, domain_id) DO UPDATE SET monthly_limit = EXCLUDED.monthly_limit`,
-		in.DomainID, in.MonthlyLimit, s.ownerID(r))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) deleteBudget(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	if _, err := s.DB.Exec(`DELETE FROM budgets WHERE id = $1 AND owner_id = $2`, id, s.ownerID(r)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
 
 // ---------- Dépenses récurrentes / abonnements ----------
 
 type recurring struct {
-	Label      string    `json:"label"`      // libellé normalisé représentatif
-	Amount     float64   `json:"amount"`     // dernier montant (positif)
-	AvgAmount  float64   `json:"avg_amount"` // moyenne (positif)
-	Months     []string  `json:"months"`     // mois où la dépense apparaît
-	LastDate   string    `json:"last_date"`
-	DomainID *int64    `json:"domain_id"`
-	Regular    bool      `json:"regular"`    // montant stable (< 15 % d'écart) → abonnement probable
-	MerchantKind string  `json:"merchant_kind,omitempty"` // savings | tax | benefit | health
-	Amounts    []float64 `json:"-"`          // montants ordonnés par date (usage interne : insights)
+	Label        string    `json:"label"`      // libellé normalisé représentatif
+	Amount       float64   `json:"amount"`     // dernier montant (positif)
+	AvgAmount    float64   `json:"avg_amount"` // moyenne (positif)
+	Months       []string  `json:"months"`     // mois où la dépense apparaît
+	LastDate     string    `json:"last_date"`
+	DomainID     *int64    `json:"domain_id"`
+	Regular      bool      `json:"regular"`                 // montant stable (< 15 % d'écart) → abonnement probable
+	MerchantKind string    `json:"merchant_kind,omitempty"` // savings | tax | benefit | health
+	Amounts      []float64 `json:"-"`                       // montants ordonnés par date (usage interne : insights)
 }
 
 var reRecNoise = regexp.MustCompile(`\d{2}[./]\d{2}(?:[./]\d{2,4})?|\d{4,}|\b\d+[hH]\d{2}\b`)
@@ -194,7 +95,7 @@ func computeRecurring(db *sql.DB, ownerID int64, minMonths int) ([]recurring, er
 		months     map[string]bool
 		lastDate   string
 		lastAmount float64
-		domainID *int64
+		domainID   *int64
 	}
 	groups := map[string]*acc{}
 	for rows.Next() {
@@ -253,15 +154,15 @@ func computeRecurring(db *sql.DB, ownerID int64, minMonths int) ([]recurring, er
 		}
 		sortStrings(months)
 		out = append(out, recurring{
-			Label:      g.label,
+			Label:        g.label,
 			MerchantKind: g.kind,
-			Amount:     g.lastAmount,
-			AvgAmount:  math.Round(sum/float64(len(g.amounts))*100) / 100,
-			Months:     months,
-			LastDate:   g.lastDate,
-			DomainID: g.domainID,
-			Regular:    max > 0 && (max-min)/max < 0.15,
-			Amounts:    g.amounts,
+			Amount:       g.lastAmount,
+			AvgAmount:    math.Round(sum/float64(len(g.amounts))*100) / 100,
+			Months:       months,
+			LastDate:     g.lastDate,
+			DomainID:     g.domainID,
+			Regular:      max > 0 && (max-min)/max < 0.15,
+			Amounts:      g.amounts,
 		})
 	}
 	// abonnements d'abord, puis par montant décroissant

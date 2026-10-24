@@ -22,16 +22,16 @@ func TestSimulationPostgres(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TEMP TABLE accounts(id bigint,owner_id bigint,name text);
- CREATE TEMP TABLE domains(id bigint,name text,is_transfer bool);
+ CREATE TEMP TABLE domains(id bigint,name text,is_transfer bool,owner_id bigint DEFAULT 1,parent_id bigint);
  CREATE TEMP TABLE statements(id bigint,account_id bigint,owner_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz DEFAULT now());
- CREATE TEMP TABLE transactions(statement_id bigint,owner_id bigint,tx_date date,amount numeric(12,2),domain_id bigint,hash text UNIQUE);
+ CREATE TEMP TABLE transactions(statement_id bigint,owner_id bigint,tx_date date,amount numeric(12,2),domain_id bigint,hash text UNIQUE,label_kind text DEFAULT '');
  INSERT INTO accounts VALUES(1,1,'TEST');
- INSERT INTO domains VALUES(1,'A',false),(2,'B',false),(3,'Virement interne',true);
+ INSERT INTO domains(id,name,is_transfer) VALUES(1,'A',false),(2,'B',false),(3,'Virement interne',true);
  INSERT INTO statements(id,account_id,owner_id,filename,period_start,period_end,validated)
  SELECT n,1,1,'TEST',date_trunc('month',CURRENT_DATE)-n*interval '1 month',date_trunc('month',CURRENT_DATE)-(n-1)*interval '1 month'-interval '1 day',true FROM generate_series(1,3) n;
  INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,hash)
  SELECT n,1,date_trunc('month',CURRENT_DATE)-n*interval '1 month',-100,1,'A'||n FROM generate_series(1,3) n;
- INSERT INTO transactions VALUES
+ INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,hash) VALUES
  (1,1,date_trunc('month',CURRENT_DATE)-interval '1 month',1000,null,'income1'),
  (3,1,date_trunc('month',CURRENT_DATE)-interval '3 months',1000,null,'income3'),
  (1,1,date_trunc('month',CURRENT_DATE)-interval '1 month',-30,2,'B'),
@@ -100,7 +100,7 @@ func TestSimulationPostgres(t *testing.T) {
 	if w.Code != 200 || string(out["available"]) != "true" || string(out["income"]) != "0.00" {
 		t.Fatalf("documented zero: %s", w.Body)
 	}
-	if _, err = db.Exec(`DROP TABLE domains`); err != nil {
+	if _, err = db.Exec(`ALTER TABLE domains RENAME COLUMN id TO broken_id`); err != nil {
 		t.Fatal(err)
 	}
 	w, _ = run(1)

@@ -75,6 +75,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/analytics/tags-in-category", s.tagsInCategory)
 	mux.HandleFunc("GET /api/analytics/tag-series", s.tagSeries)
 	mux.HandleFunc("GET /api/budgets", s.listBudgets)
+	mux.HandleFunc("GET /api/budgets/report", s.budgetReportHandler)
 	mux.HandleFunc("POST /api/budgets", s.upsertBudget)
 	mux.HandleFunc("DELETE /api/budgets/{id}", s.deleteBudget)
 	mux.HandleFunc("GET /api/recurring", s.listRecurring)
@@ -518,6 +519,38 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 	      LEFT JOIN tags tg ON tg.id = tt.tag_id
 	      WHERE t.owner_id = $1`
 	args := []any{s.ownerID(r)}
+	if rawIDs := r.URL.Query().Get("ids"); rawIDs != "" {
+		ids, err := parseTransactionSourceIDs(rawIDs)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		args = append(args, pq.Array(ids))
+		q += fmt.Sprintf(" AND t.id = ANY($%d)", len(args))
+	}
+	if rawBudget := r.URL.Query().Get("budget_id"); rawBudget != "" {
+		budgetID, err := strconv.ParseInt(rawBudget, 10, 64)
+		first, last, _, windowErr := reliabilityWindow(r.URL.Query().Get("month"), time.Now())
+		if err != nil || budgetID <= 0 || windowErr != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("budget ou période invalide"))
+			return
+		}
+		var exists bool
+		err = s.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM budgets b JOIN domains d ON d.id=b.domain_id AND d.owner_id=b.owner_id WHERE b.id=$1 AND b.owner_id=$2)`, budgetID, s.ownerID(r)).Scan(&exists)
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("budget indisponible"))
+			return
+		}
+		if !exists {
+			writeErr(w, 404, fmt.Errorf("budget indisponible"))
+			return
+		}
+		args = append(args, budgetID)
+		parameter := fmt.Sprintf("$%d", len(args))
+		q += " AND " + budgetSourcePredicate(parameter)
+		args = append(args, first, last.AddDate(0, 0, 1))
+		q += fmt.Sprintf(" AND t.tx_date >= $%d AND t.tx_date < $%d", len(args)-1, len(args))
+	}
 	if m := r.URL.Query().Get("month"); reMonth.MatchString(m) {
 		args = append(args, m)
 		q += fmt.Sprintf(" AND to_char(t.tx_date, 'YYYY-MM') = $%d", len(args))
@@ -545,7 +578,7 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	if d := r.URL.Query().Get("domain"); d != "" {
 		if d == "none" {
-			q += " AND t.domain_id IS NULL"
+			q += " AND (t.domain_id IS NULL OR NOT EXISTS(SELECT 1 FROM domains own_domain WHERE own_domain.id=t.domain_id AND own_domain.owner_id=t.owner_id))"
 		} else if did, err := strconv.ParseInt(d, 10, 64); err == nil {
 			args = append(args, did)
 			q += fmt.Sprintf(" AND (t.domain_id = $%d OR t.domain_id IN (SELECT id FROM domains WHERE parent_id = $%d))", len(args), len(args))
@@ -576,6 +609,10 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("lecture des transactions interrompue"))
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -880,7 +917,7 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
 		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
 		FROM transactions
-		WHERE owner_id = $2 AND ($3='' OR to_char(tx_date,'YYYY-MM') <= $3) AND (domain_id IS NULL OR domain_id NOT IN (SELECT id FROM domains WHERE is_transfer))
+		WHERE owner_id = $2 AND ($3='' OR to_char(tx_date,'YYYY-MM') <= $3)`+notTransfer+`
 		GROUP BY 1 ORDER BY 1 DESC LIMIT $1`, months, owner, maxMonth)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -940,7 +977,7 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 		SELECT to_char(t.tx_date, 'YYYY-MM'), COALESCE(d.name, 'Sans domaine'),
 		       COALESCE(d.color, '#8896A6'), -SUM(t.amount)
 		FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
-		WHERE t.amount < 0 AND t.owner_id = $2 AND (d.is_transfer IS NULL OR NOT d.is_transfer)
+		WHERE t.amount < 0 AND t.owner_id = $2`+notTransferT+`
 		  AND to_char(t.tx_date, 'YYYY-MM') = ANY($1)
 		GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC`, pq.Array(selectedMonths), owner)
 	if err != nil {
