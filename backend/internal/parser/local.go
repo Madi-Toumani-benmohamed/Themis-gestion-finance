@@ -11,16 +11,17 @@ import (
 	"time"
 
 	"themis/internal/models"
+	"themis/internal/money"
 )
 
 var (
-	reDate   = regexp.MustCompile(`^(\d{2})[./](\d{2})(?:[./](\d{2,4}))?$`)
+	reDate = regexp.MustCompile(`^(\d{2})[./](\d{2})(?:[./](\d{2,4}))?$`)
 	// Décimales à virgule uniquement (format FR) : indispensable pour ne pas
 	// confondre une date « 22.05 » avec un montant.
-	reAmount = regexp.MustCompile(`^[+-]?\d{1,3}(?:[ \x{00A0}.]\d{3})*,\d{2}$|^[+-]?\d+,\d{2}$`)
-	reSoldeOld = regexp.MustCompile(`(?i)(ancien\s*solde|solde\s*pr[ée]c[ée]dent|solde\s*au\s*d[ée]but|solde\s*initial)`)
-	reSoldeNew = regexp.MustCompile(`(?i)(nouveau\s*solde|solde\s*final|solde\s*cr[ée]diteur|solde\s*en\s*fin|solde\s*au\s*\d{2})`)
-	rePeriod   = regexp.MustCompile(`(\d{2}/\d{2}/\d{4})\s*(?:au|-|à)\s*(\d{2}/\d{2}/\d{4})`)
+	reAmount       = regexp.MustCompile(`^[+-]?\d{1,3}(?:[ \x{00A0}.]\d{3})*,\d{2}$|^[+-]?\d+,\d{2}$`)
+	reSoldeOld     = regexp.MustCompile(`(?i)(ancien\s*solde|solde\s*pr[ée]c[ée]dent|solde\s*au\s*d[ée]but|solde\s*initial)`)
+	reSoldeNew     = regexp.MustCompile(`(?i)(nouveau\s*solde|solde\s*final|solde\s*cr[ée]diteur|solde\s*en\s*fin|solde\s*au\s*\d{2})`)
+	rePeriod       = regexp.MustCompile(`(\d{2}/\d{2}/\d{4})\s*(?:au|-|à)\s*(\d{2}/\d{2}/\d{4})`)
 	reSoldeOldDate = regexp.MustCompile(`(?i)(?:ancien\s*solde|solde\s*pr[ée]c[ée]dent)[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
 	reSoldeNewDate = regexp.MustCompile(`(?i)nouveau\s*solde[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
 )
@@ -167,15 +168,20 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 	}
 	type slot struct {
 		apply func(useAlt bool)
-		delta float64 // effet de l'alternative sur (open + Σ - close)
+		delta money.Cents // effet de l'alternative sur (open + Σ - close)
 	}
 	var slots []slot
 	for i := range res.Transactions {
 		t := &res.Transactions[i]
 		if t.AltAmount != nil {
 			primary, alt := t.Amount, *t.AltAmount
+			pc, e1 := money.FromLegacy(primary)
+			ac, e2 := money.FromLegacy(alt)
+			if e1 != nil || e2 != nil {
+				return
+			}
 			slots = append(slots, slot{
-				delta: alt - primary,
+				delta: ac - pc,
 				apply: func(useAlt bool) {
 					if useAlt {
 						t.Amount = alt
@@ -188,7 +194,12 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 	}
 	if openingAlt != nil {
 		primary, alt := *res.OpeningBalance, *openingAlt
-		slots = append(slots, slot{delta: alt - primary, apply: func(useAlt bool) {
+		pc, e1 := money.FromLegacy(primary)
+		ac, e2 := money.FromLegacy(alt)
+		if e1 != nil || e2 != nil {
+			return
+		}
+		slots = append(slots, slot{delta: ac - pc, apply: func(useAlt bool) {
 			v := primary
 			if useAlt {
 				v = alt
@@ -198,7 +209,12 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 	}
 	if closingAlt != nil {
 		primary, alt := *res.ClosingBalance, *closingAlt
-		slots = append(slots, slot{delta: -(alt - primary), apply: func(useAlt bool) {
+		pc, e1 := money.FromLegacy(primary)
+		ac, e2 := money.FromLegacy(alt)
+		if e1 != nil || e2 != nil {
+			return
+		}
+		slots = append(slots, slot{delta: -(ac - pc), apply: func(useAlt bool) {
 			v := primary
 			if useAlt {
 				v = alt
@@ -209,9 +225,18 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 	if len(slots) == 0 || len(slots) > 16 {
 		return
 	}
-	base := *res.OpeningBalance - *res.ClosingBalance
+	opening, e1 := money.FromLegacy(*res.OpeningBalance)
+	closing, e2 := money.FromLegacy(*res.ClosingBalance)
+	if e1 != nil || e2 != nil {
+		return
+	}
+	base := opening - closing
 	for _, t := range res.Transactions {
-		base += t.Amount
+		amount, err := money.FromLegacy(t.Amount)
+		if err != nil {
+			return
+		}
+		base += amount
 	}
 	for mask := 0; mask < 1<<len(slots); mask++ {
 		diff := base
@@ -220,7 +245,7 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 				diff += s.delta
 			}
 		}
-		if math.Abs(diff) < 0.02 {
+		if diff == 0 {
 			for i, s := range slots {
 				s.apply(mask&(1<<i) != 0)
 			}
@@ -230,16 +255,25 @@ func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
 	}
 }
 
-// Validate vérifie que solde initial + somme des transactions == solde final (±0.02).
+// Validate exige une égalité exacte au centime ; aucune tolérance implicite.
 func Validate(res *models.ParseResult) bool {
 	if res.OpeningBalance == nil || res.ClosingBalance == nil {
 		return false
 	}
-	sum := 0.0
-	for _, t := range res.Transactions {
-		sum += t.Amount
+	opening, e1 := money.FromLegacy(*res.OpeningBalance)
+	closing, e2 := money.FromLegacy(*res.ClosingBalance)
+	if e1 != nil || e2 != nil {
+		return false
 	}
-	return math.Abs(*res.OpeningBalance+sum-*res.ClosingBalance) < 0.02
+	sum := opening
+	for _, t := range res.Transactions {
+		amount, err := money.FromLegacy(t.Amount)
+		if err != nil {
+			return false
+		}
+		sum += amount
+	}
+	return sum == closing
 }
 
 // TxHash calcule l'empreinte de déduplication d'une transaction.

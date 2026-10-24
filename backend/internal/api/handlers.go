@@ -20,6 +20,7 @@ import (
 	"themis/internal/config"
 	"themis/internal/memory"
 	"themis/internal/models"
+	"themis/internal/money"
 	"themis/internal/normalize"
 	"themis/internal/parser"
 )
@@ -215,7 +216,7 @@ func (s *Server) kgLearn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"group_id":      groupID,
+		"group_id":       groupID,
 		"entities_added": entities,
 		"edges_added":    edges,
 	})
@@ -390,6 +391,28 @@ func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) persist(filename string, res *models.ParseResult, accountID, ownerID int64) (inserted, skipped int, stmtID int64, err error) {
+	// Refuser toute ambiguïté avant la première écriture. Les empreintes
+	// historiques restent inchangées : aucune réécriture des données existantes.
+	seen := map[string]bool{}
+	for _, t := range res.Transactions {
+		if _, e := money.FromLegacy(t.Amount); e != nil {
+			return 0, 0, 0, fmt.Errorf("montant invalide : %w", e)
+		}
+		if t.Hash == "" || seen[t.Hash] {
+			return 0, 0, 0, fmt.Errorf("empreinte absente ou opérations identiques ambiguës : import à vérifier")
+		}
+		seen[t.Hash] = true
+	}
+	for _, balance := range []*float64{res.OpeningBalance, res.ClosingBalance} {
+		if balance != nil {
+			if _, e := money.FromLegacy(*balance); e != nil {
+				return 0, 0, 0, fmt.Errorf("solde invalide : %w", e)
+			}
+		}
+	}
+	if res.Validated && !parser.Validate(res) {
+		return 0, 0, 0, fmt.Errorf("validation comptable incohérente")
+	}
 	eng, err := categorize.Load(s.DB, ownerID)
 	if err != nil {
 		return 0, 0, 0, err
@@ -399,9 +422,23 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 		return 0, 0, 0, err
 	}
 	defer tx.Rollback()
-
+	// Sérialiser les imports d'un propriétaire pour que la vérification de
+	// portée et la contrainte historique de déduplication soient atomiques.
+	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock($1)`, ownerID); err != nil {
+		return 0, 0, 0, err
+	}
+	for _, t := range res.Transactions {
+		var existingAccount sql.NullInt64
+		e := tx.QueryRow(`SELECT st.account_id FROM transactions t LEFT JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.hash=$2`, ownerID, t.Hash).Scan(&existingAccount)
+		if e != nil && e != sql.ErrNoRows {
+			return 0, 0, 0, e
+		}
+		if e == nil && (!existingAccount.Valid || existingAccount.Int64 != accountID) {
+			return 0, 0, 0, fmt.Errorf("opération similaire sur un autre compte ou de provenance inconnue : déduplication ambiguë, import refusé")
+		}
+	}
 	err = tx.QueryRow(`
-		INSERT INTO statements (filename, period_start, period_end, opening_balance, closing_balance, parser, validated, account_id, owner_id)
+  INSERT INTO statements (filename, period_start, period_end, opening_balance, closing_balance, parser, validated, account_id, owner_id)
 		VALUES ($1, NULLIF($2,'')::date, NULLIF($3,'')::date, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		filename, res.PeriodStart, res.PeriodEnd, res.OpeningBalance, res.ClosingBalance, res.Parser, res.Validated, accountID, ownerID,
 	).Scan(&stmtID)
@@ -419,10 +456,11 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 		if alias, ok := s.aliasFor(ownerID, norm.Merchant, t.Label); ok {
 			disp = alias // un surnom existant s'applique dès l'import
 		}
+		exactAmount, _ := money.FromLegacy(t.Amount)
 		r, err := tx.Exec(`
 			INSERT INTO transactions (statement_id, tx_date, label, amount, domain_id, hash, owner_id, display_label, merchant, label_kind)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (owner_id, hash) DO NOTHING`,
-			stmtID, t.Date, t.Label, t.Amount, domID, t.Hash, ownerID, disp, norm.Merchant, norm.Kind)
+			stmtID, t.Date, t.Label, exactAmount.String(), domID, t.Hash, ownerID, disp, norm.Merchant, norm.Kind)
 		if err != nil {
 			return 0, 0, 0, err
 		}
@@ -826,11 +864,12 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 	maxMonth := r.URL.Query().Get("month")
 
 	type monthly struct {
+		Completeness  string  `json:"completeness"`
 		Month         string  `json:"month"`
 		Income        float64 `json:"income"`
 		Expenses      float64 `json:"expenses"`
 		IsCurrent     bool    `json:"is_current"`
-		Status        string  `json:"status"`         // current | complete | incomplete
+		Status        string  `json:"status"` // current | complete | incomplete
 		DaysObserved  int     `json:"days_observed"`
 		DaysInMonth   int     `json:"days_in_month"`
 		CoverageRatio float64 `json:"coverage_ratio"`
@@ -841,8 +880,8 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 		       COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
 		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
 		FROM transactions
-		WHERE owner_id = $2 AND (domain_id IS NULL OR domain_id NOT IN (SELECT id FROM domains WHERE is_transfer))
-		GROUP BY 1 ORDER BY 1 DESC LIMIT $1`, months, owner)
+		WHERE owner_id = $2 AND ($3='' OR to_char(tx_date,'YYYY-MM') <= $3) AND (domain_id IS NULL OR domain_id NOT IN (SELECT id FROM domains WHERE is_transfer))
+		GROUP BY 1 ORDER BY 1 DESC LIMIT $1`, months, owner, maxMonth)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -854,7 +893,13 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
-		info, _ := s.getPeriodInfo(owner, m.Month)
+		info, periodErr := s.getPeriodInfo(owner, m.Month)
+		if periodErr != nil {
+			rows.Close()
+			writeErr(w, http.StatusInternalServerError, periodErr)
+			return
+		}
+		m.Completeness = info.Completeness
 		m.IsCurrent = info.IsCurrent
 		m.Status = info.Status
 		m.DaysObserved = info.DaysObserved
@@ -887,13 +932,17 @@ func (s *Server) summary(w http.ResponseWriter, r *http.Request) {
 		Total    float64 `json:"total"`
 	}
 	cats := []catAgg{}
+	selectedMonths := make([]string, 0, len(series))
+	for _, m := range series {
+		selectedMonths = append(selectedMonths, m.Month)
+	}
 	crows, err := s.DB.Query(`
 		SELECT to_char(t.tx_date, 'YYYY-MM'), COALESCE(d.name, 'Sans domaine'),
 		       COALESCE(d.color, '#8896A6'), -SUM(t.amount)
 		FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
 		WHERE t.amount < 0 AND t.owner_id = $2 AND (d.is_transfer IS NULL OR NOT d.is_transfer)
-		  AND to_char(t.tx_date, 'YYYY-MM') >= to_char(now() - make_interval(months => $1), 'YYYY-MM')
-		GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC`, months, owner)
+		  AND to_char(t.tx_date, 'YYYY-MM') = ANY($1)
+		GROUP BY 1, 2, 3 ORDER BY 1, 4 DESC`, pq.Array(selectedMonths), owner)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
