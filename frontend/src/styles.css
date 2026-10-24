@@ -379,6 +379,10 @@ select { cursor: pointer; }
 
 /* mini-budgets dans widget */
 .mini-budgets { display: flex; flex-direction: column; gap: 14px; }
+.mini-budget-explanation { margin: 0; color: var(--muted); font-size: 12px; }
+.mini-budget-amounts { margin-bottom: 7px; font-size: 12px; color: var(--muted); }
+.mini-budget-balance { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.mini-budget-head { gap: 12px; flex-wrap: wrap; }
 .mini-budget-head { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
 
 /* palette de configuration du dashboard */
