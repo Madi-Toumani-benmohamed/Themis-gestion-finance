@@ -291,7 +291,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
       {err && <div className="notice err">{err}</div>}
 
       <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
-      <FinancialSummary selectedMonth={selectedMonth} />
+      <FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} />
       <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
       <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
 

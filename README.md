@@ -13,6 +13,22 @@ Thémis est une application auto-hébergée de gestion de finances personnelles 
 - **Interface** : thèmes clair et sombre, design sobre à accent indigo `#5B5BD6`, polices embarquées, disposition responsive et palette de commande `Ctrl/Cmd+K`.
 - **Multi-utilisateurs** : authentification par session, rôles administrateur/utilisateur et données rattachées à leur propriétaire. Création du premier administrateur au premier lancement.
 
+### Vérifier un import avant son enregistrement
+
+Le dépôt d’un PDF ou CSV ouvre désormais un aperçu avant toute écriture de relevé ou de transaction. Il présente le compte cible, la période extraite (ou les dates des opérations pour un CSV), les opérations détectées, les doublons et le contrôle comptable lorsque les soldes sont disponibles. Les opérations sont filtrables et paginées ; comparer toujours l’aperçu au document original, car le parseur peut ignorer des lignes non exploitables.
+
+**Confirmer l’import** utilise les données analysées côté serveur, sans analyser une seconde fois le document. **Annuler ce fichier** ne crée ni relevé ni transaction. En import multiple, chaque fichier est examiné séparément. Les doublons suivent les règles existantes et sont revérifiés à l’insertion : les nombres définitifs peuvent varier si un autre import a eu lieu entre-temps.
+
+Les aperçus sont conservés uniquement en mémoire serveur pendant 15 minutes, liés à l’utilisateur et au compte cible. Ils disparaissent après annulation, confirmation, expiration ou redémarrage. Leur nombre et leur mémoire totale sont limités ; les aperçus de plus de 20 000 opérations sont refusés. L’analyse initiale peut déjà utiliser le fournisseur IA configuré ; les règles et la catégorisation automatique s’exécutent après confirmation.
+
+L’API historique `POST /api/statements` reste un import direct pour les clients existants. L’interface utilise `POST /api/statements/previews`, puis `POST /api/statements/previews/{token}/confirm` ou `DELETE /api/statements/previews/{token}`. Les jetons sont éphémères et à usage unique. Pour un déploiement multi-instance, ce stockage mémoire nécessite que l’aperçu et sa confirmation atteignent la même instance.
+
+### Fiabilité des données
+
+Dans **Relevés**, le centre de fiabilité permet de choisir un mois et d’examiner la couverture compte par compte. Il distingue les périodes documentées par des relevés validés, les intervalles non documentés et les imports à vérifier. Les relevés dont la période est inconnue restent visibles sans être attribués arbitrairement au mois choisi.
+
+Pour le mois courant, la vérification s’arrête à aujourd’hui. Un intervalle non documenté ne prouve pas l’absence de transactions. Le dernier import, toutes périodes confondues pour le compte, reste distinct de la dernière transaction du mois examiné. Un lien dans la synthèse du dashboard ouvre directement le centre sur le mois consulté.
+
 ### Lire la synthèse financière
 
 La synthèse distingue trois contextes :
@@ -46,7 +62,7 @@ La stack Compose principale comprend `app`, `db`, `knowledge-graph` et `falkordb
 | Partie | Technologies |
 | --- | --- |
 | Backend | Go 1.22 minimum ; build Docker et CI en Go 1.23 ; HTTP standard, `lib/pq`, migrations SQL embarquées |
-| Frontend | React 18, Vite 5, Recharts ; build Docker et CI avec Node.js 22 |
+| Frontend | React 18, Vite 8, Recharts ; build Docker et CI avec Node.js 22 |
 | Base | PostgreSQL |
 | Mémoire | Python 3.12, FastAPI, Graphiti, FalkorDB |
 | OCR | Poppler et Tesseract français, inclus dans l’image runtime Debian |
@@ -144,7 +160,8 @@ Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé di
 | `DATABASE_URL` | Connexion utilisée par le backend. |
 | `REMOTE_OLLAMA_BASE_URL` | URL Ollama utilisée par Compose pour l’application et la mémoire. |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Instance et modèle Ollama du backend ; modèle par défaut `qwen2.5:14b`. |
-| `AI_PROVIDER` | Fournisseur du backend : `none`, `ollama`, `mistral`, `freellm` ou `anthropic`. |
+| `AI_PROVIDER` | Fournisseur du backend : `none`, `ollama`, `mistral`, `freellm`, `anthropic` ou `openai`. |
+| `OPENAI_API_KEY`, `OPENAI_MODEL` | Clé et modèle OpenAI (défaut `gpt-4.1-mini`), relayés par les deux configurations Compose. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | Configuration Anthropic. |
 | `MISTRAL_API_KEY`, `MISTRAL_MODEL` | Configuration Mistral. |
 | `FREELLM_API_KEY`, `FREELLM_URL`, `FREELLM_MODEL` | Fournisseur compatible OpenAI FreeLLM. |
@@ -152,9 +169,13 @@ Le fichier `.env` sert à l’interpolation Docker Compose. Le backend lancé di
 | `MEMORY_ENABLED`, `MEMORY_SERVICE_URL` | Activation et adresse du service mémoire pour le backend. |
 | `COOKIE_SECURE` | Activer avec `true` lorsque l’application est servie en HTTPS. |
 
-Sans `AI_PROVIDER` explicite, le backend choisit Ollama si une URL est définie, puis Mistral, FreeLLM ou Anthropic selon les clés présentes, sinon `none`.
+Sans `AI_PROVIDER` explicite, le backend choisit Ollama si une URL est définie, puis Mistral, FreeLLM, Anthropic ou OpenAI selon les clés présentes, sinon `none`.
 
 **Toutes les variables du backend ne sont pas relayées par le Compose principal.** Pour ajouter `COOKIE_SECURE`, `AI_PROVIDER` ou d’autres options, les déclarer dans `services.app.environment`, par exemple dans une surcharge Compose. Le Compose principal fixe actuellement `MEMORY_ENABLED=true` et l’adresse interne du service mémoire ; les placer seulement dans `.env` ne change pas ces valeurs.
+
+Dans **Admin → Fournisseur d’IA**, l’option **OpenAI (cloud)** permet de saisir une clé API et un identifiant de modèle compatible avec l’API Responses. Le bouton de test envoie uniquement une requête synthétique (avec consommation de jetons). Laisser le champ de clé vide conserve la clé enregistrée ; l’API ne renvoie que son indicateur de présence. Aucune clé n’est nécessaire pour les tests automatisés, qui utilisent un serveur HTTP simulé.
+
+Le client utilise `store: false` pour ne pas demander la conservation des réponses dans l’API Responses. Cela ne remplace pas les politiques de traitement des données du fournisseur ; les données nécessaires au parsing, à la catégorisation ou à l’assistant sont transmises à OpenAI lorsque ce fournisseur est choisi. Référence : [documentation officielle OpenAI](https://developers.openai.com/api/docs/guides/text).
 
 La page **Admin** permet de configurer et tester l’IA à chaud. La configuration persistée en base prime sur les variables d’environnement aux démarrages suivants.
 
