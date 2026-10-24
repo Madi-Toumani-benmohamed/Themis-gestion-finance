@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -321,7 +322,12 @@ func (s *Server) loadRecurringReview(ctx context.Context, owner int64, month str
 	if err != nil {
 		return report, err
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT t.id,COALESCE(st.account_id,0),t.tx_date::text,t.label,t.amount::text,t.domain_id,COALESCE(t.merchant,''),COALESCE(t.display_label,''),COALESCE(t.label_kind,''),concat_ws(' ',d.name,p.name),(COALESCE(d.is_transfer,false) OR COALESCE(p.is_transfer,false))
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return report, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT t.id,COALESCE(st.account_id,0),t.tx_date::text,t.label,t.amount::text,t.domain_id,COALESCE(t.merchant,''),COALESCE(t.display_label,''),COALESCE(t.label_kind,''),concat_ws(' ',d.name,p.name),(COALESCE(d.is_transfer,false) OR COALESCE(p.is_transfer,false))
  FROM transactions t LEFT JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id
  LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id
  LEFT JOIN domains p ON p.id=d.parent_id AND p.owner_id=t.owner_id
@@ -353,7 +359,7 @@ func (s *Server) loadRecurringReview(ctx context.Context, owner int64, month str
 	if err != nil {
 		return report, err
 	}
-	rows, err = s.DB.QueryContext(ctx, `SELECT COALESCE(account_id,0),period_start::text,period_end::text FROM statements WHERE owner_id=$1 AND validated=true AND period_start <= $3::date AND period_end >= $2::date ORDER BY period_start`, owner, report.ObservationStart, report.ObservationEnd)
+	rows, err = tx.QueryContext(ctx, `SELECT COALESCE(account_id,0),period_start::text,period_end::text FROM statements WHERE owner_id=$1 AND validated=true AND period_start <= $3::date AND period_end >= $2::date ORDER BY period_start`, owner, report.ObservationStart, report.ObservationEnd)
 	if err != nil {
 		return report, err
 	}
@@ -378,7 +384,7 @@ func (s *Server) loadRecurringReview(ctx context.Context, owner int64, month str
 		return report, err
 	}
 	report.Items = buildRecurringReview(sources, spans, end)
-	rows, err = s.DB.QueryContext(ctx, `SELECT recurrence_key,status,COALESCE(nature,''),updated_at::text FROM recurring_reviews WHERE owner_id=$1`, owner)
+	rows, err = tx.QueryContext(ctx, `SELECT recurrence_key,status,COALESCE(nature,''),updated_at::text FROM recurring_reviews WHERE owner_id=$1`, owner)
 	if err != nil {
 		return report, err
 	}
@@ -403,7 +409,7 @@ func (s *Server) loadRecurringReview(ctx context.Context, owner int64, month str
 			applyRecurringReview(&report.Items[i], d)
 		}
 	}
-	return report, nil
+	return report, tx.Commit()
 }
 func (s *Server) listRecurringReview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
