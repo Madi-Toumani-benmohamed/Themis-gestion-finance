@@ -20,7 +20,7 @@ Les branches sont empilées : 2 cible 1 et 3 cible 2. Elles partent de `origin/m
 - `frontend/src/pages/Budgets.jsx` et CSS local : synthèse à six indicateurs, mois explicite, couverture documentaire, enveloppes de dépenses séparées des transferts/épargne, création/édition/suppression dans des dialogues accessibles, recherche et filtre des dépassements.
 - `money.mjs`, `budgetPageModel.mjs` et modèle du widget : centimes entiers, réconciliation des totaux, validation des périmètres, données absentes refusées au lieu de devenir des zéros certains.
 - `App.jsx`/`Transactions.jsx` : navigation exacte vers les contributeurs, crédits visibles avec leur signe, pages de sources de 1 000 opérations et protection contre les réponses obsolètes. Les récurrences transmettent tous leurs identifiants, répartis en requêtes limitées à 1 000.
-- `recurring_review.go` : moteur déterministe, preuves, cadence, natures économiques et décisions de revue. L'ancien `GET /api/recurring` garde sa forme via un adaptateur vers ce moteur ; les consommateurs partagés ne fondent plus `regular` sur la seule stabilité d'un montant.
+- `recurring_review.go` : moteur déterministe, preuves, cadence, natures économiques et décisions de revue ; sources, intervalles documentaires et décisions sont lus dans une même photographie SQL en lecture seule. L'ancien `GET /api/recurring` garde sa forme via un adaptateur vers ce moteur ; les consommateurs partagés ne fondent plus `regular` sur la seule stabilité d'un montant.
 
 ## Définitions et invariants financiers
 
