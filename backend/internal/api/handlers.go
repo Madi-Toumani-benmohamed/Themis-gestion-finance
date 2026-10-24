@@ -25,16 +25,20 @@ import (
 )
 
 type Server struct {
-	DB      *sql.DB
-	Cfg     config.Config
-	ai      aiState             // config + client IA actifs (modifiables à chaud via l'admin)
-	Memory  *memory.Client      // knowledge graph client (Graphiti)
+	DB             *sql.DB
+	Cfg            config.Config
+	ai             aiState        // config + client IA actifs (modifiables à chaud via l'admin)
+	Memory         *memory.Client // knowledge graph client (Graphiti)
+	importPreviews importPreviewStore
 }
 
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("POST /api/statements", s.uploadStatement)
+	mux.HandleFunc("POST /api/statements/previews", s.uploadStatement)
+	mux.HandleFunc("POST /api/statements/previews/{token}/confirm", s.confirmImportPreview)
+	mux.HandleFunc("DELETE /api/statements/previews/{token}", s.cancelImportPreview)
 	mux.HandleFunc("GET /api/statements", s.listStatements)
 	mux.HandleFunc("DELETE /api/statements/{id}", s.deleteStatement)
 	mux.HandleFunc("GET /api/transactions", s.listTransactions)
@@ -52,6 +56,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/remaining", s.remaining)
 	mux.HandleFunc("GET /api/upload/progress", s.uploadProgress)
 	mux.HandleFunc("GET /api/coverage", s.coverage)
+	mux.HandleFunc("GET /api/reliability", s.reliability)
 	mux.HandleFunc("GET /api/intel/merchants", s.merchantsView)
 	mux.HandleFunc("GET /api/intel/nature", s.natureBreakdown)
 	mux.HandleFunc("GET /api/intel/comparison", s.categoryComparison)
@@ -219,6 +224,9 @@ func (s *Server) kgLearn(w http.ResponseWriter, r *http.Request) {
 // ---------- Relevés ----------
 
 func (s *Server) uploadStatement(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/statements/previews" {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 20<<20) // 20 Mo max
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -226,6 +234,9 @@ func (s *Server) uploadStatement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 	data, err := io.ReadAll(file)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -270,8 +281,26 @@ func (s *Server) uploadStatement(w http.ResponseWriter, r *http.Request) {
 	if accountID == 0 {
 		_ = s.DB.QueryRow(`SELECT id FROM accounts WHERE owner_id = $1 ORDER BY id LIMIT 1`, owner).Scan(&accountID)
 	}
+	if r.URL.Path == "/api/statements/previews" {
+		// Aucun changement silencieux de compte dans le parcours de vérification.
+		if requested := r.FormValue("account_id"); requested != "" {
+			requestedID, err := strconv.ParseInt(requested, 10, 64)
+			if err != nil || requestedID != accountID {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("compte cible indisponible"))
+				return
+			}
+		}
+		s.createImportPreview(w, r, header.Filename, res, accountID, progressToken)
+		return
+	}
+	s.finishStatementImport(w, r, header.Filename, res, accountID, owner, progressToken)
+}
+
+// Chemin d'enregistrement commun à l'API historique et à la confirmation.
+func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, filename string, res *models.ParseResult, accountID, owner int64, progressToken string) {
+	ownerForProgress := owner
 	setUploadProgress(progressToken, ownerForProgress, "Enregistrement des transactions", "", 88, false)
-	inserted, skipped, stmtID, err := s.persist(header.Filename, res, accountID, owner)
+	inserted, skipped, stmtID, err := s.persist(filename, res, accountID, owner)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

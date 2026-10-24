@@ -417,3 +417,39 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `/api/hero` expose les calculs existants `income`, `expenses`, `net` et `period_complete`. `hero_diagnosis.go` vérifie une couverture continue par relevés validés pour tous les comptes connus, indépendamment du statut approximatif de `period.go`. En absence de preuve : bilan incomplet.
 - Diagnostic provisoire indépendant du signe des flux et sans hypothèse de salaire. Alertes réelles conservées ; comparaisons limitées aux trois mois précédents documentés ; signaux récurrents limités au mois de leur dernière opération.
 - Tests : `hero_diagnosis_test.go` (cycle de salaire, alertes, intervalles de relevés), tests Node de présentation.
+
+### Dépendances frontend — sécurité (2026-10-23)
+
+- Vite 8.3.4 et `@vitejs/plugin-react` 6.1.2 : mise à niveau conjointe pour respecter les peer dependencies. Build avec Node.js 22 (Docker et CI).
+- Correctifs PostCSS, Browserslist et baseline-browser-mapping intégrés via Dependabot.
+
+### Fournisseur OpenAI — Admin
+
+- `backend/internal/llm/openai.go` : client Responses HTTP (`store: false`), sorties texte/JSON, détection des réponses incomplètes et erreurs sans corps sensible. Aucun SDK ajouté.
+- `admin.go` : configuration persistée `openai_model` / `openai_key`, clé masquée (`openai_key_set`), conservation de la clé lors du test et de la sauvegarde avec champ vide, repli environnement.
+- `config.go` + configurations Compose : `OPENAI_API_KEY` / `OPENAI_MODEL`. Modèle par défaut `gpt-4.1-mini`, modifiable.
+- `frontend/src/pages/Admin.jsx` : choix OpenAI, champs modèle/clé et test existant. La mémoire Graphiti garde son fournisseur Ollama séparé.
+- Tests `llm/openai_test.go`, `api/admin_openai_test.go`, `config/openai_test.go` : contrat Responses simulé, erreurs/refus/troncature, persistance, masquage et sélection du fournisseur.
+
+### CI — consommation GitHub Actions
+
+- `.github/workflows/ci.yml` exécute les tests Node `src/components/*.test.mjs` avant le build frontend.
+- Le contrôle syntaxique Python (`compileall`) ne nécessite pas l’installation de Graphiti et de ses dépendances ; il ne valide pas les imports ni le comportement du service.
+- Le build de l’image applicative attend backend, frontend, mémoire et Compose. Buildx utilise le cache GitHub Actions `themis-app` en mode `min`, sans publication d’image ; une erreur d’export de cache ne masque pas une erreur de build.
+
+### Centre de fiabilité des données
+
+- `GET /api/reliability?month=YYYY-MM` (`reliability.go`) : couverture par compte, intervalles sans preuve documentaire, relevés non validés ou de période inconnue, dernière transaction sur la période et dernier import toutes périodes. Requêtes limitées au propriétaire authentifié. Aucun montant bancaire exposé.
+- Le mois courant est examiné du 1er à aujourd’hui ; un mois historique est examiné jusqu’à sa fin. Pas de mois futur. Les périodes inconnues sont signalées sans leur attribuer arbitrairement un mois.
+- `uncoveredStatementDates` est partagé avec `heroSpansCover` : continuité des relevés validés, y compris cycles clôturés le 21. Pas de nouveau calcul financier ou de migration.
+- `DataReliability.jsx` dans Relevés : choix du mois, détails par compte, bouton pour filtrer les relevés concernés et accès à l’import existant. Lien depuis le pied de FinancialSummary transmettant le mois du dashboard.
+- Tests Go des intervalles/statuts et test PostgreSQL optionnel `TestReliabilityPostgres` (`THEMIS_TEST_DATABASE_URL`, tables temporaires), tests Node `dataReliabilityModel.test.mjs`.
+
+### Prévisualisation des imports
+
+- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` calcule les doublons selon les empreintes existantes et décrit les soldes/écarts disponibles.
+- Aperçus en mémoire du `Server`, liés au propriétaire et au compte : TTL 15 min, 3 par utilisateur, 32 au total et budget estimé de 32 Mio ; limite de 20 000 opérations par aperçu. Suppression sur expiration par timer, annulation ou confirmation.
+- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Déduplication définitive par la contrainte SQL existante.
+- Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
+- `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
+- Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
