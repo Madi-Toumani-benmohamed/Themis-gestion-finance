@@ -475,3 +475,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `period.go` réutilise `loadReliability` et expose `completeness` (`complete`, `partial`, `unknown`) ; la dernière transaction ne prouve plus la couverture. Comparaisons limitées aux mois documentés. `summary` filtre le mois avant LIMIT et expose le même état.
 - Pulse : aucune qualification négative d'un déficit provisoire ; comparaison catégorie suspendue faute de couverture homogène. Mémoire IA explicitement indicative, heuristique de complétude fondée sur les volumes supprimée.
 - CI backend : PostgreSQL 16 isolé active les tests d'intégration auparavant optionnels. Tests financiers dans `money`, `parser/financial_invariants_test.go`, `api/period_invariants_test.go` et extensions du test d'import PostgreSQL.
+
+### Simulateur budgétaire — UX et cohérence des calculs (2026-10-24)
+
+- `pages/Simulate.jsx` + CSS local : synthèse à cinq indicateurs, catégories dépliables avec recherche/filtre des modifications, saisie de pourcentage, résultats immédiats, panneau sticky calé sur le header et rappel mobile. Hypothèses secondaires dans des sections natives.
+- `components/simulationModel.mjs` : calcul pur en centimes/BigInt, réconciliation de la référence, crédits et réductions cohérents au centime. Tests Node pris par la CI existante.
+- `api/simulation.go`, extrait de `features3.go` : trois mois civils terminés, diviseur commun, couverture documentaire explicite, transferts exclus des crédits et débits, rationnels exacts pour moyennes et crédit. URL et champs historiques conservés ; provenance et disponibilité ajoutées.
+- Tests Go unitaires/PostgreSQL ; `frontend/tests/simulation.browser.cjs` vérifie interactions, accessibilité et six formats avec des API entièrement simulées. Pas de nouvelle dépendance runtime ni de migration.
+- Diagnostic, alternatives UX, formules, reproduction des contrôles et limites : `docs/SIMULATOR_UX.md`.
