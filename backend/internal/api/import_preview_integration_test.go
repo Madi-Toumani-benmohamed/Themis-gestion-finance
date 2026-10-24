@@ -48,8 +48,9 @@ func TestImportPreviewPostgres(t *testing.T) {
 	defer db.Close()
 	_, err = db.Exec(`
  CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
- CREATE TABLE statements(id bigserial PRIMARY KEY,filename text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,parser text,validated bool,account_id bigint,owner_id bigint);
+ CREATE TABLE statements(id bigserial PRIMARY KEY,filename text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,parser text,validated bool NOT NULL DEFAULT false,uploaded_at timestamptz DEFAULT now(),account_id bigint,owner_id bigint);
  CREATE TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,tx_date date,label text,amount numeric,domain_id bigint,hash text,owner_id bigint,display_label text,merchant text,label_kind text,UNIQUE(owner_id,hash));
+ CREATE TABLE domains(id bigint PRIMARY KEY,name text,color text,is_transfer bool);
  CREATE TABLE rules(pattern text,domain_id bigint,owner_id bigint,tags text);
  CREATE TABLE merchant_aliases(owner_id bigint,match_key text,display text);
  INSERT INTO accounts VALUES(11,1,'COMPTE TEST'),(21,2,'AUTRE COMPTE');
@@ -108,9 +109,13 @@ func TestImportPreviewPostgres(t *testing.T) {
 		srv.confirmImportPreview(w, req)
 		return w
 	}
-	csv := "Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n02/10/2026;TEST B;20,00\n02/10/2026;TEST B;20,00\n"
+	ambiguous := preview("Date;Libelle;Montant\n02/10/2026;TEST B;20,00\n02/10/2026;TEST B;20,00\n", "11")
+	if w := confirm(ambiguous.Token, 1); w.Code < 400 || count("transactions") != 1 || count("statements") != 1 {
+		t.Fatal("ambiguous identical occurrences were silently merged")
+	}
+	csv := "Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n02/10/2026;TEST B;20,00\n"
 	out := preview(csv, "11")
-	if out.NewCount != 1 || out.Duplicates != 2 || out.AccountID != 11 || out.BalanceDifference != nil {
+	if out.NewCount != 1 || out.Duplicates != 1 || out.AccountID != 11 || out.BalanceDifference != nil {
 		t.Fatalf("unexpected preview: %+v", out)
 	}
 	if count("statements") != 1 || count("transactions") != 1 {
@@ -142,7 +147,7 @@ func TestImportPreviewPostgres(t *testing.T) {
 		Duplicates int `json:"duplicates"`
 	}
 	_ = json.NewDecoder(w.Body).Decode(&result)
-	if result.Inserted != 0 || result.Duplicates != 3 {
+	if result.Inserted != 0 || result.Duplicates != 2 {
 		t.Fatalf("duplicates not rechecked: %+v", result)
 	}
 	out = preview("Date;Libelle;Montant\n03/10/2026;TEST C;-5,00\n", "11")
@@ -153,6 +158,19 @@ func TestImportPreviewPostgres(t *testing.T) {
 	if w = confirm(out.Token, 1); w.Code != http.StatusGone || count("transactions") != 3 {
 		t.Fatal("confirmation replay was accepted")
 	}
+	// Vérifier qu'une collision sur un autre compte ne supprime aucune ligne.
+	if _, err = db.Exec(`INSERT INTO accounts VALUES(12,1,'SECOND COMPTE TEST')`); err != nil {
+		t.Fatal(err)
+	}
+	collision := preview("Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n", "12")
+	if w := confirm(collision.Token, 1); w.Code < 400 || count("transactions") != 3 || count("statements") != 2 {
+		t.Fatal("cross-account collision was silently discarded")
+	}
+	// La somme persistée doit être exactement celle des trois sources.
+	var total string
+	if err = db.QueryRow(`SELECT sum(amount)::text FROM transactions WHERE owner_id=1`).Scan(&total); err != nil || total != "5.00" {
+		t.Fatalf("unreconciled database total %s: %v", total, err)
+	}
 	out = preview(csv, "11")
 	if _, err = db.Exec(`UPDATE accounts SET owner_id=2 WHERE id=11`); err != nil {
 		t.Fatal(err)
@@ -160,4 +178,36 @@ func TestImportPreviewPostgres(t *testing.T) {
 	if w = confirm(out.Token, 1); w.Code != http.StatusBadRequest || count("transactions") != 3 {
 		t.Fatal("confirmation did not recheck account ownership")
 	}
+	// API/dashboard source : un mois ancien doit rester interrogeable même si
+	// des mois plus récents existent ; les catégories doivent avoir la même borne.
+	if _, err = db.Exec(`INSERT INTO transactions(statement_id,owner_id,tx_date,label,amount,hash) VALUES(100,1,'2020-01-03','HISTORIQUE TEST',-12.34,'historical-test')`); err != nil {
+		t.Fatal(err)
+	}
+	summaryResponse := httptest.NewRecorder()
+	srv.summary(summaryResponse, ownerRequest("GET", "/api/summary?months=1&month=2020-01", 1))
+	if summaryResponse.Code != http.StatusOK {
+		t.Fatalf("summary: %d %s", summaryResponse.Code, summaryResponse.Body)
+	}
+	var summary struct {
+		Monthly []struct {
+			Month        string  `json:"month"`
+			Income       float64 `json:"income"`
+			Expenses     float64 `json:"expenses"`
+			Completeness string  `json:"completeness"`
+		} `json:"monthly"`
+		Categories []struct {
+			Month string  `json:"month"`
+			Total float64 `json:"total"`
+		} `json:"by_category"`
+	}
+	if err = json.Unmarshal(summaryResponse.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Monthly) != 1 || summary.Monthly[0].Month != "2020-01" || summary.Monthly[0].Expenses != 12.34 || summary.Monthly[0].Income != 0 || summary.Monthly[0].Completeness == "complete" {
+		t.Fatalf("wrong source period or certainty: %s", summaryResponse.Body)
+	}
+	if len(summary.Categories) != 1 || summary.Categories[0].Month != "2020-01" || summary.Categories[0].Total != summary.Monthly[0].Expenses {
+		t.Fatalf("category totals diverge: %s", summaryResponse.Body)
+	}
+
 }

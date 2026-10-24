@@ -8,9 +8,9 @@ import (
 
 // remainingItem : un prélèvement récurrent encore attendu d'ici la fin du mois.
 type remainingItem struct {
-	Label   string  `json:"label"`
-	Amount  float64 `json:"amount"`   // positif (montant qui va sortir)
-	DueDay  int     `json:"due_day"`  // jour habituel dans le mois
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`  // positif (montant qui va sortir)
+	DueDay int     `json:"due_day"` // jour habituel dans le mois
 }
 
 // remaining calcule le « reste à vivre » projeté : ce qu'il reste sur le compte
@@ -29,7 +29,11 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 		month = time.Now().Format("2006-01")
 	}
 
-	info, _ := s.getPeriodInfo(owner, month)
+	info, periodErr := s.getPeriodInfo(owner, month)
+	if periodErr != nil {
+		writeErr(w, http.StatusBadRequest, periodErr)
+		return
+	}
 
 	// Pour les mois historiques (pas le mois en cours), on renvoie le bilan réel.
 	if !info.IsCurrent {
@@ -45,17 +49,17 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 		net := income - spent
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"available": true,
-			"period":    info,
-			"balance":   nil,
-			"balance_date": nil,
-			"committed": 0,
-			"remaining": net,
-			"upcoming":  []remainingItem{},
+			"available":      true,
+			"period":         info,
+			"balance":        nil,
+			"balance_date":   nil,
+			"committed":      0,
+			"remaining":      net,
+			"upcoming":       []remainingItem{},
 			"upcoming_count": 0,
-			"is_historical": true,
-			"income": income,
-			"expenses": spent,
+			"is_historical":  true,
+			"income":         income,
+			"expenses":       spent,
 		})
 		return
 	}
@@ -129,14 +133,14 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"available":     true,
-		"period":        info,
-		"balance":       estimated,
-		"balance_date":  balanceDate,
-		"committed":     committed,
-		"remaining":     estimated - committed,
-		"upcoming":      upcoming,
+		"available":      true,
+		"period":         info,
+		"balance":        estimated,
+		"balance_date":   balanceDate,
+		"committed":      committed,
+		"remaining":      estimated - committed,
+		"upcoming":       upcoming,
 		"upcoming_count": len(upcoming),
-		"is_historical": false,
+		"is_historical":  false,
 	})
 }

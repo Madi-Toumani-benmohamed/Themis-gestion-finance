@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"math"
@@ -11,6 +12,7 @@ import (
 
 // periodInfo représente l'état d'une période mensuelle.
 type periodInfo struct {
+	Completeness  string  `json:"completeness"`   // complete | partial | unknown
 	Month         string  `json:"month"`          // YYYY-MM
 	IsCurrent     bool    `json:"is_current"`     // vrai si mois en cours
 	LastTxDate    string  `json:"last_tx_date"`   // dernière transaction observée (YYYY-MM-DD)
@@ -33,73 +35,69 @@ func (s *Server) getPeriodInfo(owner int64, month string) (periodInfo, error) {
 		refMonth = month
 	}
 
-	// Dernière date de transaction pour ce mois.
+	first, _, isCurrent, err := reliabilityWindow(refMonth, now)
+	if err != nil {
+		return periodInfo{}, err
+	}
 	var lastTx sql.NullString
-	_ = s.DB.QueryRow(`SELECT max(tx_date)::text FROM transactions WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') = $2`, owner, refMonth).Scan(&lastTx)
-
-	// Calcul jours dans le mois et jours observés.
-	year := now.Year()
-	monthInt := now.Month()
-	if len(refMonth) == 7 {
-		fmt.Sscanf(refMonth, "%d-%d", &year, &monthInt)
+	if err := s.DB.QueryRow(`SELECT max(tx_date)::text FROM transactions WHERE owner_id=$1 AND to_char(tx_date,'YYYY-MM')=$2`, owner, refMonth).Scan(&lastTx); err != nil {
+		return periodInfo{}, err
 	}
-	firstOfMonth := time.Date(year, monthInt, 1, 0, 0, 0, 0, now.Location())
-	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	daysInMonth := lastOfMonth.Day()
+	report, err := s.loadReliability(context.Background(), owner, refMonth, now)
+	if err != nil {
+		return periodInfo{}, err
+	}
+	return periodFromReliability(report, lastTx.String, first.AddDate(0, 1, -1).Day(), isCurrent, now.Day()), nil
+}
 
-	var daysObserved int
-	isCurrent := (year == now.Year() && monthInt == now.Month())
-	if isCurrent {
-		daysObserved = now.Day()
-	} else if lastTx.Valid {
-		if d, err := time.Parse("2006-01-02", lastTx.String); err == nil {
-			daysObserved = d.Day()
-		} else {
-			daysObserved = daysInMonth
+// La présence d'une opération ne prouve aucun jour de couverture.
+func periodFromReliability(report reliabilityReport, lastTx string, days int, current bool, today int) periodInfo {
+	info := periodInfo{Month: report.Month, IsCurrent: current, LastTxDate: lastTx, DaysInMonth: days, Completeness: "unknown", Status: "incomplete"}
+	documented := len(report.Accounts) > 0
+	covered := days
+	for _, account := range report.Accounts {
+		if account.Status != "documented" {
+			documented = false
 		}
-	} else {
-		daysObserved = daysInMonth
+		if len(account.Statements) > 0 && info.Completeness == "unknown" {
+			info.Completeness = "partial"
+		}
 	}
-
-	coverage := float64(daysObserved) / float64(daysInMonth)
-	if coverage > 1 {
-		coverage = 1
+	if current {
+		covered = today
+		info.DaysObserved = today // jours écoulés, pas une preuve de couverture
+		info.Status = "current"
 	}
-
-	status := "complete"
-	if isCurrent {
-		status = "current"
-	} else if coverage < 0.9 {
-		status = "incomplete"
+	if documented {
+		info.DaysObserved = covered
+		info.CoverageRatio = float64(covered) / float64(days)
+		info.Completeness = "partial"
+		if !current {
+			info.Completeness = "complete"
+			info.Status = "complete"
+		}
 	}
-
-	return periodInfo{
-		Month:         refMonth,
-		IsCurrent:     isCurrent,
-		LastTxDate:    lastTx.String,
-		DaysObserved:  daysObserved,
-		DaysInMonth:   daysInMonth,
-		CoverageRatio: coverage,
-		Status:        status,
-	}, nil
+	return info
 }
 
 // getComparableMonths retourne les mois historiques comparables à un mois de référence.
 // Pour un mois courant (incomplet), on compare aux mêmes jours des mois précédents.
 // Pour un mois complet, on compare aux mois complets.
 func (s *Server) getComparableMonths(owner int64, refMonth string, daysObserved int, limit int) []string {
-	// On récupère les mois historiques qui ont au moins 'daysObserved' jours de données.
+	if !s.heroMonthCovered(owner, refMonth) {
+		return nil
+	}
+	// Candidats historiques ; la couverture est vérifiée après fermeture du curseur.
 	var months []string
 	query := `
 		SELECT to_char(tx_date,'YYYY-MM') AS mth
 		FROM transactions
 		WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') < $2` + notTransfer + `
 		GROUP BY 1
-		HAVING COUNT(DISTINCT tx_date) >= $3
 		ORDER BY 1 DESC
-		LIMIT $4
+		LIMIT $3
 	`
-	rows, err := s.DB.Query(query, owner, refMonth, daysObserved, limit)
+	rows, err := s.DB.Query(query, owner, refMonth, 60)
 	if err != nil {
 		return nil
 	}
@@ -110,12 +108,28 @@ func (s *Server) getComparableMonths(owner int64, refMonth string, daysObserved 
 			months = append(months, m)
 		}
 	}
-	return months
+	if rows.Err() != nil {
+		return nil
+	}
+	rows.Close()
+	comparable := []string{}
+	for _, month := range months {
+		if s.heroMonthCovered(owner, month) {
+			comparable = append(comparable, month)
+		}
+		if len(comparable) >= limit {
+			break
+		}
+	}
+	return comparable
 }
 
 // comparePeriod compare une métrique du mois de référence à sa moyenne historique
 // sur des périodes comparables (mêmes jours du mois).
 func (s *Server) comparePeriod(owner int64, refMonth string, daysObserved int, metric string, excludeTransfers bool) (current, average float64, hasHistory bool) {
+	if metric != "income" && metric != "expenses" && metric != "net" {
+		return 0, 0, false
+	}
 	months := s.getComparableMonths(owner, refMonth, daysObserved, 6)
 	if len(months) == 0 {
 		return 0, 0, false
@@ -143,11 +157,14 @@ func (s *Server) comparePeriod(owner int64, refMonth string, daysObserved int, m
 	}
 
 	// Valeur courante.
-	_ = s.DB.QueryRow(fmt.Sprintf(`
+	err := s.DB.QueryRow(fmt.Sprintf(`
 		SELECT COALESCE(%s, 0)
 		FROM transactions
 		WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') = $2`+transferFilter+dayFilter, metricSQL),
 		owner, refMonth).Scan(&currentVal)
+	if err != nil {
+		return 0, 0, false
+	}
 
 	// Moyenne historique sur périodes comparables.
 	placeholders := make([]string, len(months))
@@ -158,14 +175,16 @@ func (s *Server) comparePeriod(owner int64, refMonth string, daysObserved int, m
 	}
 	avgQuery := fmt.Sprintf(`
 		SELECT AVG(val) FROM (
-			SELECT %s AS val
+			SELECT COALESCE(%s,0) AS val
 			FROM transactions
 			WHERE owner_id = $1 AND to_char(tx_date,'YYYY-MM') IN (%s)`+transferFilter+dayFilter+`
 			GROUP BY to_char(tx_date,'YYYY-MM')
 		) m`, metricSQL, strings.Join(placeholders, ","))
 
 	var avgVal float64
-	_ = s.DB.QueryRow(avgQuery, args...).Scan(&avgVal)
+	if err := s.DB.QueryRow(avgQuery, args...).Scan(&avgVal); err != nil {
+		return 0, 0, false
+	}
 
 	return currentVal, avgVal, true
 }
@@ -190,6 +209,10 @@ func (s *Server) periodCompareHandler(w http.ResponseWriter, r *http.Request) {
 	if metric == "" {
 		metric = "expenses"
 	}
+	if metric != "income" && metric != "expenses" && metric != "net" {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("métrique invalide"))
+		return
+	}
 
 	info, err := s.getPeriodInfo(owner, month)
 	if err != nil {
@@ -206,12 +229,12 @@ func (s *Server) periodCompareHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"period":       info,
-		"metric":       metric,
-		"current":      current,
-		"average":      average,
-		"pct_change":   pctChange,
-		"has_history":  hasHistory,
+		"period":            info,
+		"metric":            metric,
+		"current":           current,
+		"average":           average,
+		"pct_change":        pctChange,
+		"has_history":       hasHistory,
 		"comparable_months": len(s.getComparableMonths(owner, info.Month, info.DaysObserved, 6)),
 	})
 }

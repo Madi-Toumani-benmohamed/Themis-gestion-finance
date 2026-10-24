@@ -34,8 +34,12 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, _ := s.getPeriodInfo(owner, ref.String)
-	complete := !info.IsCurrent && s.heroMonthCovered(owner, ref.String)
+	info, periodErr := s.getPeriodInfo(owner, ref.String)
+	if periodErr != nil {
+		writeErr(w, http.StatusBadRequest, periodErr)
+		return
+	}
+	complete := info.Completeness == "complete"
 	// Comparaisons uniquement si les trois mois de référence sont documentés.
 	comparable := complete
 	start, _ := time.Parse("2006-01", ref.String)
@@ -52,7 +56,10 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	q := `SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
 		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
 		FROM transactions WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') = $1` + notTransfer + dayFilter
-	_ = s.DB.QueryRow(q, ref.String, owner).Scan(&income, &spent)
+	if err := s.DB.QueryRow(q, ref.String, owner).Scan(&income, &spent); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	net := income - spent
 
 	// Budgets du mois : combien sont définis, combien sont dépassés (sur période observée).

@@ -21,8 +21,8 @@ type chatMsg struct {
 }
 
 type chatIn struct {
-	ConversationID *int64     `json:"conversation_id"`
-	Messages       []chatMsg  `json:"messages"`
+	ConversationID *int64    `json:"conversation_id"`
+	Messages       []chatMsg `json:"messages"`
 }
 
 type llmDecision struct {
@@ -196,9 +196,9 @@ func toolComparePeriods(db *sql.DB, owner int64, args map[string]any) toolResult
 	groupBy, _ := args["group_by"].(string)
 
 	type agg struct {
-		Key   string  `json:"key"`
-		ValA  float64 `json:"value_a"`
-		ValB  float64 `json:"value_b"`
+		Key  string  `json:"key"`
+		ValA float64 `json:"value_a"`
+		ValB float64 `json:"value_b"`
 	}
 	var results []agg
 
@@ -251,11 +251,11 @@ func toolComparePeriods(db *sql.DB, owner int64, args map[string]any) toolResult
 	}
 
 	type compResult struct {
-		Key               string  `json:"key"`
-		ValueA            float64 `json:"value_a"`
-		ValueB            float64 `json:"value_b"`
-		AbsoluteChange    float64 `json:"absolute_change"`
-		RelChangePct      *float64 `json:"relative_change_percent,omitempty"`
+		Key            string   `json:"key"`
+		ValueA         float64  `json:"value_a"`
+		ValueB         float64  `json:"value_b"`
+		AbsoluteChange float64  `json:"absolute_change"`
+		RelChangePct   *float64 `json:"relative_change_percent,omitempty"`
 	}
 	out := []compResult{}
 	for _, r := range results {
@@ -340,7 +340,7 @@ func toolDataQuality(db *sql.DB, owner int64) toolResult {
 		"total_transactions": totalTx, "categorized": categorized, "uncategorized": uncategorized,
 		"statements": stmtCount, "months_covered": monthsCovered,
 		"first_tx": firstDate.String, "last_tx": lastDate.String,
-		"coverage": map[string]any{"complete": totalTx > 10 && monthsCovered >= 2, "sufficient": monthsCovered >= 2 && uncategorized < int(float64(totalTx)*0.3)},
+		"coverage": map[string]any{"complete": false, "status": "unknown", "reason": "Le nombre de transactions ne prouve pas la couverture documentaire", "sufficient": monthsCovered >= 2 && uncategorized < int(float64(totalTx)*0.3)},
 	}
 	b, _ := json.Marshal(out)
 	return toolResult{Content: string(b)}
@@ -494,7 +494,7 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 		memCtx = mem.SearchFacts(ctx, fmt.Sprint(owner), lastUser, 5)
 	}
 	if memCtx != "" {
-		systemPrompt += "\n" + memCtx
+		systemPrompt += "\nMémoire indicative, potentiellement périmée : ne constitue jamais une preuve de montant ou de complétude. Vérifier tout chiffre via les outils transactionnels, citer la période et la source ; en cas de contradiction les transactions PostgreSQL font référence.\n" + memCtx
 	}
 
 	contextMsgs := buildContextMessages(history, lastUser)
@@ -590,6 +590,9 @@ RÈGLES ABSOLUES :
 3. Réponds en français, en 3-5 phrases maximum.
 4. Ne donne JAMAIS de conseil financier engageant. Présente les faits.
 5. Si les outils retournent une erreur, dis-le clairement.
+6. Une absence de transaction ne prouve ni un zéro réel ni une période complète. Le salaire peut arriver en fin de mois ; un déficit provisoire ne justifie aucune qualification négative.
+7. Sépare faits transactionnels, hypothèses et projections. Cite l'outil et les dates de référence des chiffres. La mémoire Knowledge Graph ne remplace jamais les outils transactionnels.
+8. Ne conclus pas à une évolution entre périodes dont la couverture documentaire n'est pas établie comparable.
 
 FORMAT QUAND TU AS LES INFOS :
 {"answer": "Réponse avec les chiffres EXACTS des outils.", "status": "ok"}
