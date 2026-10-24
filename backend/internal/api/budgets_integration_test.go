@@ -226,7 +226,7 @@ func TestBudgetsPostgres(t *testing.T) {
 		t.Fatalf("empty owner: %+v %v", report, err)
 	}
 	// A SQL failure cannot masquerade as zero expense.
-	if _, err = db.Exec(`DROP TABLE budgets`); err != nil {
+	if _, err = db.Exec(`ALTER TABLE budgets RENAME COLUMN monthly_limit TO broken_limit`); err != nil {
 		t.Fatal(err)
 	}
 	w = httptest.NewRecorder()
