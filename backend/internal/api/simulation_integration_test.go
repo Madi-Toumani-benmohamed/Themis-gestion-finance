@@ -100,7 +100,7 @@ func TestSimulationPostgres(t *testing.T) {
 	if w.Code != 200 || string(out["available"]) != "true" || string(out["income"]) != "0.00" {
 		t.Fatalf("documented zero: %s", w.Body)
 	}
-	if _, err = db.Exec(`DROP TABLE domains`); err != nil {
+	if _, err = db.Exec(`ALTER TABLE domains RENAME COLUMN id TO broken_id`); err != nil {
 		t.Fatal(err)
 	}
 	w, _ = run(1)
