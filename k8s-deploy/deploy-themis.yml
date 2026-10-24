@@ -18,6 +18,13 @@ spec:
         app: themis-app
         namespace: dev
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - image: themis-v-6-app:latest 
         name: themis
@@ -51,6 +58,8 @@ spec:
           runAsUser: 10001
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
       volumes:
       - name: empty-data
         emptyDir: {}

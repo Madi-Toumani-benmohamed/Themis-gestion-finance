@@ -75,20 +75,18 @@ func toolSearchTransactions(db *sql.DB, owner int64, args map[string]any) toolRe
 	if v, ok := args["merchant"].(string); ok {
 		merchant = v
 	}
-	q := `SELECT t.id,t.tx_date::text, t.label, t.amount::text, COALESCE(d.name,'Sans domaine')
-		  FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
-		  WHERE t.owner_id = $1 AND t.tx_date >= $2::date AND t.tx_date <= $3::date` + notTransferT
-	args2 := []any{owner, startDate, endDate}
-	argIdx := 4
+	// Audited: compile-time SQL constants only; all external values use PostgreSQL bind parameters.
+	// nosemgrep: go.lang.security.audit.database.string-formatted-query.string-formatted-query
+	const query = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,COALESCE(d.name,'Sans domaine')
+ FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id
+ WHERE t.owner_id=$1 AND t.tx_date>=$2::date AND t.tx_date<=$3::date` + notTransferT + `
+ AND ($4='' OR t.label ILIKE $4 OR t.display_label ILIKE $4 OR t.merchant ILIKE $4)
+ ORDER BY t.tx_date DESC,t.id DESC LIMIT $5`
+	pattern := ""
 	if merchant != "" {
-		args2 = append(args2, "%"+strings.ToLower(merchant)+"%")
-		q += fmt.Sprintf(" AND (t.label ILIKE $%d OR t.display_label ILIKE $%d OR t.merchant ILIKE $%d)", argIdx, argIdx, argIdx)
-		argIdx++
+		pattern = "%" + strings.ToLower(merchant) + "%"
 	}
-	q += fmt.Sprintf(" ORDER BY t.tx_date DESC LIMIT $%d", argIdx)
-	args2 = append(args2, limit)
-
-	rows, err := db.Query(q, args2...)
+	rows, err := db.Query(query, owner, startDate, endDate, pattern, limit)
 	if err != nil {
 		return toolResult{Error: err.Error()}
 	}
