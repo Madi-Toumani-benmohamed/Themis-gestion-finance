@@ -454,7 +454,7 @@ export function TopWidget({ config, selectedMonth, data }) {
       const transferIds = new Set((cats || []).filter((c) => c.is_transfer).map((c) => c.id))
       api.transactions({ month: monthToUse }).then((txs) => {
         if (cancelled) return
-        setRows(txs.filter((t) => t.amount < 0 && !transferIds.has(t.domain_id))
+        setRows(txs.filter((t) => t.amount < 0 && t.kind !== 'savings' && !transferIds.has(t.domain_id))
           .sort((a, b) => a.amount - b.amount)
           .slice(0, config.count || 5))
       }).catch(() => {
@@ -491,7 +491,16 @@ export function TopWidget({ config, selectedMonth, data }) {
 /* ------------------------------------------------------------------ */
 export function BudgetsWidget({ selectedMonth }) {
   const [budgets, setBudgets] = useState(null)
-  useEffect(() => { api.budgets(selectedMonth).then(setBudgets).catch(() => setBudgets([])) }, [selectedMonth])
+  const [budgetError, setBudgetError] = useState(null)
+  useEffect(() => {
+    let active = true
+    setBudgets(null); setBudgetError(null)
+    api.budgets(selectedMonth).then(rows => {
+      if (active) setBudgets(rows.filter(b => !b.scope || b.scope === 'expense'))
+    }).catch(e => { if (active) setBudgetError(e.message) })
+    return () => { active = false }
+  }, [selectedMonth])
+  if (budgetError) return <p role="alert" className="widget-empty">Budgets indisponibles : {budgetError}</p>
   if (budgets === null) return <Loading />
   if (budgets.length === 0) return <Empty text="Aucun budget — onglet Budgets pour en créer." />
   return (
@@ -507,7 +516,7 @@ export function BudgetsWidget({ selectedMonth }) {
           </div>
           <div className="mini-budget-amounts">{eur(model.spent)} dépensés / {eur(model.limit)} de plafond</div>
           <div className="gauge"><div
-            className={'gauge-fill' + (b.ratio >= 1 ? ' over' : b.ratio >= 0.85 ? ' warn' : '')}
+            className={'gauge-fill' + (model.over ? ' over' : model.percent >= 85 ? ' warn' : '')}
             style={{ width: model.width + '%' }}
           /></div>
           <div className={'mini-budget-balance' + (model.over ? ' debit' : '')}>

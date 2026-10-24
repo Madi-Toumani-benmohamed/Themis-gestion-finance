@@ -23,3 +23,11 @@ test('un plafond atteint ou sans dépense ne constitue pas un dépassement', () 
     assert.equal(model.difference, 200 - spent)
   }
 })
+
+
+test('réconcilie la différence au centime même si le ratio fourni est incohérent', () => {
+  const model = budgetWidgetModel({ domain_name: 'Test', spent: 4197.14, monthly_limit: 3249.47, ratio: 0 })
+  assert.equal(model.difference, 947.67)
+  assert.equal(model.over, true)
+  assert.equal(model.percent, 129)
+})

@@ -50,7 +50,7 @@ func TestImportPreviewPostgres(t *testing.T) {
  CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
  CREATE TABLE statements(id bigserial PRIMARY KEY,filename text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,parser text,validated bool NOT NULL DEFAULT false,uploaded_at timestamptz DEFAULT now(),account_id bigint,owner_id bigint);
  CREATE TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,tx_date date,label text,amount numeric,domain_id bigint,hash text,owner_id bigint,display_label text,merchant text,label_kind text,UNIQUE(owner_id,hash));
- CREATE TABLE domains(id bigint PRIMARY KEY,name text,color text,is_transfer bool);
+ CREATE TABLE domains(id bigint PRIMARY KEY,name text,color text,is_transfer bool,parent_id bigint,owner_id bigint);
  CREATE TABLE rules(pattern text,domain_id bigint,owner_id bigint,tags text);
  CREATE TABLE merchant_aliases(owner_id bigint,match_key text,display text);
  INSERT INTO accounts VALUES(11,1,'COMPTE TEST'),(21,2,'AUTRE COMPTE');
