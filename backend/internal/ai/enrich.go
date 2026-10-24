@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/lib/pq"
 	"themis/internal/llm"
 )
 
@@ -29,18 +30,17 @@ Règles :
 - "domain" doit être EXACTEMENT l'un des noms autorisés.
 - N'inclus pas les transactions dont tu n'es pas raisonnablement sûr.`
 
-// EnrichResult résume une passe d'auto-tri.
+// EnrichResult describes unverified proposals. Legacy mutation counters remain zero.
 type EnrichResult struct {
+	Suggested  int `json:"suggested"`
 	DomainsSet int `json:"domains_set"`
 	TagsSet    int `json:"tags_set"`
 	Processed  int `json:"processed"`
 	Remaining  int `json:"remaining"`
 }
 
-// AutoEnrich fait proposer par l'IA un domaine (parmi la liste fermée) et des
-// tags (libres, réutilisant l'existant) pour les transactions qui n'ont pas
-// encore de domaine. Ne touche JAMAIS un domaine ou des tags déjà posés à la
-// main. onlyMissingDomain=true limite aux transactions sans domaine.
+// AutoEnrich generates suggestions using the existing provider. It never changes
+// assigned categories or tags. A later explicit PATCH is required to apply one.
 func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, statementID int64, month string) (EnrichResult, error) {
 	var res EnrichResult
 	if client == nil {
@@ -64,6 +64,10 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		domByName[strings.ToUpper(strings.TrimSpace(name))] = id
 		domNames = append(domNames, name)
 	}
+	if err := drows.Err(); err != nil {
+		drows.Close()
+		return res, err
+	}
 	drows.Close()
 	if len(domNames) == 0 {
 		return res, fmt.Errorf("aucun domaine défini")
@@ -85,9 +89,9 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 	type tx struct {
 		ID     int64
 		Label  string
-		Amount float64
+		Amount string
 	}
-	q := `SELECT id, label, amount FROM transactions WHERE domain_id IS NULL AND owner_id = $1`
+	q := `SELECT id, label, amount::text FROM transactions WHERE domain_id IS NULL AND owner_id = $1`
 	args := []any{ownerID}
 	if statementID > 0 {
 		args = append(args, statementID)
@@ -111,6 +115,10 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		}
 		txs = append(txs, t)
 	}
+	if err := trows.Err(); err != nil {
+		trows.Close()
+		return res, err
+	}
 	trows.Close()
 	if len(txs) == 0 {
 		return res, nil
@@ -131,7 +139,7 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		b.WriteString("Si une catégorie « Transfert interne » existe, elle est réservée aux virements entre comptes personnels (vers un livret, une épargne…) : utilise-la pour ces mouvements, jamais pour de vraies dépenses.\n")
 		b.WriteString("\nTransactions :\n")
 		for _, t := range chunk {
-			fmt.Fprintf(&b, "id=%d | %.2f € | %s\n", t.ID, t.Amount, t.Label)
+			fmt.Fprintf(&b, "id=%d | %s € | %s\n", t.ID, t.Amount, t.Label)
 		}
 
 		callCtx, cancel := context.WithTimeout(ctx, llm.CategorizeTimeout())
@@ -156,55 +164,47 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		for _, t := range chunk {
 			validIDs[t.ID] = true
 		}
+		seen := map[int64]bool{}
 		for _, a := range out.Assignments {
-			if !validIDs[a.ID] {
+			if !validIDs[a.ID] || seen[a.ID] {
 				continue
 			}
+			seen[a.ID] = true
 			res.Processed++
-			// domaine (contraint à la liste, seulement si absent)
-			if domID, ok := domByName[strings.ToUpper(strings.TrimSpace(a.Domain))]; ok {
-				r, err := db.Exec(`UPDATE transactions SET domain_id = $1 WHERE id = $2 AND domain_id IS NULL AND owner_id = $3`, domID, a.ID, ownerID)
-				if err != nil {
-					return res, err
+			domID, ok := domByName[strings.ToUpper(strings.TrimSpace(a.Domain))]
+			if !ok {
+				continue
+			}
+			tags := []string{}
+			used := map[string]bool{}
+			for _, raw := range a.Tags {
+				name := strings.ToLower(strings.TrimSpace(raw))
+				if name == "" || len(name) > 40 || used[name] {
+					continue
 				}
-				if n, _ := r.RowsAffected(); n == 1 {
-					res.DomainsSet++
+				used[name] = true
+				tags = append(tags, name)
+				if len(tags) == 4 {
+					break
 				}
 			}
-			// tags (libres, normalisés, ajoutés seulement si la transaction n'en a pas)
-			var existing int
-			_ = db.QueryRow(`SELECT count(*) FROM transaction_tags WHERE transaction_id = $1`, a.ID).Scan(&existing)
-			if existing == 0 {
-				added := setTagsForTx(db, ownerID, a.ID, a.Tags)
-				res.TagsSet += added
+			// Re-check ownership and absence of assignment after the LLM call:
+			// a concurrent manual edit always wins over this proposal.
+			result, err := db.ExecContext(ctx, `INSERT INTO transaction_suggestions(transaction_id,owner_id,domain_id,tags)
+			 SELECT t.id,t.owner_id,d.id,$4::text[] FROM transactions t JOIN domains d ON d.id=$3 AND d.owner_id=t.owner_id
+			 WHERE t.id=$1 AND t.owner_id=$2 AND t.domain_id IS NULL
+			 ON CONFLICT(transaction_id) DO UPDATE SET domain_id=EXCLUDED.domain_id,tags=EXCLUDED.tags,created_at=now()
+			 WHERE transaction_suggestions.owner_id=EXCLUDED.owner_id`, a.ID, ownerID, domID, pq.Array(tags))
+			if err != nil {
+				return res, err
+			}
+			if n, _ := result.RowsAffected(); n == 1 {
+				res.Suggested++
 			}
 		}
 	}
-	res.Remaining = len(txs) - res.DomainsSet
+	res.Remaining = len(txs)
 	return res, nil
-}
-
-// setTagsForTx crée/associe des tags normalisés à une transaction.
-// Renvoie le nombre de tags posés. Logique alignée sur l'API (minuscules,
-// trim, max 40 car) pour que l'IA et la saisie manuelle convergent.
-func setTagsForTx(db *sql.DB, ownerID, txID int64, names []string) int {
-	n := 0
-	for _, raw := range names {
-		name := strings.ToLower(strings.TrimSpace(raw))
-		if name == "" || len(name) > 40 {
-			continue
-		}
-		var tagID int64
-		if err := db.QueryRow(`INSERT INTO tags (name, owner_id) VALUES ($1, $2)
-		                       ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id`, name, ownerID).Scan(&tagID); err != nil {
-			continue
-		}
-		if _, err := db.Exec(`INSERT INTO transaction_tags (transaction_id, tag_id) VALUES ($1, $2)
-		                      ON CONFLICT DO NOTHING`, txID, tagID); err == nil {
-			n++
-		}
-	}
-	return n
 }
 
 const chunkSize = 40

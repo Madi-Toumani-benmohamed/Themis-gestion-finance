@@ -36,8 +36,8 @@ type Config struct {
 	FreeLLMKey   string
 	FreeLLMURL   string
 	FreeLLMModel string
-	// Catégorisation IA automatique des transactions restées sans catégorie
-	// après les règles, à chaque import (nécessite un fournisseur d'IA).
+	// Propositions IA séparées pour les transactions restées sans catégorie
+	// après les règles à l'import. Leur application reste une action manuelle.
 	AIAutoCategorize bool
 
 	// Timeout des requêtes IA (en secondes). 0 = pas de timeout.

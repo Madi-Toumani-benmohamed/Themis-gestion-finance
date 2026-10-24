@@ -1,10 +1,12 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"themis/internal/money"
 	"time"
 )
 
@@ -45,14 +47,38 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Honor the documented date range. An invalid boundary must never silently
+	// broaden an otherwise scoped financial query.
+	var first, last time.Time
+	for _, bound := range []struct{ name, op string }{{"from", ">="}, {"to", "<="}} {
+		if raw := q.Get(bound.name); raw != "" {
+			date, err := time.Parse("2006-01-02", raw)
+			if err != nil || date.Format("2006-01-02") != raw {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("date %s invalide", bound.name))
+				return
+			}
+			if bound.name == "from" {
+				first = date
+			} else {
+				last = date
+			}
+			args = append(args, raw)
+			catFilter += fmt.Sprintf(" AND t.tx_date %s $%d::date", bound.op, len(args))
+		}
+	}
+	if !first.IsZero() && !last.IsZero() && first.After(last) {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("période inversée"))
+		return
+	}
+
 	sql := fmt.Sprintf(`
 		SELECT date_trunc('%s', t.tx_date) AS bucket,
 		       COALESCE(d.name, 'Sans domaine') AS cat,
 		       COALESCE(d.color, '#66736C') AS color,
-		       -SUM(t.amount) FILTER (WHERE t.amount < 0) AS spent
+		       (-SUM(t.amount) FILTER (WHERE t.amount < 0))::text AS spent
 		FROM transactions t
-		LEFT JOIN domains d ON d.id = t.domain_id
-		WHERE t.amount < 0 AND t.owner_id = $1 AND (t.domain_id IS NULL OR t.domain_id NOT IN (SELECT id FROM domains WHERE is_transfer)) %s
+		LEFT JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
+		WHERE t.amount < 0 AND t.owner_id = $1 `+notTransferT+` %s
 		GROUP BY bucket, cat, color
 		ORDER BY bucket`, trunc, catFilter)
 
@@ -65,13 +91,13 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 
 	// pivot : une ligne par bucket, une colonne par catégorie
 	bucketOrder := []string{}
-	byBucket := map[string]map[string]float64{}
+	byBucket := map[string]map[string]json.Number{}
 	colors := map[string]string{}
 	for rows.Next() {
 		var bucket time.Time
 		var cat, color string
-		var spent float64
-		if err := rows.Scan(&bucket, &cat, &color, &spent); err != nil {
+		var spentText string
+		if err := rows.Scan(&bucket, &cat, &color, &spentText); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -82,13 +108,22 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 			key = bucket.Format(keyFmt)
 		}
 		if _, ok := byBucket[key]; !ok {
-			byBucket[key] = map[string]float64{}
+			byBucket[key] = map[string]json.Number{}
 			bucketOrder = append(bucketOrder, key)
 		}
-		byBucket[key][cat] = round2(spent)
+		spent, err := money.Parse(spentText)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		byBucket[key][cat] = json.Number(spent.String())
 		colors[cat] = color
 	}
 
+	if err = rows.Err(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	series := make([]map[string]any, 0, len(bucketOrder))
 	for _, k := range bucketOrder {
 		row := map[string]any{"period": k}
