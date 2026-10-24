@@ -492,6 +492,15 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - La section de revue prépare le contrat `/api/recurring/review` du troisième lot ; une indisponibilité reste une erreur explicite, sans repli sur les anciennes détections non fiabilisées.
 - Test navigateur reproductible : `frontend/tests/budgets.browser.cjs` (API synthétiques isolées, CRUD, mois, revue, sources, six formats et Axe).
 
+### Budgets — récurrences, revue et non-régression (2026-10-24)
+
+- `recurring_review.go` : groupes déterministes compte/catégorie/sens/marchand, moyenne par occurrence et médiane exactes, cadence indépendante de la stabilité, couverture sur l'intervalle du groupe, échéance nullable et aucune date repoussée artificiellement.
+- `GET /api/recurring/review?month=...`, `PUT /api/recurring/review/{key}` : confirmation/correction/ignorance en métadonnées, sans mutation des transactions. Migration additive `020_recurring_reviews.sql` ; rollback manuel séparé dans `db/rollbacks`, testé sur schéma isolé.
+- `features.go` adapte le contrat historique au nouveau moteur ; Hero/anomalies/journal respectent le mois demandé. Widgets et estimations ne déduisent plus un total mensuel de moyennes par transaction. Les retraits/épargne protégés n'entrent pas dans les abonnements.
+- Sources complètes par pages de 1 000 dans Transactions (`offset` pour enveloppes, lots d'identifiants pour récurrences), avec réponses obsolètes écartées. Aucun dédoublonnage heuristique des sources.
+- Job CI `budgets-ui` : parcours, six formats et Axe via outillage temporaire isolé, requis avant le build Docker. Tests Go/PostgreSQL/rollback et Node existants conservés.
+- Compte rendu, formules, migration, résultats réels et risques résiduels : `docs/BUDGETS_IMPLEMENTATION.md`.
+
 ### Simulateur budgétaire — UX et cohérence des calculs (2026-10-24)
 
 - `pages/Simulate.jsx` + CSS local : synthèse à cinq indicateurs, catégories dépliables avec recherche/filtre des modifications, saisie de pourcentage, résultats immédiats, panneau sticky calé sur le header et rappel mobile. Hypothèses secondaires dans des sections natives.

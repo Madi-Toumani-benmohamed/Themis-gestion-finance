@@ -28,6 +28,8 @@ const report = (rows = [row()]) => ({
     uncategorized_spent: 50,
     uncategorized_count: 1,
     observed_expenses: 200,
+    covered_expenses: 150,
+    credits_observed: 0,
   },
   period: { completeness: 'partial', is_current: true },
 })
@@ -61,6 +63,11 @@ test('absence de budget et couverture inconnue ne deviennent pas un taux nul', (
       remaining: 0,
       over_count: 0,
       coverage_ratio: null,
+      observed_expenses: 0,
+      covered_expenses: 0,
+      credits_observed: 0,
+      uncategorized_spent: 0,
+      uncategorized_count: 0,
     },
     period: { completeness: 'unknown' },
   })
@@ -84,4 +91,22 @@ test('la navigation mensuelle franchit les années et la fréquence manquante re
   assert.equal(budgetMonth(-1, '2026-01'), '2025-12')
   assert.equal(budgetMonth(1, '2025-12'), '2026-01')
   assert.equal(recurringFrequencyLabel(null), 'Fréquence non établie')
+})
+
+test('une donnée absente ou un périmètre inconnu ne devient pas un zéro établi', () => {
+  const source = report()
+  delete source.summary.observed_expenses
+  assert.throws(() => budgetPageModel(source), /Montant/)
+  assert.throws(
+    () => budgetEnvelope({ ...row(), scope: 'unknown' }),
+    /Périmètre/,
+  )
+  assert.throws(
+    () =>
+      budgetPageModel({
+        ...report(),
+        summary: { ...report().summary, coverage_ratio: 1 },
+      }),
+    /couverture/,
+  )
 })

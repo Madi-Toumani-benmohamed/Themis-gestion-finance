@@ -124,6 +124,17 @@ func TestBudgetsPostgres(t *testing.T) {
 	if badSourceResponse.Code != 400 {
 		t.Fatal("malformed source filter silently ignored")
 	}
+	pageResponse := httptest.NewRecorder()
+	server.listTransactions(pageResponse, request("GET", "/api/transactions?ids=2,3,4&month=2020-01&offset=1", "", 1))
+	var pageSources []models.Transaction
+	if err = json.Unmarshal(pageResponse.Body.Bytes(), &pageSources); pageResponse.Code != 200 || err != nil || len(pageSources) != 2 {
+		t.Fatalf("source pagination: %d %s", pageResponse.Code, pageResponse.Body)
+	}
+	invalidPage := httptest.NewRecorder()
+	server.listTransactions(invalidPage, request("GET", "/api/transactions?offset=-1", "", 1))
+	if invalidPage.Code != 400 {
+		t.Fatal("invalid pagination silently ignored")
+	}
 	// Report/legacy API retain their respective envelope shape and avoid leakage.
 	w := httptest.NewRecorder()
 	server.budgetReportHandler(w, request("GET", "/api/budgets/report?month=2020-01", "", 1))
