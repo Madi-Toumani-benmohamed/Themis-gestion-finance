@@ -444,3 +444,67 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `uncoveredStatementDates` est partagé avec `heroSpansCover` : continuité des relevés validés, y compris cycles clôturés le 21. Pas de nouveau calcul financier ou de migration.
 - `DataReliability.jsx` dans Relevés : choix du mois, détails par compte, bouton pour filtrer les relevés concernés et accès à l’import existant. Lien depuis le pied de FinancialSummary transmettant le mois du dashboard.
 - Tests Go des intervalles/statuts et test PostgreSQL optionnel `TestReliabilityPostgres` (`THEMIS_TEST_DATABASE_URL`, tables temporaires), tests Node `dataReliabilityModel.test.mjs`.
+
+### Prévisualisation des imports
+
+- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` calcule les doublons selon les empreintes existantes et décrit les soldes/écarts disponibles.
+- Aperçus en mémoire du `Server`, liés au propriétaire et au compte : TTL 15 min, 3 par utilisateur, 32 au total et budget estimé de 32 Mio ; limite de 20 000 opérations par aperçu. Suppression sur expiration par timer, annulation ou confirmation.
+- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Déduplication définitive par la contrainte SQL existante.
+- Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
+- `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
+- Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
+
+### Refonte graphique du cockpit (2026-10-24)
+
+- `frontend/src/cockpit.css`, chargé après les styles existants : palette violet, thèmes clair/sombre, navigation et mises en page responsive. Police Fraunces importée dans `main.jsx`.
+- `App.jsx` : barre de recherche ouvrant la palette existante, navigation et menu de compte sur petits écrans. `Dashboard.jsx` : nouvelle hiérarchie visuelle et classes par type de widget.
+- `FinancialSummary.jsx` et son CSS : présentation des flux et points d’attention ; les calculs et qualifications de périodes restent dans le modèle existant. `widgets/index.jsx` ajoute les montants par catégorie à la légende.
+- Validation : tests Node des trois modèles frontend et build de production réussis ; image Docker reconstruite et application vérifiée par HTTP.
+
+### Lisibilité des budgets du dashboard (2026-10-24)
+
+- `BudgetsWidget` affiche `domain_name` (contrat API), les dépenses importées face au plafond mensuel, le pourcentage utilisé et le montant avant plafond ou du dépassement. La barre reste bornée à 100 %, le pourcentage conserve les dépassements.
+- `components/budgetWidgetModel.mjs` et tests Node : catégorie API, consommation, plafond atteint et dépassement. Aucune modification du calcul backend ; le texte rappelle que le suivi dépend des opérations importées.
+
+### Audit de fiabilité financière (2026-10-24)
+
+- Rapport, définitions, plan et risques ouverts : `docs/FINANCIAL_DATA_AUDIT.md`. Les anciennes mentions « périodes résolues » ne constituent pas une garantie globale.
+- `internal/money` : centimes entiers, précision et limites explicites. Validation/réconciliation du parsing exactes ; insertion des montants transactionnels en décimal. Les autres calculs Go/React restent à migrer.
+- CSV : échec explicite sur ligne invalide, double débit/crédit ou dates multiples divergentes ; aucun abandon silencieux d'opération.
+- Import : refus d'empreintes ambiguës dans un fichier et entre comptes, sans réécrire les empreintes historiques. Verrou transactionnel par propriétaire ; la déduplication historique ne distingue toujours pas toutes les opérations entre fichiers.
+- `period.go` réutilise `loadReliability` et expose `completeness` (`complete`, `partial`, `unknown`) ; la dernière transaction ne prouve plus la couverture. Comparaisons limitées aux mois documentés. `summary` filtre le mois avant LIMIT et expose le même état.
+- Pulse : aucune qualification négative d'un déficit provisoire ; comparaison catégorie suspendue faute de couverture homogène. Mémoire IA explicitement indicative, heuristique de complétude fondée sur les volumes supprimée.
+- CI backend : PostgreSQL 16 isolé active les tests d'intégration auparavant optionnels. Tests financiers dans `money`, `parser/financial_invariants_test.go`, `api/period_invariants_test.go` et extensions du test d'import PostgreSQL.
+
+### Budgets — audit et fiabilisation métier (2026-10-24)
+
+- `api/budgets.go` centralise plafonds, consommation brute exacte, crédits séparés, couverture documentaire et affectation unique catégorie/enfant. `GET /api/budgets` conserve son tableau ; `GET /api/budgets/report` ajoute synthèse, dates et sources explicables.
+- Les sources `/api/transactions?budget_id=...` réutilisent le même périmètre ; `ids` permet une liste exacte d'identifiants, limitée à 1 000 et toujours cloisonnée au propriétaire.
+- Projections uniformes désactivées (`projected:null`) ; transferts hérités et mouvements normalisés d'épargne exclus des flux de consommation via `transfer.go`. Hero, journal et signaux de dépassement réutilisent le service budgétaire.
+- `components/money.mjs` et modèle du widget : différences en centimes, égalité au plafond distincte du dépassement, état d'erreur explicite. Pas de migration de données financières.
+- Audit initial et organisation en trois lots : `docs/BUDGETS_AUDIT.md`. Tests `budgets*_test.go`, `transaction_sources_test.go`, tests Node du widget.
+
+### Budgets — interface de pilotage (2026-10-24)
+
+- `pages/Budgets.jsx` et `Budgets.css` : mois explicite, six indicateurs réconciliés, enveloppes hiérarchisées, création/édition contextuelles et suppression confirmée, opérations non catégorisées et couverture documentaire détaillée.
+- `budgetPageModel.mjs` vérifie les totaux au centime et distingue atteint/dépassé, dépenses et mouvements internes. Chargement, erreur, vide et réponses obsolètes sont traités séparément.
+- Navigation `App.jsx` → `Transactions.jsx` transmet le périmètre d'enveloppe ou les identifiants exacts des sources, avec période et avertissement de la limite de 1 000 opérations.
+- La section de revue prépare le contrat `/api/recurring/review` du troisième lot ; une indisponibilité reste une erreur explicite, sans repli sur les anciennes détections non fiabilisées.
+- Test navigateur reproductible : `frontend/tests/budgets.browser.cjs` (API synthétiques isolées, CRUD, mois, revue, sources, six formats et Axe).
+
+### Budgets — récurrences, revue et non-régression (2026-10-24)
+
+- `recurring_review.go` : groupes déterministes compte/catégorie/sens/marchand, moyenne par occurrence et médiane exactes, cadence indépendante de la stabilité, couverture sur l'intervalle du groupe, échéance nullable et aucune date repoussée artificiellement.
+- `GET /api/recurring/review?month=...`, `PUT /api/recurring/review/{key}` : confirmation/correction/ignorance en métadonnées, sans mutation des transactions. Migration additive `020_recurring_reviews.sql` ; rollback manuel séparé dans `db/rollbacks`, testé sur schéma isolé.
+- `features.go` adapte le contrat historique au nouveau moteur ; Hero/anomalies/journal respectent le mois demandé. Widgets et estimations ne déduisent plus un total mensuel de moyennes par transaction. Les retraits/épargne protégés n'entrent pas dans les abonnements.
+- Sources complètes par pages de 1 000 dans Transactions (`offset` pour enveloppes, lots d'identifiants pour récurrences), avec réponses obsolètes écartées. Aucun dédoublonnage heuristique des sources.
+- Job CI `budgets-ui` : parcours, six formats et Axe via outillage temporaire isolé, requis avant le build Docker. Tests Go/PostgreSQL/rollback et Node existants conservés.
+- Compte rendu, formules, migration, résultats réels et risques résiduels : `docs/BUDGETS_IMPLEMENTATION.md`.
+
+### Simulateur budgétaire — UX et cohérence des calculs (2026-10-24)
+
+- `pages/Simulate.jsx` + CSS local : synthèse à cinq indicateurs, catégories dépliables avec recherche/filtre des modifications, saisie de pourcentage, résultats immédiats, panneau sticky calé sur le header et rappel mobile. Hypothèses secondaires dans des sections natives.
+- `components/simulationModel.mjs` : calcul pur en centimes/BigInt, réconciliation de la référence, crédits et réductions cohérents au centime. Tests Node pris par la CI existante.
+- `api/simulation.go`, extrait de `features3.go` : trois mois civils terminés, diviseur commun, couverture documentaire explicite, transferts exclus des crédits et débits, rationnels exacts pour moyennes et crédit. URL et champs historiques conservés ; provenance et disponibilité ajoutées.
+- Tests Go unitaires/PostgreSQL ; `frontend/tests/simulation.browser.cjs` vérifie interactions, accessibilité et six formats avec des API entièrement simulées. Pas de nouvelle dépendance runtime ni de migration.
+- Diagnostic, alternatives UX, formules, reproduction des contrôles et limites : `docs/SIMULATOR_UX.md`.

@@ -3,14 +3,15 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"themis/internal/money"
 	"time"
 )
 
 // remainingItem : un prélèvement récurrent encore attendu d'ici la fin du mois.
 type remainingItem struct {
-	Label   string  `json:"label"`
-	Amount  float64 `json:"amount"`   // positif (montant qui va sortir)
-	DueDay  int     `json:"due_day"`  // jour habituel dans le mois
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`  // positif (montant qui va sortir)
+	DueDay int     `json:"due_day"` // jour habituel dans le mois
 }
 
 // remaining calcule le « reste à vivre » projeté : ce qu'il reste sur le compte
@@ -29,7 +30,11 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 		month = time.Now().Format("2006-01")
 	}
 
-	info, _ := s.getPeriodInfo(owner, month)
+	info, periodErr := s.getPeriodInfo(owner, month)
+	if periodErr != nil {
+		writeErr(w, http.StatusBadRequest, periodErr)
+		return
+	}
 
 	// Pour les mois historiques (pas le mois en cours), on renvoie le bilan réel.
 	if !info.IsCurrent {
@@ -45,17 +50,17 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 		net := income - spent
 
 		writeJSON(w, http.StatusOK, map[string]any{
-			"available": true,
-			"period":    info,
-			"balance":   nil,
-			"balance_date": nil,
-			"committed": 0,
-			"remaining": net,
-			"upcoming":  []remainingItem{},
+			"available":      true,
+			"period":         info,
+			"balance":        nil,
+			"balance_date":   nil,
+			"committed":      0,
+			"remaining":      net,
+			"upcoming":       []remainingItem{},
 			"upcoming_count": 0,
-			"is_historical": true,
-			"income": income,
-			"expenses": spent,
+			"is_historical":  true,
+			"income":         income,
+			"expenses":       spent,
 		})
 		return
 	}
@@ -94,49 +99,40 @@ func (s *Server) remaining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := time.Now()
-	lastDayOfMonth := time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day()
-
 	upcoming := []remainingItem{}
-	var committed float64
+	var committedCents money.Cents
 	seen := map[string]bool{}
 	for _, g := range rec {
-		if !g.Regular || g.LastDate == "" || seen[g.Label] {
+		key := g.Key
+		if key == "" {
+			key = g.Label
+		}
+		if !g.Regular || g.EstimatedNextDate == nil || seen[key] {
 			continue
 		}
-		last, e := time.Parse("2006-01-02", g.LastDate)
-		if e != nil {
+		next, e := time.Parse("2006-01-02", *g.EstimatedNextDate)
+		if e != nil || !next.After(now) || next.Format("2006-01") != month {
 			continue
 		}
-		// Jour habituel du prélèvement, borné au dernier jour du mois courant
-		// (ex. un prélèvement « le 31 » tombe le 30 en avril).
-		dueDay := last.Day()
-		if dueDay > lastDayOfMonth {
-			dueDay = lastDayOfMonth
-		}
-		// On ne compte que ce qui n'est pas encore passé ce mois-ci. Et on évite
-		// de recompter un prélèvement déjà survenu ce mois (déjà dans le solde).
-		alreadyThisMonth := last.Year() == now.Year() && last.Month() == now.Month()
-		if dueDay <= now.Day() || alreadyThisMonth {
+		amount, e := money.FromLegacy(g.AvgAmount)
+		if e != nil || amount <= 0 {
 			continue
 		}
-		amt := g.AvgAmount
-		if amt <= 0 {
-			amt = g.Amount
-		}
-		upcoming = append(upcoming, remainingItem{Label: cleanMerchant(g.Label), Amount: amt, DueDay: dueDay})
-		committed += amt
-		seen[g.Label] = true
+		upcoming = append(upcoming, remainingItem{Label: cleanMerchant(g.Label), Amount: float64(amount) / 100, DueDay: next.Day()})
+		committedCents += amount
+		seen[key] = true
 	}
+	committed := float64(committedCents) / 100
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"available":     true,
-		"period":        info,
-		"balance":       estimated,
-		"balance_date":  balanceDate,
-		"committed":     committed,
-		"remaining":     estimated - committed,
-		"upcoming":      upcoming,
+		"available":      true,
+		"period":         info,
+		"balance":        estimated,
+		"balance_date":   balanceDate,
+		"committed":      committed,
+		"remaining":      estimated - committed,
+		"upcoming":       upcoming,
 		"upcoming_count": len(upcoming),
-		"is_historical": false,
+		"is_historical":  false,
 	})
 }

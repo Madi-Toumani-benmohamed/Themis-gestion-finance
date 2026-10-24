@@ -53,9 +53,9 @@ func (s *Server) listInsights(w http.ResponseWriter, r *http.Request) {
 	if err := s.DB.QueryRow(`SELECT count(*) FROM transactions WHERE domain_id IS NULL AND owner_id = $1`, owner).Scan(&uncat); err == nil && uncat > 0 {
 		out = append(out, insight{
 			Kind: "uncategorized", Severity: "info",
-			Title: fmt.Sprintf("%d transaction%s à trier", uncat, Plural(uncat)),
+			Title:  fmt.Sprintf("%d transaction%s à trier", uncat, Plural(uncat)),
 			Detail: "Onglet Transactions — ou laisse l'IA les classer si elle est configurée.",
-			Count: uncat,
+			Count:  uncat,
 		})
 	}
 
@@ -109,31 +109,15 @@ func (s *Server) listInsights(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
-	// 5. Budgets dépassés (mois courant)
-	brows, err := s.DB.Query(`
-		SELECT c.name, b.monthly_limit,
-		       COALESCE(-SUM(t.amount) FILTER (WHERE t.amount < 0), 0) AS spent
-		FROM budgets b
-		JOIN domains c ON c.id = b.domain_id
-		LEFT JOIN transactions t ON t.domain_id = b.domain_id AND t.owner_id = b.owner_id
-		     AND to_char(t.tx_date, 'YYYY-MM') = to_char(now(), 'YYYY-MM')
-		WHERE b.owner_id = $1
-		GROUP BY c.name, b.monthly_limit
-		HAVING COALESCE(-SUM(t.amount) FILTER (WHERE t.amount < 0), 0) > b.monthly_limit`, owner)
-	if err == nil {
-		for brows.Next() {
-			var name string
-			var limit, spent float64
-			if brows.Scan(&name, &limit, &spent) == nil {
-				out = append(out, insight{
-					Kind: "budget_overrun", Severity: "alert",
-					Title:  fmt.Sprintf("Budget %s dépassé", name),
-					Detail: fmt.Sprintf("%s dépensés sur %s (+%s).", fmtEUR(spent), fmtEUR(limit), fmtEUR(spent-limit)),
-					Amount: spent - limit,
-				})
+	// 5. Dépassements réellement observés, même périmètre que Budgets.
+	report, budgetErr := s.loadBudgetReport(r.Context(), owner, now.Format("2006-01"), now)
+	if budgetErr == nil {
+		for _, budget := range report.Budgets {
+			if budget.Scope != "expense" || !budget.Exceeded {
+				continue
 			}
+			out = append(out, insight{Kind: "budget_overrun", Severity: "alert", Title: fmt.Sprintf("Budget %s dépassé", budget.DomainName), Detail: fmt.Sprintf("%s € de débits importés sur %s € (+%s €).", budget.Spent, budget.MonthlyLimit, (budget.spent - budget.limit).String()), Amount: float64(budget.spent-budget.limit) / 100})
 		}
-		brows.Close()
 	}
 
 	writeJSON(w, http.StatusOK, out)

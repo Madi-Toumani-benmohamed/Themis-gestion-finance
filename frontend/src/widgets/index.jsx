@@ -4,6 +4,8 @@ import {
   ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
 } from 'recharts'
 import { api, eur, monthLabel } from '../api'
+import { budgetWidgetModel } from '../components/budgetWidgetModel.mjs'
+import { cents, euroCents } from '../components/money.mjs'
 
 // Couleurs : lues depuis les variables CSS pour suivre le thème clair/sombre.
 // On les relit à chaque rendu de widget via readColors().
@@ -268,6 +270,7 @@ export function CategoriesWidget({ data, selectedMonth }) {
   if (slices.length === 0) return <Empty />
   const cc = readColors()
   return (
+    <div className="category-overview">
     <div className="donut-wrap">
       <ResponsiveContainer width="100%" height={220}>
         <PieChart>
@@ -305,6 +308,16 @@ export function CategoriesWidget({ data, selectedMonth }) {
           {curStatus && <span className="donut-period-badge donut-period-incomplete">Incomplet</span>}
         </div>
       </div>
+    </div>
+    <ul className="category-legend" aria-label="Montants par catégorie">
+      {slices.map((category, index) => (
+        <li key={category.category}>
+          <span className="category-legend-dot" style={{ background: category.color || cc.VIZ[index % cc.VIZ.length] }} aria-hidden="true" />
+          <span>{category.category}</span>
+          <strong>{eur(category.total)}</strong>
+        </li>
+      ))}
+    </ul>
     </div>
   )
 }
@@ -442,7 +455,7 @@ export function TopWidget({ config, selectedMonth, data }) {
       const transferIds = new Set((cats || []).filter((c) => c.is_transfer).map((c) => c.id))
       api.transactions({ month: monthToUse }).then((txs) => {
         if (cancelled) return
-        setRows(txs.filter((t) => t.amount < 0 && !transferIds.has(t.domain_id))
+        setRows(txs.filter((t) => t.amount < 0 && t.kind !== 'savings' && !transferIds.has(t.domain_id))
           .sort((a, b) => a.amount - b.amount)
           .slice(0, config.count || 5))
       }).catch(() => {
@@ -479,23 +492,40 @@ export function TopWidget({ config, selectedMonth, data }) {
 /* ------------------------------------------------------------------ */
 export function BudgetsWidget({ selectedMonth }) {
   const [budgets, setBudgets] = useState(null)
-  useEffect(() => { api.budgets(selectedMonth).then(setBudgets).catch(() => setBudgets([])) }, [selectedMonth])
+  const [budgetError, setBudgetError] = useState(null)
+  useEffect(() => {
+    let active = true
+    setBudgets(null); setBudgetError(null)
+    api.budgets(selectedMonth).then(rows => {
+      if (active) setBudgets(rows.filter(b => !b.scope || b.scope === 'expense'))
+    }).catch(e => { if (active) setBudgetError(e.message) })
+    return () => { active = false }
+  }, [selectedMonth])
+  if (budgetError) return <p role="alert" className="widget-empty">Budgets indisponibles : {budgetError}</p>
   if (budgets === null) return <Loading />
   if (budgets.length === 0) return <Empty text="Aucun budget — onglet Budgets pour en créer." />
   return (
     <div className="mini-budgets">
-      {budgets.slice(0, 4).map((b) => (
+      <p className="mini-budget-explanation">Part du plafond mensuel dépensée, selon les opérations importées.</p>
+      {budgets.slice(0, 4).map((b) => {
+        const model = budgetWidgetModel(b)
+        return (
         <div key={b.id} className="mini-budget">
           <div className="mini-budget-head">
-            <span>{b.category_name}</span>
-            <span className={b.ratio >= 1 ? 'debit' : ''}>{Math.round(b.ratio * 100)} %</span>
+            <span>{model.name}</span>
+            <span className={model.over ? 'debit' : ''}>{model.percent} % utilisé</span>
           </div>
+          <div className="mini-budget-amounts">{eur(model.spent)} dépensés / {eur(model.limit)} de plafond</div>
           <div className="gauge"><div
-            className={'gauge-fill' + (b.ratio >= 1 ? ' over' : b.ratio >= 0.85 ? ' warn' : '')}
-            style={{ width: Math.min(b.ratio * 100, 100) + '%' }}
+            className={'gauge-fill' + (model.over ? ' over' : model.percent >= 85 ? ' warn' : '')}
+            style={{ width: model.width + '%' }}
           /></div>
+          <div className={'mini-budget-balance' + (model.over ? ' debit' : '')}>
+            {model.over ? `Plafond dépassé de ${eur(model.difference)}` : model.difference === 0 ? 'Plafond atteint' : `${eur(model.difference)} avant le plafond`}
+          </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -503,23 +533,28 @@ export function BudgetsWidget({ selectedMonth }) {
 /* ------------------------------------------------------------------ */
 /* Widget : abonnements                                                */
 /* ------------------------------------------------------------------ */
-export function SubsWidget() {
+export function SubsWidget({ selectedMonth }) {
   const [subs, setSubs] = useState(null)
+  const [error, setError] = useState(null)
   useEffect(() => {
-    api.recurring().then((rs) => setSubs(rs.filter((r) => r.regular))).catch(() => setSubs([]))
-  }, [])
+    let active = true
+    setSubs(null); setError(null)
+    api.recurringReview(selectedMonth).then(report => {
+      if (active) setSubs(report.items.filter(item => item.nature === 'subscription' && item.status !== 'ignored'))
+    }).catch(e => { if (active) setError(e.message) })
+    return () => { active = false }
+  }, [selectedMonth])
+  if (error) return <p role="alert" className="widget-empty">Détections indisponibles : {error}</p>
   if (subs === null) return <Loading />
-  if (subs.length === 0) return <Empty text="Aucun abonnement détecté (2 mois de relevés minimum)." />
-  const total = subs.reduce((s, r) => s + r.avg_amount, 0)
+  if (subs.length === 0) return <Empty text="Aucun abonnement documenté ou détecté à examiner sur cette période." />
   return (
     <div>
-      <div className="subs-total"><Roll value={total} fmt={eur} /> <span className="muted">/ mois</span></div>
+      <p className="mini-budget-explanation">Médianes par opération observée. Ces détections ne constituent pas un total mensuel certain.</p>
       <div className="top-list">
-        {subs.slice(0, 6).map((r, i) => (
-          <div className="top-row" key={i}>
-            <div className="top-bar" style={{ width: `${(r.avg_amount / subs[0].avg_amount) * 100}%` }} />
-            <span className="top-label">{r.label.slice(0, 40)}</span>
-            <span className="top-amount">{eur(r.avg_amount)}</span>
+        {subs.slice(0, 6).map(item => (
+          <div className="top-row" key={item.key}>
+            <span className="top-label">{item.label.slice(0, 40)}<small style={{display:'block'}}>{item.status === 'confirmed' ? 'Confirmée par vous' : item.confidence === 'probable' ? 'Probable' : 'À vérifier · données insuffisantes'}</small></span>
+            <span className="top-amount">{euroCents(cents(item.typical_amount))}</span>
           </div>
         ))}
       </div>

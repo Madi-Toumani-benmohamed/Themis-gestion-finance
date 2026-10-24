@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import ImportPreview from './components/ImportPreview'
+import { reviewedImport } from './components/reviewedImport.mjs'
 import { useToast } from './Toast'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
@@ -65,15 +67,34 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
-    document.documentElement.style.background = theme === 'dark' ? '#0F0F14' : '#FBFBFD'
+    document.documentElement.style.background = theme === 'dark' ? '#10111B' : '#F4F4F9'
     try { localStorage.setItem('themis-theme', theme) } catch { /* stockage indisponible */ }
   }, [theme])
   const [txSearch, setTxSearch] = useState('')
   const [txMonth, setTxMonth] = useState('')
+  const [txDomain, setTxDomain] = useState('')
+  const [txBudget, setTxBudget] = useState('')
+  const [txIds, setTxIds] = useState([])
+  const [txFrom, setTxFrom] = useState('')
+  const [txTo, setTxTo] = useState('')
   const [statementMonth, setStatementMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); setTxMonth(opts?.month || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.budget_id || opts?.ids || opts?.domain)) setTxSearch(''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [importPreview, setImportPreview] = useState(null)
+  const previewDecision = useRef(null)
+  const uploadQueueBusy = useRef(false)
+  const uploadQueueCancelled = useRef(false)
+  const requestImportReview = useCallback(preview => new Promise(resolve => {
+    previewDecision.current = resolve
+    setImportPreview(preview)
+  }), [])
+  const decideImport = useCallback(accepted => {
+    const resolve = previewDecision.current
+    previewDecision.current = null
+    setImportPreview(null)
+    resolve?.(accepted)
+  }, [])
   const [uploadProg, setUploadProg] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [aiEnabled, setAiEnabled] = useState(false)
@@ -117,6 +138,8 @@ export default function App() {
   }, [me, refreshKey])
 
   const logout = async () => {
+    uploadQueueCancelled.current = true
+    decideImport(false)
     try { await api.authLogout() } catch { /* ignore */ }
     setMe(null); setSetupRequired(false)
     api.authStatus().then((st) => setSetupRequired(st.setup_required)).catch(() => {})
@@ -136,22 +159,40 @@ export default function App() {
     // serveur pendant le traitement (conversion, OCR page i/N, IA…).
     const token = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random()))
     setUploadProg({ stage: prefix + 'Envoi du fichier', pct: 1 })
-    const poll = setInterval(async () => {
-      try {
-        const p = await api.uploadProgress(token)
-        if (p && p.stage) setUploadProg({ stage: prefix + p.stage, detail: p.detail, pct: p.pct })
-      } catch { /* transitoire : on retentera au tick suivant */ }
-    }, 800)
+    let progressGeneration = 0
+    const startPolling = () => {
+      const generation = ++progressGeneration
+      return setInterval(async () => {
+        try {
+          const p = await api.uploadProgress(token)
+          if (generation === progressGeneration && p && p.stage) setUploadProg({ stage: prefix + p.stage, detail: p.detail, pct: p.pct })
+        } catch { /* transitoire : on retentera au tick suivant */ }
+      }, 800)
+    }
+    let poll = startPolling()
     try {
-      const r = await api.upload(file, uploadAccount, token)
+      const outcome = await reviewedImport({
+        api, file, accountId: uploadAccount, token,
+        onPreviewReady: () => { progressGeneration++; clearInterval(poll); setUploadProg(null) },
+        review: preview => uploadQueueCancelled.current ? false : requestImportReview(preview),
+        onConfirm: () => {
+          setUploadProg({ stage: prefix + 'Enregistrement des opérations confirmées', pct: 88 })
+          poll = startPolling()
+        },
+      })
+      if (outcome.cancelled) {
+        if (!silent) toast.info('Aperçu annulé — aucune transaction enregistrée.')
+        return { ok: false, cancelled: true, inserted: 0 }
+      }
+      const { preview, result: r } = outcome
       if (!silent) {
         if (r.inserted === 0) {
           toast.info('Relevé déjà importé — aucune nouvelle transaction.')
         } else {
-          const via = r.parser === 'local' ? 'parseur local' : 'IA'
+          const via = r.parser === 'local' ? 'parseur local' : r.parser === 'csv' ? 'CSV' : 'IA'
           const check = r.validated ? '· validation comptable OK' : '· validation comptable impossible, vérifie les montants'
           const aiCat = r.ai_categorized > 0 ? ` · ${r.ai_categorized} classées par l'IA` : ''
-          const acct = accounts.find((a) => a.id === uploadAccount)
+          const acct = accounts.find((a) => a.id === preview.account_id)
           const where = acct && acct.id !== 1 ? ` → ${acct.name}` : ''
           toast.ok(`${r.inserted} transactions importées${where} (${via}) ${check}${aiCat}`)
           if (r.validated) {
@@ -166,41 +207,48 @@ export default function App() {
       if (!silent) toast.err(e.message)
       return { ok: false, inserted: 0 }
     } finally {
+      progressGeneration++
       clearInterval(poll)
       setUploadProg(null)
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
-  }, [uploadAccount, accounts])
+  }, [uploadAccount, accounts, requestImportReview])
 
   // Traite plusieurs relevés à la suite (séquentiellement : l'OCR est lourd et
   // le backend traite un relevé à la fois). Un récapitulatif global à la fin,
   // plutôt qu'un toast par fichier.
   const doUploadMany = useCallback(async (fileList) => {
-    const files = Array.from(fileList || []).filter((f) => {
-      const n = f.name.toLowerCase()
-      return n.endsWith('.pdf') || n.endsWith('.csv')
-    })
-    if (files.length === 0) {
-      toast.err('Formats acceptés : PDF (relevé) ou CSV (export bancaire).')
-      return
-    }
-    if (files.length === 1) { await doUpload(files[0]); return }
+    if (uploadQueueBusy.current) { toast.info('Termine la vérification de l’import en cours.'); return }
+    uploadQueueBusy.current = true
+    uploadQueueCancelled.current = false
+    try {
+      const files = Array.from(fileList || []).filter((f) => {
+        const n = f.name.toLowerCase()
+        return n.endsWith('.pdf') || n.endsWith('.csv')
+      })
+      if (files.length === 0) {
+        toast.err('Formats acceptés : PDF (relevé) ou CSV (export bancaire).')
+        return
+      }
+      if (files.length === 1) { await doUpload(files[0]); return }
 
-    let okCount = 0, totalInserted = 0, failed = 0
-    for (let i = 0; i < files.length; i++) {
-      const res = await doUpload(files[i], { silent: true, index: i + 1, total: files.length })
-      if (res && res.ok) { okCount++; totalInserted += res.inserted } else { failed++ }
-    }
-    // Récapitulatif global
-    if (failed === 0) {
-      toast.ok(`${files.length} relevés importés · ${totalInserted} transactions au total`)
-    } else if (okCount > 0) {
-      toast.info(`${okCount}/${files.length} relevés importés (${totalInserted} transactions) · ${failed} en échec`)
-    } else {
-      toast.err(`Aucun relevé importé (${failed} en échec)`)
-    }
-    setRefreshKey((k) => k + 1)
+      let okCount = 0, totalInserted = 0, failed = 0, cancelled = 0
+      for (let i = 0; i < files.length; i++) {
+        if (uploadQueueCancelled.current) { cancelled += files.length - i; break }
+        const res = await doUpload(files[i], { silent: true, index: i + 1, total: files.length })
+        if (res && res.ok) { okCount++; totalInserted += res.inserted } else if (res?.cancelled) { cancelled++ } else { failed++ }
+      }
+      // Récapitulatif global
+      if (failed === 0 && cancelled === 0) {
+        toast.ok(`${files.length} relevés importés · ${totalInserted} transactions au total`)
+      } else if (okCount > 0) {
+        toast.info(`${okCount}/${files.length} relevés importés (${totalInserted} transactions) · ${cancelled} annulé(s) · ${failed} en échec`)
+      } else {
+        toast.info(`Aucun relevé importé · ${cancelled} annulé(s) · ${failed} en échec`)
+      }
+      setRefreshKey((k) => k + 1)
+    } finally { uploadQueueBusy.current = false }
   }, [doUpload])
 
   const onDrop = (e) => {
@@ -228,7 +276,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="sidebar-brand brand">
           <Logo size={24} className="brand-logo" animate />
-          <h1>thémis<span className="tick">.</span></h1>
+          <div className="sidebar-wordmark"><h1>thémis<span className="tick">.</span></h1><span className="sidebar-tagline">Finances personnelles</span></div>
         </div>
         <nav className="sidebar-nav" role="tablist">
           {[...NAV_BASE, aiEnabled && ['Intelligence', [['assistant', 'Assistant']]]].filter(Boolean).map(([group, items]) => (
@@ -238,6 +286,8 @@ export default function App() {
                 <button
                   key={id}
                   role="tab"
+                  aria-label={label}
+                  title={label}
                   aria-selected={tab === id}
                   className={tab === id ? 'active' : ''}
                   onClick={() => setTab(id)}
@@ -256,6 +306,8 @@ export default function App() {
           {me?.role === 'admin' && (
             <button
               role="tab"
+              aria-label="Admin"
+              title="Admin"
               aria-selected={tab === 'admin'}
               className={tab === 'admin' ? 'active' : ''}
               onClick={() => setTab('admin')}
@@ -286,8 +338,12 @@ export default function App() {
 
       <div className="app-main">
       <header className="topbar">
-        <span className="topbar-title">{(TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>
+        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span></div>
         <div className="topbar-right">
+          <button className="topbar-search" aria-label="Rechercher dans Thémis" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+            <span>Rechercher</span><kbd>⌘ K</kbd>
+          </button>
           <div className="slot-wrap">
           {accounts.length > 1 && (
             <select
@@ -302,21 +358,34 @@ export default function App() {
           )}
           <label
           className={'slot' + (drag ? ' drag' : '') + (uploading ? ' busy' : '')}
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter') fileRef.current?.click() }}
+          role="button"
+          aria-label="Importer un ou plusieurs relevés"
+          aria-disabled={uploading}
+          tabIndex={uploading ? -1 : 0}
+          onKeyDown={(e) => { if (!uploading && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fileRef.current?.click() } }}
         >
           <span className="slot-text">
-            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer un ou plusieurs relevés'}
+            {uploading ? <><span className="spinner" /> Lecture…</> : 'Importer'}
           </span>
           <input
             ref={fileRef}
             type="file"
             multiple
+            disabled={uploading}
             accept=".pdf,.csv,application/pdf,text/csv"
             onChange={(e) => doUploadMany(e.target.files)}
           />
         </label>
         </div>
+        <details className="topbar-profile" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.open = false; e.currentTarget.querySelector('summary')?.focus() } }}>
+          <summary aria-label="Menu du compte" title="Menu du compte"><span aria-hidden="true">{me.username.slice(0, 1).toUpperCase()}</span></summary>
+          <div className="topbar-profile-panel">
+            <strong>{me.username}</strong>
+            <span>{me.role === 'admin' ? 'Administrateur' : 'Espace personnel'}</span>
+            <button onClick={e => { setTheme(t => t === 'dark' ? 'light' : 'dark'); e.currentTarget.closest('details').open = false }}>Changer de thème</button>
+            <button onClick={logout}>Se déconnecter</button>
+          </div>
+        </details>
         </div>
       </header>
 
@@ -329,9 +398,9 @@ export default function App() {
 
       <main className="page" key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-        {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} />}
+        {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse onNavigate={navigateTo} />}
-        {tab === 'budgets' && <Budgets />}
+        {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
         {tab === 'credits' && <Credits />}
         {tab === 'simulate' && <Simulate />}
         {tab === 'accounts' && <Accounts />}
@@ -344,7 +413,7 @@ export default function App() {
       <footer className="colophon">
         <span>thémis — comptes personnels</span>
         <span className="colophon-rule" aria-hidden="true" />
-        <span>traitement en local · tes relevés ne quittent pas ta machine</span>
+        <span>Un regard clair sur tes finances.</span>
       </footer>
       </div>{/* /app-main */}
       </div>{/* /app-shell */}
@@ -359,6 +428,8 @@ export default function App() {
 
       <ScrollTop />
       {aiEnabled && <AssistantFloating aiEnabled={aiEnabled} />}
+
+      {importPreview && <ImportPreview key={importPreview.token} preview={importPreview} onDecision={decideImport} />}
 
       {uploadProg && (
         <div className="upcard" role="status" aria-live="polite">
