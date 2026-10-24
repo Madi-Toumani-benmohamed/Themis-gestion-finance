@@ -67,7 +67,7 @@ export default function Auth({ setupRequired, onAuthed }) {
           </button>
         </form>
       </div>
-      <p className="auth-foot">traitement en local · tes relevés ne quittent pas ta machine</p>
+      <p className="auth-foot">Tes finances, à ton rythme.</p>
     </div>
   )
 }

@@ -287,19 +287,23 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
   const available = Object.entries(WIDGETS)
 
   return (
-    <div className="section">
+    <div className="section dashboard">
       {err && <div className="notice err">{err}</div>}
 
-      <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+      <header className="dashboard-heading">
+        <div>
+          <p className="eyebrow"><span aria-hidden="true">◈</span> Ton espace de pilotage</p>
+          <h1>La vue <em>d’ensemble.</em></h1>
+          <p className="dashboard-intro">Les chiffres essentiels. Le recul pour décider.</p>
+        </div>
+        <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+      </header>
       <FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} />
       <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
       <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
 
       <div className="dash-toolbar">
-        <span className="muted" style={{ fontSize: 13 }}>
-          {saveState === 'saving' && 'enregistrement…'}
-          {saveState === 'saved' && 'disposition enregistrée ✓'}
-        </span>
+        <div className="dashboard-section-title"><span className="eyebrow">Explorer tes finances</span><h2>Les détails font la différence.</h2><span className="dashboard-save-state" role="status">{saveState === 'saving' ? 'Enregistrement…' : saveState === 'saved' ? 'Disposition enregistrée ✓' : ''}</span></div>
         <button className="btn-secondary" onClick={() => setEditing((e) => !e)}>
           {editing ? 'Terminer' : 'Personnaliser'}
         </button>
@@ -321,7 +325,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
           if (!def) return null
           const C = def.component
           return (
-            <div key={w.id} className={`widget ${w.size}`} style={{ '--i': i }}>
+            <div key={w.id} className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
               <div className="widget-head">
                 <h3>{def.title}</h3>
                 {editing && (

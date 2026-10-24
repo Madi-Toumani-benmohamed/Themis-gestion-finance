@@ -71,7 +71,7 @@ func (s *Server) anomalies(w http.ResponseWriter, r *http.Request) {
 
 	info, _ := s.getPeriodInfo(owner, ref)
 
-	rec, err := computeRecurring(s.DB, owner, 2)
+	rec, err := computeRecurringForMonth(s.DB, owner, 2, ref)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -173,7 +173,7 @@ func detectAnomalies(rec []recurring) []anomaly {
 		// 1. Abonnement en hausse : montants antérieurs stables, puis le dernier
 		//    grimpe de 5 % à 60 %. Au-delà de 60 %, ce n'est pas une revalorisation
 		//    d'abonnement mais une dépense ponctuelle (traitée en cas 3).
-		if n >= 3 && stableSeries(g.Amounts[:n-1]) && last > prev*1.05 && last <= prev*1.6 && last-prev >= 1 {
+		if (g.Nature == "" || g.Nature == "subscription") && n >= 3 && stableSeries(g.Amounts[:n-1]) && last > prev*1.05 && last <= prev*1.6 && last-prev >= 1 {
 			pct := (last - prev) / prev * 100
 			out = append(out, anomaly{
 				MerchantKind: g.MerchantKind,
@@ -229,8 +229,8 @@ func detectAnomalies(rec []recurring) []anomaly {
 			out = append(out, anomaly{
 				MerchantKind: g.MerchantKind,
 				Kind:         "subscription_gone", Severity: "info",
-				Title:  fmt.Sprintf("%s ne prélève plus", g.Label),
-				Detail: fmt.Sprintf("Dernier prélèvement de %s le %s. Résiliation ou incident ?", Euro(g.Amount), frDate(g.LastDate)),
+				Title:  fmt.Sprintf("Aucun nouveau prélèvement observé pour %s", g.Label),
+				Detail: fmt.Sprintf("Dernier prélèvement de %s le %s. Une résiliation ou un incident ne sont pas établis par cette seule absence.", Euro(g.Amount), frDate(g.LastDate)),
 				Amount: -g.Amount, Label: g.Label,
 			})
 		}

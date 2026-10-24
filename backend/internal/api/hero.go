@@ -34,8 +34,12 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, _ := s.getPeriodInfo(owner, ref.String)
-	complete := !info.IsCurrent && s.heroMonthCovered(owner, ref.String)
+	info, periodErr := s.getPeriodInfo(owner, ref.String)
+	if periodErr != nil {
+		writeErr(w, http.StatusBadRequest, periodErr)
+		return
+	}
+	complete := info.Completeness == "complete"
 	// Comparaisons uniquement si les trois mois de référence sont documentés.
 	comparable := complete
 	start, _ := time.Parse("2006-01", ref.String)
@@ -52,24 +56,28 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	q := `SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
 		       COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0)
 		FROM transactions WHERE owner_id = $2 AND to_char(tx_date,'YYYY-MM') = $1` + notTransfer + dayFilter
-	_ = s.DB.QueryRow(q, ref.String, owner).Scan(&income, &spent)
+	if err := s.DB.QueryRow(q, ref.String, owner).Scan(&income, &spent); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	net := income - spent
 
-	// Budgets du mois : combien sont définis, combien sont dépassés (sur période observée).
-	var totalBudgets, overBudgets int
-	_ = s.DB.QueryRow(`SELECT count(*) FROM budgets WHERE owner_id = $1`, owner).Scan(&totalBudgets)
-	if totalBudgets > 0 {
-		q = `SELECT count(*) FROM budgets b
-			WHERE b.owner_id = $1 AND b.monthly_limit < (
-				SELECT COALESCE(-SUM(t.amount),0) FROM transactions t
-				WHERE t.owner_id = $1 AND t.domain_id = b.domain_id
-				  AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') = $2` + dayFilter + `)`
-		_ = s.DB.QueryRow(q, owner, ref.String).Scan(&overBudgets)
+	// Le dashboard et la page Budgets partagent les mêmes périmètres et seuils.
+	budgetReport, budgetErr := s.loadBudgetReport(r.Context(), owner, ref.String, time.Now())
+	if budgetErr != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("lecture des budgets indisponible"))
+		return
+	}
+	totalBudgets, overBudgets := 0, budgetReport.Summary.OverCount
+	for _, budget := range budgetReport.Budgets {
+		if budget.Scope == "expense" {
+			totalBudgets++
+		}
 	}
 
 	// Dépenses inhabituelles : le même détecteur que l'onglet anomalies.
 	anomalyCount, newRecurring := 0, 0
-	if rec, err := computeRecurring(s.DB, owner, 2); err == nil {
+	if rec, err := computeRecurringForMonth(s.DB, owner, 2, ref.String); err == nil {
 		// Le détecteur travaille sur les dernières opérations : ne pas attribuer
 		// à un mois historique des signaux apparus après celui-ci.
 		selected := []recurring{}

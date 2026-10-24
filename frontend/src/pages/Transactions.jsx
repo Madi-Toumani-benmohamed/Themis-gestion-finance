@@ -1,18 +1,22 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { api, eur, monthLabel, kindIcon } from '../api'
 import { useToast } from '../Toast'
 import SortStack from './SortStack'
 import MerchantRenamer from './MerchantRenamer'
 import MerchantList from './MerchantList'
 
-export default function Transactions({ initialSearch = '', initialMonth = '' }) {
+export default function Transactions({ initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
   const toast = useToast()
   const [txs, setTxs] = useState([])
   const [month, setMonth] = useState(initialMonth)
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [showDates, setShowDates] = useState(false)
-  const [domainFilter, setDomainFilter] = useState('')
+  const [from, setFrom] = useState(initialFrom)
+  const [to, setTo] = useState(initialTo)
+  const [showDates, setShowDates] = useState(Boolean(initialFrom || initialTo))
+  const [domainFilter, setDomainFilter] = useState(initialDomain)
+  const [sourceFilter, setSourceFilter] = useState({ budget: initialBudget, ids: initialTransactionIds.slice().reverse() })
+  const [sourcePage, setSourcePage] = useState(0)
+  const [fetching, setFetching] = useState(false)
+  const requestEpoch = useRef(0)
   const [search, setSearch] = useState(initialSearch)
   const [months, setMonths] = useState([])
   const [err, setErr] = useState(null)
@@ -45,7 +49,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
       // avec une recherche ou un mois déjà imposé (ex. clic sur une anomalie qui
       // concerne un autre mois). Sinon on garde « tous les mois » pour ne pas
       // masquer les transactions ciblées.
-      if (ms[0] && !initialSearch && !initialMonth) setMonth(ms[0])
+      if (ms[0] && !initialSearch && !initialMonth && !initialDomain && !initialBudget && !initialTransactionIds.length && !initialFrom && !initialTo) setMonth(ms[0])
     }).catch((e) => setErr(e.message))
   }, [])
 
@@ -58,16 +62,21 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
     } else if (month) {
       params.month = month
     }
+    if (sourceFilter.budget) { params.budget_id = sourceFilter.budget; params.offset = sourcePage * 1000 }
+    if (sourceFilter.ids.length) params.ids = sourceFilter.ids.slice(sourcePage * 1000, (sourcePage + 1) * 1000).join(',')
     if (domainFilter) params.domain = domainFilter
     if (search) params.q = search
     if (tagFilter) params.tag = tagFilter
-    api.transactions(params).then((x) => setTxs(Array.isArray(x) ? x : [])).catch((e) => setErr(e.message))
+    const epoch = ++requestEpoch.current
+    setFetching(true); setErr(null); setTxs([])
+    api.transactions(params).then(x => { if (epoch === requestEpoch.current) setTxs(Array.isArray(x) ? x : []) }).catch(e => { if (epoch === requestEpoch.current) setErr(e.message) }).finally(() => { if (epoch === requestEpoch.current) setFetching(false) })
   }
 
+  useEffect(() => { setSourcePage(0) }, [month, domainFilter, search, tagFilter, from, to, sourceFilter])
   useEffect(() => {
     const t = setTimeout(reload, search ? 250 : 0)
-    return () => clearTimeout(t)
-  }, [month, domainFilter, search, tagFilter, from, to])
+    return () => { clearTimeout(t); requestEpoch.current++ }
+  }, [month, domainFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
 
   const topDomains = useMemo(() => domains.filter((d) => !d.parent_id), [domains])
   const domainById = useMemo(() => Object.fromEntries(domains.map((d) => [d.id, d])), [domains])
@@ -395,6 +404,10 @@ export default function Transactions({ initialSearch = '', initialMonth = '' }) 
         </div>
       )}
 
+      {(sourceFilter.budget || sourceFilter.ids.length > 0) && <div className="notice">Vue des opérations contribuant {sourceFilter.budget ? "à l’enveloppe sélectionnée" : "à la récurrence sélectionnée"}. Les crédits sont affichés avec leur signe. <button className="link" onClick={() => setSourceFilter({ budget: '', ids: [] })}>Retirer ce filtre de provenance</button></div>}
+      {!(sourceFilter.budget || sourceFilter.ids.length) && txs.length === 1000 && <p className="notice">Affichage limité à 1 000 opérations. D’autres opérations peuvent contribuer aux totaux : affine la période pour examiner les sources restantes. Cette liste n’est pas une preuve de réconciliation complète.</p>}
+      {fetching && <p role="status" className="notice">Chargement des opérations sources…</p>}
+      {(sourceFilter.budget || sourceFilter.ids.length > 1000) && <nav aria-label="Pagination des sources" className="notice" style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}><button className="link" disabled={fetching || sourcePage === 0} onClick={() => setSourcePage(p => p - 1)}>Sources précédentes</button><span>Page {sourcePage + 1}{sourceFilter.ids.length ? ` sur ${Math.ceil(sourceFilter.ids.length / 1000)}` : ''} · 1 000 opérations maximum par page</span><button className="link" disabled={fetching || (sourceFilter.ids.length ? (sourcePage + 1) * 1000 >= sourceFilter.ids.length : txs.length < 1000)} onClick={() => setSourcePage(p => p + 1)}>Sources suivantes</button></nav>}
       <div className="toolbar">
         {!showDates ? (
           <select value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Mois">
