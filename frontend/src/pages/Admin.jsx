@@ -284,10 +284,10 @@ export default function Admin() {
 
         {provider !== 'none' && (
           <div className="admin-row">
-            <label>Catégorisation auto</label>
+            <label>Suggestions IA à l’import</label>
             <label className="radio">
               <input type="checkbox" checked={autoCat} onChange={(e) => setAutoCat(e.target.checked)} />
-              {' '}classer par IA les transactions sans catégorie à chaque import
+              {' '}proposer des catégories et tags à chaque import, à valider dans Transactions
             </label>
           </div>
         )}
