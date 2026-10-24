@@ -33,7 +33,7 @@ func TestBudgetsPostgres(t *testing.T) {
  CREATE TEMP TABLE statements(id bigserial PRIMARY KEY,account_id bigint,owner_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz DEFAULT now());
  CREATE TEMP TABLE budgets(id bigserial PRIMARY KEY,domain_id bigint REFERENCES domains(id),monthly_limit numeric(12,2) CHECK(monthly_limit>0),owner_id bigint,UNIQUE(owner_id,domain_id));
  CREATE TEMP TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,owner_id bigint,tx_date date,label text DEFAULT 'TEST',display_label text DEFAULT '',merchant text DEFAULT '',label_kind text DEFAULT '',amount numeric(12,2),domain_id bigint);
- CREATE TEMP TABLE tags(id bigint PRIMARY KEY,name text);
+ CREATE TEMP TABLE tags(id bigint PRIMARY KEY,name text,owner_id bigint);
  CREATE TEMP TABLE transaction_tags(transaction_id bigint,tag_id bigint);
  INSERT INTO domains VALUES(1,1,null,'Personnel',false),(2,1,1,'Courses',false),(3,1,1,'Télécom',false),(4,1,null,'Virement',true),(5,1,4,'Livret',false),(6,1,null,'Loisirs',false),(7,2,null,'SECRET CATEGORY',false),(8,1,null,'Atteint',false),(9,1,null,'Vide',false);
  INSERT INTO accounts VALUES(1,1,'TEST');
@@ -44,7 +44,7 @@ func TestBudgetsPostgres(t *testing.T) {
  (1,1,'2020-01-10',-15,3,''),(1,1,'2020-01-11',10,2,''),(1,1,'2020-01-11',-100,3,'savings'),
  (1,1,'2020-01-12',-200,4,''),(1,1,'2020-01-12',-50,5,'savings'),(1,1,'2020-01-12',-7,null,''),
  (1,1,'2020-01-13',-4,7,''),(1,1,'2020-01-13',-20,8,''),(1,1,'2020-02-01',-999,1,''),(1,2,'2020-01-10',-999,7,'');
- INSERT INTO tags VALUES(1,'tag a'),(2,'tag b');INSERT INTO transaction_tags VALUES(2,1),(2,2);`)
+ INSERT INTO tags VALUES(1,'tag a',1),(2,'tag b',1);INSERT INTO transaction_tags VALUES(2,1),(2,2);`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -323,24 +323,24 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 		})
 		return
 	}
-	// Catégorisation IA automatique des transactions que les règles n'ont
-	// pas su classer (jamais bloquante : une erreur est loggée, pas renvoyée)
+	// Les règles explicites sont déterministes. Les propositions IA restent
+	// séparées et ne modifient jamais les catégories/tags à l'import.
 	// Appliquer TOUTES les règles (catégories manquantes + tags) sur les
 	// nouvelles transactions. C'est ce qui garantit que les tags d'une règle
 	// (« Bouygues → Télécom + [factures, mobile] ») arrivent dès l'import,
 	// sans avoir à rééditer la règle après coup.
 	setUploadProgress(progressToken, ownerForProgress, "Application des règles", "", 90, false)
-	if _, err := s.applyAllRules(owner); err != nil {
-		log.Printf("application des règles à l'import: %v", err)
+	if _, err := s.applyAllRulesForStatement(owner, stmtID); err != nil {
+		log.Print("application des règles à l'import interrompue")
 	}
-	aiCategorized := 0
+	aiSuggested := 0
 	if s.getLLM() != nil && s.autoCategorizeEnabled() && inserted > 0 {
-		setUploadProgress(progressToken, ownerForProgress, "Tri automatique par l'IA", "", 93, false)
+		setUploadProgress(progressToken, ownerForProgress, "Suggestions de catégories par l'IA", "", 93, false)
 		enr, err := ai.AutoEnrich(r.Context(), s.DB, s.getLLM(), owner, stmtID, "")
 		if err != nil {
-			log.Printf("auto-tri IA à l'import: %v", err)
+			log.Print("suggestions IA à l'import indisponibles")
 		} else {
-			aiCategorized = enr.DomainsSet
+			aiSuggested = enr.Suggested
 		}
 	}
 
@@ -363,14 +363,14 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 		"validated":      res.Validated,
 		"inserted":       inserted,
 		"duplicates":     skipped,
-		"ai_categorized": aiCategorized,
+		"ai_categorized": 0, // legacy: proposals are not applied categories
+		"ai_suggested":   aiSuggested,
 		"period_start":   res.PeriodStart,
 		"period_end":     res.PeriodEnd,
 	})
 }
 
-// aiEnrich fait proposer par l'IA un domaine + des tags pour les transactions
-// sans domaine (corps optionnel : {"month": "YYYY-MM"}).
+// aiEnrich stores unverified proposals for explicit user review; no assignment.
 func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 	if s.getLLM() == nil {
 		writeErr(w, http.StatusNotImplemented,
@@ -380,8 +380,11 @@ func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Month string `json:"month"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&in)
-	if in.Month != "" && !reMonth.MatchString(in.Month) {
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && err != io.EOF {
+		writeErr(w, 400, fmt.Errorf("demande IA invalide"))
+		return
+	}
+	if in.Month != "" && !validCalendarMonth(in.Month) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("month doit être au format YYYY-MM"))
 		return
 	}
@@ -461,9 +464,9 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 		}
 		exactAmount, _ := money.FromLegacy(t.Amount)
 		r, err := tx.Exec(`
-			INSERT INTO transactions (statement_id, tx_date, label, amount, domain_id, hash, owner_id, display_label, merchant, label_kind)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (owner_id, hash) DO NOTHING`,
-			stmtID, t.Date, t.Label, exactAmount.String(), domID, t.Hash, ownerID, disp, norm.Merchant, norm.Kind)
+			INSERT INTO transactions (statement_id, tx_date, label, amount, domain_id, hash, owner_id, display_label, merchant, label_kind, classification_source)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (owner_id, hash) DO NOTHING`,
+			stmtID, t.Date, t.Label, exactAmount.String(), domID, t.Hash, ownerID, disp, norm.Merchant, norm.Kind, classificationForRule(domID))
 		if err != nil {
 			return 0, 0, 0, err
 		}
@@ -513,171 +516,6 @@ func (s *Server) deleteStatement(w http.ResponseWriter, r *http.Request) {
 
 var reMonth = regexp.MustCompile(`^\d{4}-\d{2}$`)
 
-func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
-	q := `SELECT t.id, t.statement_id, t.tx_date::text, t.label, t.display_label, t.merchant, t.label_kind, t.amount, t.domain_id,
-	             COALESCE(ARRAY_AGG(tg.name) FILTER (WHERE tg.name IS NOT NULL), '{}') AS tags
-	      FROM transactions t
-	      LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
-	      LEFT JOIN tags tg ON tg.id = tt.tag_id
-	      WHERE t.owner_id = $1`
-	args := []any{s.ownerID(r)}
-	if rawIDs := r.URL.Query().Get("ids"); rawIDs != "" {
-		ids, err := parseTransactionSourceIDs(rawIDs)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		args = append(args, pq.Array(ids))
-		q += fmt.Sprintf(" AND t.id = ANY($%d)", len(args))
-	}
-	if rawBudget := r.URL.Query().Get("budget_id"); rawBudget != "" {
-		budgetID, err := strconv.ParseInt(rawBudget, 10, 64)
-		first, last, _, windowErr := reliabilityWindow(r.URL.Query().Get("month"), time.Now())
-		if err != nil || budgetID <= 0 || windowErr != nil {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("budget ou période invalide"))
-			return
-		}
-		var exists bool
-		err = s.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM budgets b JOIN domains d ON d.id=b.domain_id AND d.owner_id=b.owner_id WHERE b.id=$1 AND b.owner_id=$2)`, budgetID, s.ownerID(r)).Scan(&exists)
-		if err != nil {
-			writeErr(w, 500, fmt.Errorf("budget indisponible"))
-			return
-		}
-		if !exists {
-			writeErr(w, 404, fmt.Errorf("budget indisponible"))
-			return
-		}
-		args = append(args, budgetID)
-		parameter := fmt.Sprintf("$%d", len(args))
-		q += " AND " + budgetSourcePredicate(parameter)
-		args = append(args, first, last.AddDate(0, 0, 1))
-		q += fmt.Sprintf(" AND t.tx_date >= $%d AND t.tx_date < $%d", len(args)-1, len(args))
-	}
-	if m := r.URL.Query().Get("month"); reMonth.MatchString(m) {
-		args = append(args, m)
-		q += fmt.Sprintf(" AND to_char(t.tx_date, 'YYYY-MM') = $%d", len(args))
-	}
-	// Bornes de période explicites (YYYY-MM-DD) : permettent « entre le X et le
-	// Y », et servent aux découvertes du mois pour ne montrer que la période
-	// concernée plutôt que tout l'historique du libellé.
-	reDay := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
-	if f := r.URL.Query().Get("from"); reDay.MatchString(f) {
-		args = append(args, f)
-		q += fmt.Sprintf(" AND t.tx_date >= $%d", len(args))
-	}
-	if t := r.URL.Query().Get("to"); reDay.MatchString(t) {
-		args = append(args, t)
-		q += fmt.Sprintf(" AND t.tx_date <= $%d", len(args))
-	}
-	if search := strings.TrimSpace(r.URL.Query().Get("q")); search != "" {
-		args = append(args, "%"+search+"%")
-		// Recherche sur le libellé brut, le nom d'affichage ET les tags —
-		// pour qu'un clic depuis une découverte de tag (« restau ») retrouve
-		// bien les transactions concernées.
-		q += fmt.Sprintf(` AND (t.label ILIKE $%d OR t.display_label ILIKE $%d
-			OR EXISTS (SELECT 1 FROM transaction_tags tt2 JOIN tags tg2 ON tg2.id = tt2.tag_id
-			           WHERE tt2.transaction_id = t.id AND tg2.name ILIKE $%d))`, len(args), len(args), len(args))
-	}
-	if d := r.URL.Query().Get("domain"); d != "" {
-		if d == "none" {
-			q += " AND (t.domain_id IS NULL OR NOT EXISTS(SELECT 1 FROM domains own_domain WHERE own_domain.id=t.domain_id AND own_domain.owner_id=t.owner_id))"
-		} else if did, err := strconv.ParseInt(d, 10, 64); err == nil {
-			args = append(args, did)
-			q += fmt.Sprintf(" AND (t.domain_id = $%d OR t.domain_id IN (SELECT id FROM domains WHERE parent_id = $%d))", len(args), len(args))
-		}
-	}
-	if tag := strings.TrimSpace(r.URL.Query().Get("tag")); tag != "" {
-		if tag == "__none__" {
-			// Transactions sans aucun tag.
-			q += " AND NOT EXISTS (SELECT 1 FROM transaction_tags tt3 WHERE tt3.transaction_id = t.id)"
-		} else {
-			args = append(args, strings.ToLower(tag))
-			q += fmt.Sprintf(" AND t.id IN (SELECT tt2.transaction_id FROM transaction_tags tt2 JOIN tags tg2 ON tg2.id = tt2.tag_id WHERE tg2.name = $%d)", len(args))
-		}
-	}
-	offset := int64(0)
-	if raw := r.URL.Query().Get("offset"); raw != "" {
-		var err error
-		offset, err = strconv.ParseInt(raw, 10, 64)
-		if err != nil || offset < 0 || offset > 10000000 {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("page de sources invalide"))
-			return
-		}
-	}
-	args = append(args, offset)
-	q += fmt.Sprintf(" GROUP BY t.id ORDER BY t.tx_date DESC, t.id DESC LIMIT 1000 OFFSET $%d", len(args))
-
-	rows, err := s.DB.Query(q, args...)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-	out := []models.Transaction{}
-	for rows.Next() {
-		var t models.Transaction
-		if err := rows.Scan(&t.ID, &t.StatementID, &t.Date, &t.Label, &t.Display, &t.Merchant, &t.Kind, &t.Amount, &t.DomainID, pq.Array(&t.Tags)); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		out = append(out, t)
-	}
-	if err := rows.Err(); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Errorf("lecture des transactions interrompue"))
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	var body struct {
-		DomainID *int64    `json:"domain_id"`
-		Tags     *[]string `json:"tags"`
-		setDom   bool
-	}
-	// distinguer "champ absent" de "null" : on décode dans une map d'abord
-	var raw map[string]json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	if v, ok := raw["domain_id"]; ok {
-		body.setDom = true
-		_ = json.Unmarshal(v, &body.DomainID)
-	}
-	if v, ok := raw["tags"]; ok {
-		var t []string
-		_ = json.Unmarshal(v, &t)
-		body.Tags = &t
-	}
-	// Vérifier que la transaction existe ET appartient à l'utilisateur (sinon
-	// 404 — on ne révèle pas l'existence d'une transaction d'autrui).
-	owner := s.ownerID(r)
-	var exists bool
-	if err := s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM transactions WHERE id = $1 AND owner_id = $2)`, id, owner).Scan(&exists); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if !exists {
-		writeErr(w, http.StatusNotFound, fmt.Errorf("transaction introuvable"))
-		return
-	}
-	if body.setDom {
-		if _, err := s.DB.Exec(`UPDATE transactions SET domain_id = $1 WHERE id = $2 AND owner_id = $3`, body.DomainID, id, owner); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-	}
-	if body.Tags != nil {
-		if err := s.setTransactionTags(id, owner, *body.Tags); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // ---------- Catégories & règles ----------
 
 // listCategories est conservé comme ALIAS renvoyant les domaines de vie, pour
@@ -707,11 +545,9 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 	// le nombre de transactions dont le libellé correspond au motif (pour que
 	// l'utilisateur voie la portée de chaque règle avant de la modifier).
 	rows, err := s.DB.Query(`
-		SELECT r.id, r.pattern, r.domain_id, d.name, d.color, r.tags,
-		       (SELECT count(*) FROM transactions t
-		        WHERE t.owner_id = r.owner_id AND upper(t.label) LIKE '%' || upper(r.pattern) || '%') AS matches
+		SELECT r.id, r.pattern, r.domain_id, d.name, d.color, r.tags
 		FROM rules r
-		JOIN domains d ON d.id = r.domain_id
+		JOIN domains d ON d.id = r.domain_id AND d.owner_id=r.owner_id
 		WHERE r.owner_id = $1
 		ORDER BY d.name, r.pattern`, s.ownerID(r))
 	if err != nil {
@@ -732,7 +568,7 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var ru ruleOut
 		var tagsCSV string
-		if err := rows.Scan(&ru.ID, &ru.Pattern, &ru.DomainID, &ru.DomainName, &ru.Color, &tagsCSV, &ru.Matches); err != nil {
+		if err := rows.Scan(&ru.ID, &ru.Pattern, &ru.DomainID, &ru.DomainName, &ru.Color, &tagsCSV); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -741,6 +577,37 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 			ru.Tags = strings.Split(tagsCSV, ",")
 		}
 		out = append(out, ru)
+	}
+	if err := rows.Err(); err != nil {
+		writeErr(w, 500, fmt.Errorf("règles indisponibles"))
+		return
+	}
+	rows.Close()
+	labels, err := s.DB.QueryContext(r.Context(), `SELECT label FROM transactions WHERE owner_id=$1`, s.ownerID(r))
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("portée des règles indisponible"))
+		return
+	}
+	defer labels.Close()
+	matchers := make([]func(string) bool, len(out))
+	for i, rule := range out {
+		matchers[i], _ = categorize.CompilePattern(rule.Pattern)
+	}
+	for labels.Next() {
+		var label string
+		if err = labels.Scan(&label); err != nil {
+			writeErr(w, 500, fmt.Errorf("portée des règles indisponible"))
+			return
+		}
+		for i, match := range matchers {
+			if match != nil && match(label) {
+				out[i].Matches++
+			}
+		}
+	}
+	if labels.Err() != nil {
+		writeErr(w, 500, fmt.Errorf("portée des règles indisponible"))
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -759,6 +626,10 @@ func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := s.ownerID(r)
+	if err := s.validateRule(r.Context(), owner, body.DomainID, body.Pattern); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	tagsCSV := normalizeTagList(body.Tags)
 	var id int64
 	var replaced bool
@@ -775,7 +646,11 @@ func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
 	}
 	applied := int64(0)
 	if body.Apply {
-		applied = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		applied, err = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "applied": applied, "replaced": replaced})
 }
@@ -798,60 +673,6 @@ func normalizeTagList(tags []string) string {
 		out = append(out, t)
 	}
 	return strings.Join(out, ",")
-}
-
-// applyRuleToTransactions pose la catégorie (si absente) et les tags de la règle
-// sur toutes les transactions de l'utilisateur dont le libellé correspond au
-// motif. Renvoie le nombre de transactions catégorisées.
-func (s *Server) applyRuleToTransactions(owner int64, pattern string, domainID int64, tagsCSV string) int64 {
-	// 1. Catégoriser celles qui ne le sont pas encore.
-	res, err := s.DB.Exec(`UPDATE transactions SET domain_id = $1
-		WHERE owner_id = $3 AND domain_id IS NULL AND upper(label) LIKE '%' || upper($2) || '%'`,
-		domainID, pattern, owner)
-	var applied int64
-	if err == nil {
-		applied, _ = res.RowsAffected()
-	}
-	// 2. Poser les tags sur TOUTES les transactions correspondant au motif
-	//    (qu'elles viennent d'être catégorisées ou l'étaient déjà).
-	if tagsCSV != "" {
-		names := strings.Split(tagsCSV, ",")
-		rows, err := s.DB.Query(`SELECT id FROM transactions
-			WHERE owner_id = $2 AND upper(label) LIKE '%' || upper($1) || '%'`, pattern, owner)
-		if err == nil {
-			var ids []int64
-			for rows.Next() {
-				var id int64
-				if rows.Scan(&id) == nil {
-					ids = append(ids, id)
-				}
-			}
-			rows.Close()
-			for _, id := range ids {
-				s.addTagsToTx(owner, id, names)
-			}
-		}
-	}
-	return applied
-}
-
-// addTagsToTx ajoute des tags à une transaction sans retirer les existants
-// (contrairement à setTransactionTags qui remplace). Idempotent.
-func (s *Server) addTagsToTx(owner, txID int64, names []string) {
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		var tagID int64
-		if err := s.DB.QueryRow(`INSERT INTO tags (name, owner_id) VALUES ($1, $2)
-			ON CONFLICT (owner_id, name) DO UPDATE SET name = EXCLUDED.name RETURNING id`,
-			name, owner).Scan(&tagID); err != nil {
-			continue
-		}
-		s.DB.Exec(`INSERT INTO transaction_tags (transaction_id, tag_id) VALUES ($1, $2)
-			ON CONFLICT DO NOTHING`, txID, tagID)
-	}
 }
 
 func (s *Server) deleteRule(w http.ResponseWriter, r *http.Request) {
@@ -878,6 +699,10 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := s.ownerID(r)
+	if err := s.validateRule(r.Context(), owner, body.DomainID, body.Pattern); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	tagsCSV := normalizeTagList(body.Tags)
 	res, err := s.DB.Exec(`UPDATE rules SET pattern = $1, domain_id = $2, tags = $3 WHERE id = $4 AND owner_id = $5`,
 		body.Pattern, body.DomainID, tagsCSV, id, owner)
@@ -891,7 +716,11 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	applied := int64(0)
 	if body.Apply {
-		applied = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		applied, err = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "applied": applied})
 }
