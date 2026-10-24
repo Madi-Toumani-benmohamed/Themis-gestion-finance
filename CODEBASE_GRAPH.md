@@ -484,6 +484,14 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `components/money.mjs` et modèle du widget : différences en centimes, égalité au plafond distincte du dépassement, état d'erreur explicite. Pas de migration de données financières.
 - Audit initial et organisation en trois lots : `docs/BUDGETS_AUDIT.md`. Tests `budgets*_test.go`, `transaction_sources_test.go`, tests Node du widget.
 
+### Budgets — interface de pilotage (2026-10-24)
+
+- `pages/Budgets.jsx` et `Budgets.css` : mois explicite, six indicateurs réconciliés, enveloppes hiérarchisées, création/édition contextuelles et suppression confirmée, opérations non catégorisées et couverture documentaire détaillée.
+- `budgetPageModel.mjs` vérifie les totaux au centime et distingue atteint/dépassé, dépenses et mouvements internes. Chargement, erreur, vide et réponses obsolètes sont traités séparément.
+- Navigation `App.jsx` → `Transactions.jsx` transmet le périmètre d'enveloppe ou les identifiants exacts des sources, avec période et avertissement de la limite de 1 000 opérations.
+- La section de revue prépare le contrat `/api/recurring/review` du troisième lot ; une indisponibilité reste une erreur explicite, sans repli sur les anciennes détections non fiabilisées.
+- Test navigateur reproductible : `frontend/tests/budgets.browser.cjs` (API synthétiques isolées, CRUD, mois, revue, sources, six formats et Axe).
+
 ### Simulateur budgétaire — UX et cohérence des calculs (2026-10-24)
 
 - `pages/Simulate.jsx` + CSS local : synthèse à cinq indicateurs, catégories dépliables avec recherche/filtre des modifications, saisie de pourcentage, résultats immédiats, panneau sticky calé sur le header et rappel mobile. Hypothèses secondaires dans des sections natives.

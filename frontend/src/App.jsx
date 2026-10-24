@@ -72,8 +72,13 @@ export default function App() {
   }, [theme])
   const [txSearch, setTxSearch] = useState('')
   const [txMonth, setTxMonth] = useState('')
+  const [txDomain, setTxDomain] = useState('')
+  const [txBudget, setTxBudget] = useState('')
+  const [txIds, setTxIds] = useState([])
+  const [txFrom, setTxFrom] = useState('')
+  const [txTo, setTxTo] = useState('')
   const [statementMonth, setStatementMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); setTxMonth(opts?.month || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.budget_id || opts?.ids || opts?.domain)) setTxSearch(''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
@@ -393,9 +398,9 @@ export default function App() {
 
       <main className="page" key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-        {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} />}
+        {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse onNavigate={navigateTo} />}
-        {tab === 'budgets' && <Budgets />}
+        {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
         {tab === 'credits' && <Credits />}
         {tab === 'simulate' && <Simulate />}
         {tab === 'accounts' && <Accounts />}
