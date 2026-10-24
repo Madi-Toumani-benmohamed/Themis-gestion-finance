@@ -4,6 +4,7 @@ import {
   ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
 } from 'recharts'
 import { api, eur, monthLabel } from '../api'
+import { budgetWidgetModel } from '../components/budgetWidgetModel.mjs'
 
 // Couleurs : lues depuis les variables CSS pour suivre le thème clair/sombre.
 // On les relit à chaque rendu de widget via readColors().
@@ -495,18 +496,26 @@ export function BudgetsWidget({ selectedMonth }) {
   if (budgets.length === 0) return <Empty text="Aucun budget — onglet Budgets pour en créer." />
   return (
     <div className="mini-budgets">
-      {budgets.slice(0, 4).map((b) => (
+      <p className="mini-budget-explanation">Part du plafond mensuel dépensée, selon les opérations importées.</p>
+      {budgets.slice(0, 4).map((b) => {
+        const model = budgetWidgetModel(b)
+        return (
         <div key={b.id} className="mini-budget">
           <div className="mini-budget-head">
-            <span>{b.category_name}</span>
-            <span className={b.ratio >= 1 ? 'debit' : ''}>{Math.round(b.ratio * 100)} %</span>
+            <span>{model.name}</span>
+            <span className={model.over ? 'debit' : ''}>{model.percent} % utilisé</span>
           </div>
+          <div className="mini-budget-amounts">{eur(model.spent)} dépensés / {eur(model.limit)} de plafond</div>
           <div className="gauge"><div
             className={'gauge-fill' + (b.ratio >= 1 ? ' over' : b.ratio >= 0.85 ? ' warn' : '')}
-            style={{ width: Math.min(b.ratio * 100, 100) + '%' }}
+            style={{ width: model.width + '%' }}
           /></div>
+          <div className={'mini-budget-balance' + (model.over ? ' debit' : '')}>
+            {model.over ? `Plafond dépassé de ${eur(model.difference)}` : model.difference === 0 ? 'Plafond atteint' : `${eur(model.difference)} avant le plafond`}
+          </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

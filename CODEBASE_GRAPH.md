@@ -460,3 +460,8 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `App.jsx` : barre de recherche ouvrant la palette existante, navigation et menu de compte sur petits écrans. `Dashboard.jsx` : nouvelle hiérarchie visuelle et classes par type de widget.
 - `FinancialSummary.jsx` et son CSS : présentation des flux et points d’attention ; les calculs et qualifications de périodes restent dans le modèle existant. `widgets/index.jsx` ajoute les montants par catégorie à la légende.
 - Validation : tests Node des trois modèles frontend et build de production réussis ; image Docker reconstruite et application vérifiée par HTTP.
+
+### Lisibilité des budgets du dashboard (2026-10-24)
+
+- `BudgetsWidget` affiche `domain_name` (contrat API), les dépenses importées face au plafond mensuel, le pourcentage utilisé et le montant avant plafond ou du dépassement. La barre reste bornée à 100 %, le pourcentage conserve les dépassements.
+- `components/budgetWidgetModel.mjs` et tests Node : catégorie API, consommation, plafond atteint et dépassement. Aucune modification du calcul backend ; le texte rappelle que le suivi dépend des opérations importées.
