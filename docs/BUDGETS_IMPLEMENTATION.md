@@ -10,7 +10,7 @@ Le diagnostic initial, établi avant modification et classé par criticité, est
 | 2 | `feat/budgets-ux` | Page de pilotage, gestion contextuelle des enveloppes, navigation et présentation de la revue |
 | 3 | `feat/recurring-review` | Moteur/revue des récurrences, migration, adaptateur des consommateurs, pagination complète des sources et CI navigateur |
 
-Les branches sont empilées : 2 cible 1 et 3 cible 2. Elles partent de `origin/main`, indépendamment du simulateur non encore fusionné. La section récurrences introduite dans le lot 2 nécessite le contrat serveur du lot 3 ; pendant la transition elle indique son indisponibilité explicitement. Déployer l'ensemble coordonné pour disposer de tous les parcours.
+Les branches sont empilées : 2 cible 1 et 3 cible 2. Elles partent de `origin/main`. La fusion du simulateur arrivée pendant cette mission a ensuite été intégrée dans les trois branches ; ses tests restent présents. La section récurrences introduite dans le lot 2 nécessite le contrat serveur du lot 3 ; pendant la transition elle indique son indisponibilité explicitement. Déployer l'ensemble coordonné pour disposer de tous les parcours.
 
 ## Architecture et composants
 
@@ -76,7 +76,7 @@ Le rollback explicite est dans `backend/internal/db/rollbacks/020_recurring_revi
 
 - Tests Go unitaires et PostgreSQL isolés : propriété des catégories, création/modification/suppression, plafond vide/atteint/dépassé, parent/enfant sans double comptage, tags multiples, crédits, transferts hérités, épargne, source whitelist et pagination, mois historique/courant/absent, absence de salaire et erreur SQL.
 - Tests récurrences : PEL et DAB, catégories/compte/sens distincts, montants variables et atypiques, occurrence multiple, intervalle manquant, confiance distincte de confirmation, échéance périmée, fin de mois, décisions persistantes et isolation propriétaire, migration/rollback, adaptateur legacy.
-- Tests frontend : **23 tests Node** sur les modèles existants et nouveaux, réconciliation au centime et refus des données absentes/incohérentes.
+- Tests frontend : **30 tests Node** sur les modèles existants et nouveaux, réconciliation au centime et refus des données absentes/incohérentes.
 - Test Chromium : création, modification, suppression annulée puis confirmée, changement de mois et réponse obsolète, chargement/erreur/reprise/vide, confirmation/correction/ignorance, navigation exacte vers les sources et pagination d'un groupe de 1 001 opérations.
 - Géométrie : 1920×1080, 1280×800, 960×540 (espace CSS équivalent à 200 %), 768×1024, 390×844 et 320×700, sans débordement horizontal. Axe WCAG A/AA est exécuté sur la page en sombre, en clair et sur mobile.
 - La CI conserve `go test -race ./...`, `go vet ./...`, les tests Node et le build frontend. Le filtre des PR inclut les bases des branches empilées pour tester aussi la chaîne de revue. Un job `budgets-ui` installe Playwright/Axe dans le répertoire temporaire du runner, sans dépendance runtime de l'application, et exécute le navigateur contre des API entièrement simulées. Le build Docker dépend aussi de ce contrôle ; aucun échec n'est ignoré.
@@ -100,7 +100,7 @@ Reproduire le navigateur : démarrer Vite sur 127.0.0.1:5176, installer `playwri
 ## Résultats locaux constatés
 
 - État final : `go test -race ./...`, tests PostgreSQL compris, `go vet ./...` et build Go **réussis**.
-- Tests frontend : **23/23 réussis** ; build Vite **réussi** (avertissement préexistant sur la taille du bundle).
+- Tests frontend : **30/30 réussis** ; build Vite **réussi** (avertissement préexistant sur la taille du bundle).
 - Chromium : parcours CRUD, décisions de revue, sources exactes et pagination au-delà de 1 000 **réussis** ; **six formats** sans débordement horizontal ; **aucune violation Axe** relevée dans les contrôles sombre, clair et mobile.
 - `actionlint` sur le workflow final : **réussi**.
 - Image `themis-budgets-check:latest` : **build réussi**. Démarrage sur la base PostgreSQL temporaire vierge, migrations complètes dont 020, accès HTTP à `/` et `/api/health` : **réussis**. Cette image n'a pas remplacé l'application en cours ni utilisé sa base.

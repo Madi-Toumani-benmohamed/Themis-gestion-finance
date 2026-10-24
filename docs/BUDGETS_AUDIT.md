@@ -33,3 +33,5 @@ Le SQL initial des budgets n'effectue pas de jointure avec les tags : aucun doub
 3. **Récurrences** : moteur de revue déterministe et mois de référence, natures économiques, moyennes explicables, confirmation/correction/ignorance en métadonnées séparées et migration réversible ; tests de faux positifs et isolation. La page ne doit pas déguiser l'ancienne heuristique en information vérifiée durant cette transition.
 
 Les limites historiques d'annulation/remboursement et de déduplication sont conservées explicitement. Aucun objectif d'épargne n'est inventé : les anciennes enveloppes de transfert sont séparées des enveloppes de dépenses ; les vrais objectifs nécessiteraient un modèle métier spécifique.
+
+Actualisation d'intégration : le simulateur a été fusionné sur `main` pendant le travail. Cette version a ensuite été intégrée aux trois branches, en conservant ses composants et en adaptant uniquement son schéma de test aux prédicats financiers communs.
