@@ -111,7 +111,7 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/themis-ui" --no-audit --no-fund playwright@1.64.1 @axe-core/playwright@4.14.0
           "$RUNNER_TEMP/themis-ui/node_modules/.bin/playwright" install --with-deps chromium
-      - name: Check transactions, budgets and simulation flows, responsive layout and accessibility
+      - name: Check transactions, budgets, simulation and analysis flows, responsive layout and accessibility
         env:
           NODE_PATH: ${{ runner.temp }}/themis-ui/node_modules
           THEMIS_UI_ARTIFACTS: ${{ runner.temp }}/themis-budgets-ui
@@ -128,6 +128,7 @@ jobs:
           node tests/transactions.browser.cjs
           node tests/budgets.browser.cjs
           node tests/simulation.browser.cjs
+          node tests/analysis.browser.cjs
 
   memory:
     name: Knowledge Graph Python

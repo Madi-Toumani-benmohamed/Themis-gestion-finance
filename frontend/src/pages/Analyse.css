@@ -1,0 +1,461 @@
+.app-main .page.analysis-main {
+  max-width: 1600px;
+  width: 100%;
+}
+.analysis-page {
+  --analysis-border: var(--line);
+  color: var(--ink);
+  min-width: 0;
+}
+.analysis-page p {
+  line-height: 1.6;
+}
+.analysis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+.analysis-header h1 {
+  margin: 4px 0;
+  font-size: clamp(28px, 3vw, 40px);
+}
+.analysis-header p {
+  margin: 4px 0;
+}
+.analysis-eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+.analysis-month {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.analysis-month label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.analysis-month input {
+  min-height: 42px;
+  max-width: 180px;
+}
+.analysis-families,
+.analysis-details-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.analysis-families {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+.analysis-families button,
+.analysis-details-nav button {
+  padding: 10px 16px;
+  min-height: 44px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  cursor: pointer;
+}
+.analysis-families [aria-current],
+.analysis-details-nav [aria-current] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.analysis-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  font-size: 12px;
+  margin: 16px 0 10px;
+}
+.analysis-status {
+  font-weight: 650;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.analysis-coverage {
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+.analysis-coverage summary,
+.analysis-page details summary {
+  cursor: pointer;
+  padding: 9px 0;
+}
+.analysis-summary-grid,
+.analysis-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.analysis-panel,
+.analysis-page .intel-card,
+.analysis-page .section {
+  padding: 24px;
+  margin: 0 0 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper);
+  min-width: 0;
+}
+.analysis-page h2 {
+  font-size: 20px;
+  margin: 0 0 14px;
+}
+.analysis-page h3 {
+  margin: 0 0 10px;
+}
+.analysis-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.analysis-lead {
+  font-size: 16px;
+}
+.analysis-lead strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+.analysis-ranking {
+  padding: 0;
+  margin: 20px 0;
+  list-style: none;
+}
+.analysis-ranking li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+.analysis-ranking small {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+}
+.analysis-ranking strong {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.analysis-definition {
+  margin: 20px 0;
+}
+.analysis-definition > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.analysis-definition dd {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.analysis-state {
+  padding: 24px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  margin: 16px 0;
+}
+.analysis-table-wrap {
+  width: 100%;
+  overflow: auto;
+}
+.analysis-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.analysis-table th,
+.analysis-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.analysis-table th {
+  font-weight: 600;
+}
+.analysis-table .amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.analysis-table caption {
+  text-align: left;
+  padding: 12px 0;
+  font-size: 12px;
+}
+.analysis-page button:focus-visible,
+.analysis-page summary:focus-visible,
+.analysis-page input:focus-visible,
+.analysis-page select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.analysis-page .link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  min-height: 32px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.analysis-page .chart-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.analysis-page .chart-controls button {
+  min-height: 40px;
+}
+.analysis-page .section-head {
+  margin: 0 0 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.analysis-page .analysis-footnote {
+  font-size: 12px;
+  color: var(--ink);
+  opacity: 0.85;
+}
+.analysis-page .analysis-chart {
+  height: 300px;
+  width: 100%;
+  min-width: 0;
+  margin: 16px 0;
+}
+.analysis-page .analysis-source {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.analysis-page .analysis-signal {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+.analysis-page .analysis-signal h3 {
+  font-size: 16px;
+}
+.analysis-page .folder-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+.analysis-page .folder-head {
+  width: 100%;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  text-align: left;
+  font: inherit;
+}
+.analysis-page .folder-total {
+  font-size: 20px;
+}
+.analysis-page .tag-analysis-grid {
+  display: block;
+}
+.analysis-page .tagmgr input {
+  width: 100%;
+}
+@media (max-width: 1000px) {
+  .analysis-header {
+    align-items: start;
+  }
+  .analysis-summary-grid,
+  .analysis-two-col {
+    grid-template-columns: 1fr;
+  }
+  .analysis-header > div:first-child {
+    max-width: 60%;
+  }
+}
+@media (max-width: 600px) {
+  .analysis-header {
+    display: block;
+  }
+  .analysis-header > div:first-child {
+    max-width: none;
+  }
+  .analysis-month {
+    margin-top: 18px;
+  }
+  .analysis-panel,
+  .analysis-page .intel-card,
+  .analysis-page .section {
+    padding: 16px;
+  }
+  .analysis-families {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .analysis-families button {
+    padding: 10px 6px;
+    font-size: 13px;
+  }
+  .analysis-details-nav button {
+    flex: 1 1 auto;
+    font-size: 12px;
+  }
+  .analysis-ranking li {
+    align-items: start;
+  }
+  .analysis-table th,
+  .analysis-table td {
+    padding: 10px 6px;
+  }
+  .analysis-definition > div {
+    flex-wrap: wrap;
+  }
+  .analysis-page .analysis-chart {
+    height: 260px;
+  }
+}
+.analysis-families [aria-current],
+.analysis-details-nav [aria-current],
+.analysis-page .chart-controls [aria-pressed='true'],
+.analysis-page .cat-chip.on,
+.analysis-page .tag-pick.on {
+  background: var(--accent-soft);
+  color: var(--ink);
+  border-color: var(--accent);
+  font-weight: 650;
+}
+.analysis-page .recharts-legend-item-text {
+  color: var(--ink) !important;
+}
+.analysis-month label {
+  min-width: 0;
+}
+.analysis-month input {
+  width: 100%;
+  min-width: 0;
+}
+.analysis-ranking li > div {
+  min-width: 0;
+  flex: 1;
+}
+.analysis-ranking small {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .analysis-month {
+    width: 100%;
+    max-width: 300px;
+  }
+  .analysis-month label {
+    flex: 1;
+  }
+  .analysis-month input {
+    max-width: none;
+  }
+  .analysis-month > button {
+    flex-shrink: 0;
+  }
+}
+/* Historical tag curves use the same primitives and rhythm as dashboard curves. */
+.analysis-tag-history-chart {
+  height: 360px;
+  width: 100%;
+  min-width: 0;
+  margin: 14px 0;
+}
+.analysis-history-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 18px 0;
+}
+.analysis-history-toolbar label,
+.analysis-history-range label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+.analysis-history-toolbar select {
+  min-width: 160px;
+  min-height: 42px;
+}
+.analysis-history-toolbar p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+}
+.analysis-history-range {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px;
+  margin: 12px 0 20px;
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.analysis-history-range input {
+  min-width: 0;
+  width: 180px;
+  min-height: 42px;
+}
+.analysis-history-range p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+}
+.analysis-history-caption {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 20px;
+}
+.analysis-history-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+.analysis-tag-history-chart .recharts-brush > rect:first-child {
+  fill: var(--paper-2);
+  stroke: var(--line-strong);
+}
+@media (max-width: 600px) {
+  .analysis-tag-history-chart {
+    height: 320px;
+  }
+  .analysis-history-range label {
+    flex: 1 1 150px;
+  }
+  .analysis-history-range input {
+    width: 100%;
+  }
+  .analysis-history-toolbar {
+    gap: 10px;
+  }
+  .analysis-history-toolbar p {
+    flex-basis: 100%;
+  }
+}

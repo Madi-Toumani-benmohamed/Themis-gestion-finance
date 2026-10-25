@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"sort"
@@ -120,14 +121,28 @@ func assessReliabilityAccount(a *reliabilityAccount, first, last time.Time) {
 }
 
 func (s *Server) loadReliability(ctx context.Context, owner int64, month string, now time.Time) (reliabilityReport, error) {
+	return loadReliabilityFrom(ctx, s.DB, owner, month, now)
+}
+
+// A report and its documentary coverage can share one read-only snapshot.
+type analysisReader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func loadReliabilityFrom(ctx context.Context, reader analysisReader, owner int64, month string, now time.Time) (reliabilityReport, error) {
 	first, last, current, err := reliabilityWindow(month, now)
-	report := reliabilityReport{Month: first.Format("2006-01"), Current: current, Through: last.Format("2006-01-02"), Accounts: []reliabilityAccount{}}
 	if err != nil {
-		return report, err
+		return reliabilityReport{}, err
 	}
+	return loadReliabilityRangeFrom(ctx, reader, owner, first, last, current)
+}
+
+func loadReliabilityRangeFrom(ctx context.Context, reader analysisReader, owner int64, first, last time.Time, current bool) (reliabilityReport, error) {
+	report := reliabilityReport{Month: first.Format("2006-01"), Current: current, Through: last.Format("2006-01-02"), Accounts: []reliabilityAccount{}}
 	// Inclure tous les comptes connus comme dans heroMonthCovered. Les relevés
 	// dont le compte n'est pas identifiable restent visibles sans nom externe.
-	rows, err := s.DB.QueryContext(ctx, `WITH scope AS (
+	rows, err := reader.QueryContext(ctx, `WITH scope AS (
  SELECT id,name FROM accounts WHERE owner_id=$1
  UNION SELECT DISTINCT COALESCE(st.account_id,0),'Compte non identifié'
  FROM statements st WHERE st.owner_id=$1 AND NOT EXISTS (
@@ -155,7 +170,7 @@ func (s *Server) loadReliability(ctx context.Context, owner int64, month string,
 	if err != nil {
 		return report, err
 	}
-	rows, err = s.DB.QueryContext(ctx, `SELECT id,COALESCE(account_id,0),filename,COALESCE(period_start::text,''),COALESCE(period_end::text,''),validated
+	rows, err = reader.QueryContext(ctx, `SELECT id,COALESCE(account_id,0),filename,COALESCE(period_start::text,''),COALESCE(period_end::text,''),validated
  FROM statements WHERE owner_id=$1 AND (
  period_start IS NULL OR period_end IS NULL OR period_end<period_start OR
  (period_start<=$3::date AND period_end>=$2::date)) ORDER BY period_start NULLS LAST,id`, owner, first.Format("2006-01-02"), last.Format("2006-01-02"))

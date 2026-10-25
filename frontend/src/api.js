@@ -19,28 +19,26 @@ const J = (u, method, body) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   }).then(json)
 
+// Analysis requests remain on the existing endpoints and can be cancelled.
+const scopedG = (path, params = {}, options = {}) => {
+  const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')))
+  return fetch(path + (query.size ? `?${query}` : ''), { credentials: 'same-origin', cache: 'no-store', signal: options.signal }).then(json)
+}
+
 export const api = {
   health: () => fetch('/api/health').then(json),
-  tagsInCategory: (categoryId, month) => {
-    const p = new URLSearchParams({ category: categoryId })
-    if (month) p.set('month', month)
-    return fetch(`/api/analytics/tags-in-category?${p}`).then(json)
-  },
-  tagSeries: (tags, period = 'month') => {
-    const p = new URLSearchParams({ period })
-    if (tags && tags.length) p.set('tags', tags.join(','))
-    return fetch(`/api/analytics/tag-series?${p}`).then(json)
-  },
+  tagsInCategory: (categoryId, month, options = {}) => scopedG('/api/analytics/tags-in-category', { category: categoryId, month }, options),
+  tagSeries: (tags, period = 'month', params = {}, options = {}) => scopedG('/api/analytics/tag-series', { period, ...params, tags: tags?.length ? tags.join(',') : undefined }, options),
   anomalies: (month) => fetch('/api/anomalies' + (month ? `?month=${month}` : '')).then(json),
   journal: (month) => fetch('/api/journal' + (month ? `?month=${month}` : '')).then(json),
   remaining: (month) => fetch('/api/remaining' + (month ? `?month=${month}` : '')).then(json),
   reliability: (month) => G('/api/reliability?' + new URLSearchParams({ month })),
   coverage: () => fetch('/api/coverage').then(json),
-  intelMerchants: (months) => fetch(`/api/intel/merchants?months=${months || 3}`).then(json),
-  intelNature: () => fetch('/api/intel/nature').then(json),
-  intelComparison: () => fetch('/api/intel/comparison').then(json),
-  intelDiscoveries: () => fetch('/api/intel/discoveries').then(json),
-  intelNarrative: () => fetch('/api/intel/narrative').then(json),
+  intelMerchants: (months = 3, month, options = {}) => scopedG('/api/intel/merchants', { months, month }, options),
+  intelNature: (month, options = {}) => scopedG('/api/intel/nature', { month }, options),
+  intelComparison: (month, options = {}) => scopedG('/api/intel/comparison', { month }, options),
+  intelDiscoveries: (month, options = {}) => scopedG('/api/intel/discoveries', { month }, options),
+  intelNarrative: (month, options = {}) => scopedG('/api/intel/narrative', { month }, options),
   hero: (month) => fetch('/api/hero' + (month ? `?month=${month}` : '')).then(json),
   coherence: (ai) => fetch('/api/coherence' + (ai ? '?ai=1' : '')).then(json),
   unrecognizedMerchants: () => fetch('/api/merchants/unrecognized').then(json),
@@ -54,7 +52,7 @@ export const api = {
     fetch('/api/transactions?' + new URLSearchParams(params)).then(json),
   period: month => G('/api/period?' + new URLSearchParams({ month })),
   transactionReport: (params = {}, options = {}) => fetch('/api/transactions?' + new URLSearchParams({ ...params, view: 'report' }), { credentials: 'same-origin', signal: options.signal }).then(json),
-  categories: () => fetch('/api/categories').then(json),
+  categories: (options = {}) => scopedG('/api/categories', {}, options),
   rules: () => fetch('/api/rules').then(json),
   deleteRule: (id) => fetch(`/api/rules/${id}`, { method: 'DELETE', credentials: 'same-origin' }).then((r) => r.ok),
   updateRule: (id, pattern, domainId, apply = true, tags = []) =>
@@ -163,17 +161,17 @@ export const api = {
   createDomain: (name, parentId, color) => J('/api/domains', 'POST', { name, parent_id: parentId ?? null, color }),
   deleteDomain: (id) => J(`/api/domains/${id}`, 'DELETE'),
   updateDomain: (id, patch) => J(`/api/domains/${id}`, 'PATCH', patch),
-  tags: () => G('/api/tags'),
+  tags: (options = {}) => scopedG('/api/tags', {}, options),
   renameTag: (name, newName) => J(`/api/tags/${encodeURIComponent(name)}`, 'PATCH', { name: newName }),
   deleteTag: (name) => J(`/api/tags/${encodeURIComponent(name)}`, 'DELETE'),
-  tagFolders: () => G('/api/tag-folders'),
-  tagFolderDetail: (name) => G(`/api/tag-folders/${encodeURIComponent(name)}`),
+  tagFolders: (month, options = {}) => scopedG('/api/tag-folders', { month }, options),
+  tagFolderDetail: (name, month, options = {}) => scopedG(`/api/tag-folders/${encodeURIComponent(name)}`, { month }, options),
   setTagFolderPref: (name, state) => J(`/api/tag-folders/${encodeURIComponent(name)}/pref`, 'PUT', { state }),
   setTransactionMeta: (id, meta) => J(`/api/transactions/${id}`, 'PATCH', meta),
 
   // Graphe & simulation
   aiEnrich: (month) => J('/api/enrich/ai', 'POST', month ? { month } : {}),
-  categorySeries: (params) => G('/api/category-series?' + new URLSearchParams(params)),
+  categorySeries: (params = {}, options = {}) => scopedG('/api/category-series', params, options),
   simulate: (scenario) => J('/api/simulate', 'POST', scenario),
 }
 
