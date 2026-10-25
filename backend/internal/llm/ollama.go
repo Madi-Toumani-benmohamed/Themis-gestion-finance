@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -15,8 +16,9 @@ import (
 // sort du réseau. Modèles conseillés : qwen2.5:14b ou mistral-small pour le
 // parsing (bonne extraction JSON), llama3.1:8b suffit pour les conseils.
 type Ollama struct {
-	URL   string // ex: http://localhost:11434
-	Model string // ex: qwen2.5:14b
+	HTTPClient *http.Client
+	URL        string // ex: http://localhost:11434
+	Model      string // ex: qwen2.5:14b
 }
 
 func (o *Ollama) Name() string { return "ollama (" + o.Model + ")" }
@@ -122,19 +124,34 @@ func (o *Ollama) complete(ctx context.Context, system, user string, maxTokens in
 	req.Header.Set("Content-Type", "application/json")
 
 	// Les modèles locaux sur CPU peuvent être lents sur un relevé de 3 pages.
-	client := &http.Client{Timeout: ollamaTimeout()}
+	client := providerHTTPClient(o.HTTPClient, ollamaTimeout())
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama injoignable sur %s: %w", o.URL, err)
+		return "", providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if resp.StatusCode == 400 {
+			var failure struct {
+				Error string `json:"error"`
+			}
+			_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&failure)
+			if isThinkingUnsupported(fmt.Errorf("%s", failure.Error)) {
+				return "", fmt.Errorf("Ollama: thinking not supported")
+			}
+		}
+		return "", &ProviderError{Status: resp.StatusCode}
+	}
 
 	var or ollamaResp
-	if err := json.NewDecoder(resp.Body).Decode(&or); err != nil {
-		return "", fmt.Errorf("réponse Ollama invalide: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&or); err != nil {
+		return "", &ProviderError{Kind: "response"}
 	}
 	if or.Error != "" {
-		return "", fmt.Errorf("Ollama: %s", or.Error)
+		if isThinkingUnsupported(fmt.Errorf("%s", or.Error)) {
+			return "", fmt.Errorf("Ollama: thinking not supported")
+		}
+		return "", &ProviderError{Kind: "response"}
 	}
 	return stripThinking(or.Message.Content), nil
 }
@@ -170,25 +187,32 @@ func stripThinking(s string) string {
 }
 
 // ListOllamaModels retourne les modèles disponibles sur une instance.
-func ListOllamaModels(ctx context.Context, baseURL string) ([]string, error) {
+func ListOllamaModels(ctx context.Context, baseURL string, clients ...*http.Client) ([]string, error) {
 	url := strings.TrimRight(baseURL, "/") + "/api/tags"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	var configured *http.Client
+	if len(clients) > 0 {
+		configured = clients[0]
+	}
+	client := providerHTTPClient(configured, 10*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Ollama injoignable sur %s: %w", baseURL, err)
+		return nil, providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &ProviderError{Status: resp.StatusCode}
+	}
 	var tags struct {
 		Models []struct {
 			Name string `json:"name"`
 		} `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
-		return nil, fmt.Errorf("réponse Ollama invalide: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&tags); err != nil {
+		return nil, &ProviderError{Kind: "response"}
 	}
 	out := make([]string, 0, len(tags.Models))
 	for _, m := range tags.Models {
@@ -204,24 +228,27 @@ func (o *Ollama) Ping(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := providerHTTPClient(o.HTTPClient, 5*time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("Ollama injoignable sur %s: %w", o.URL, err)
+		return providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &ProviderError{Status: resp.StatusCode}
+	}
 	var tags struct {
 		Models []struct {
 			Name string `json:"name"`
 		} `json:"models"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
-		return err
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&tags); err != nil {
+		return &ProviderError{Kind: "response"}
 	}
 	for _, m := range tags.Models {
 		if m.Name == o.Model || strings.HasPrefix(m.Name, o.Model+":") {
 			return nil
 		}
 	}
-	return fmt.Errorf("modèle %q absent d'Ollama (faire : ollama pull %s)", o.Model, o.Model)
+	return &ProviderError{Kind: "model_missing"}
 }

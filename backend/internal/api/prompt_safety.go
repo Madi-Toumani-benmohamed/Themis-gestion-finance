@@ -23,7 +23,7 @@ var injectionPatterns = []*regexp.Regexp{
 	// « tu es (maintenant) … » / « you are now… » (redéfinition de rôle)
 	regexp.MustCompile(`(?i)\b(tu es|vous êtes|you are|act as|agis comme|comporte-toi|pretend|fais semblant)\b[^.\n]{0,25}\b(maintenant|désormais|now|un|une|a|an|sans limite|libre|different|nouveau|pirate|hacker|jailbreak)`),
 	// balises de rôle système/assistant injectées
-	regexp.MustCompile(`(?i)</?(system|assistant|user|instruction)s?>`),
+	regexp.MustCompile(`(?i)</?(system|assistant|user|instruction|contexte_utilisateur)s?>`),
 	// « nouvelles instructions : » / « new instructions: » / « system prompt: »
 	regexp.MustCompile(`(?i)\b(nouvelles? instructions?|new instructions?|system prompt|prompt système|override)\s*:`),
 	// injonctions à révéler le prompt
@@ -48,8 +48,8 @@ func sanitizeUserContext(raw string) string {
 		return ""
 	}
 	// 1. Limite de taille.
-	if len(s) > maxContextLen {
-		s = s[:maxContextLen]
+	if len([]rune(s)) > maxContextLen {
+		s = string([]rune(s)[:maxContextLen])
 	}
 	// 3. Retirer les caractères de contrôle (sauf retour à la ligne et tab),
 	//    qui n'ont aucune raison d'être dans un contexte et peuvent servir à

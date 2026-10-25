@@ -16,9 +16,10 @@ const openAIResponsesURL = "https://api.openai.com/v1/responses"
 // OpenAI utilise Responses, sans historique distant conservé par Thémis.
 // L'URL est fixe ; endpoint sert uniquement aux tests locaux du package.
 type OpenAI struct {
-	APIKey   string
-	Model    string
-	endpoint string
+	HTTPClient *http.Client
+	APIKey     string
+	Model      string
+	endpoint   string
 }
 
 func (o *OpenAI) model() string {
@@ -62,10 +63,10 @@ func (o *OpenAI) Complete(ctx context.Context, system, user string, maxTokens in
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+o.APIKey)
-	client := &http.Client{Timeout: cloudTimeout(), CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := providerHTTPClient(o.HTTPClient, cloudTimeout())
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("connexion OpenAI impossible : %w", err)
+		return "", providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
 	// Ne pas renvoyer le corps d'erreur : il peut contenir un extrait de clé
