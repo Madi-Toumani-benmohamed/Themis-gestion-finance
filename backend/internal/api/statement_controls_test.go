@@ -247,6 +247,38 @@ func TestStatementPeriodControlsAndUnknownAmounts(t *testing.T) {
 	}
 }
 
+func TestSimilarOccurrencesAreInformationalNotBlocking(t *testing.T) {
+	start, end := "2026-10-01", "2026-10-31"
+	opening, closing, zero := int64(10000), int64(10000), int64(0)
+	account := int64(1)
+	st := checkedStatement{Statement: models.Statement{ID: 44, PeriodStart: &start, PeriodEnd: &end, Validated: true}, AccountID: &account, OpeningCents: &opening, ClosingCents: &closing, DifferenceCents: &zero, Controls: []statementControl{}}
+	assessStatement(&st, 0, 4)
+	if !st.CanValidate || !st.EffectiveValidated || st.Status != "validated" {
+		t.Fatalf("similar occurrences blocked a reconciled statement: %+v", st)
+	}
+	for _, control := range st.Controls {
+		if control.Code == "similar_transactions" && control.Status != "informational" {
+			t.Fatalf("similarity must remain informational: %+v", control)
+		}
+	}
+}
+
+func TestMissingOfficialCountIsNotApplicableAndDoesNotBlock(t *testing.T) {
+	start, end := "2026-10-01", "2026-10-31"
+	opening, closing, zero := int64(10000), int64(10000), int64(0)
+	account := int64(1)
+	st := checkedStatement{ImportReport: &models.ImportReport{}, Statement: models.Statement{ID: 45, PeriodStart: &start, PeriodEnd: &end, Validated: true}, AccountID: &account, OpeningCents: &opening, ClosingCents: &closing, DifferenceCents: &zero, Controls: []statementControl{}}
+	assessStatement(&st, 0, 0)
+	if !st.CanValidate || !st.EffectiveValidated || st.Status != "validated" {
+		t.Fatalf("absent official count blocked a reconciled statement: %+v", st)
+	}
+	for _, control := range st.Controls {
+		if control.Code == "declared_count" && control.Status != "not_applicable" {
+			t.Fatalf("absent official count was not marked non-applicable: %+v", control)
+		}
+	}
+}
+
 func TestStatementZeroOperationsAndPartialDuplicateImportPostgres(t *testing.T) {
 	db := statementTestDB(t)
 	s := &Server{DB: db}

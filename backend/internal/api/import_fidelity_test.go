@@ -147,7 +147,7 @@ func verifySourceImport(t *testing.T, data []byte) {
 		t.Fatal(e)
 	}
 	for _, a := range audited {
-		if a.StatementID == id && (a.TotalsControl != "passed" || a.BalanceControl != "passed" || a.CountControl != "unverifiable" || !a.SourceTraceable) {
+		if a.StatementID == id && (a.TotalsControl != "passed" || a.BalanceControl != "passed" || a.CountControl != "not_applicable" || !a.SourceTraceable) {
 			t.Fatal("historical audit inconsistent", a)
 		}
 	}
@@ -210,12 +210,14 @@ func TestSourceImportAtomicitySimilarityAndOwnership(t *testing.T) {
 	if _, _, _, e = srv.persist("OVERLAP TEST.pdf", overlap, 11, 1); e == nil {
 		t.Fatal("overlapping source silently imported")
 	}
-	// Resemblance across different PDFs is not proof of a duplicate.
+	// Resemblance across different PDFs is advisory; both source occurrences persist.
 	similar := sourceResult("identity B")
 	similar.PeriodStart = "2026-10-01"
 	similar.PeriodEnd = "2026-10-31"
-	if _, _, _, e = srv.persist("OTHER SOURCE TEST.pdf", similar, 11, 1); e == nil {
-		t.Fatal("similarity silently suppressed or imported")
+	if n, _, secondID, persistErr := srv.persist("OTHER SOURCE TEST.pdf", similar, 11, 1); persistErr != nil || n != 2 || secondID == id {
+		t.Fatal("similar legitimate source occurrences were blocked", n, secondID, persistErr)
+	} else if !strings.Contains(strings.Join(similar.Report.Warnings, ","), "similar_operations_in_other_import") {
+		t.Fatalf("cross-import similarity was not retained as advisory: %+v", similar.Report)
 	}
 	if _, _, _, e = srv.persist("FOREIGN ACCOUNT TEST.pdf", sourceResult("identity C"), 21, 1); e == nil {
 		t.Fatal("foreign account import allowed")

@@ -84,7 +84,8 @@ export default function ImportPreview({ preview, onDecision }) {
           <span aria-live="polite">Page {view.currentPage + 1} / {view.pages} · {view.total} opérations</span>
           <button className="btn-secondary" onClick={() => setPage(view.currentPage + 1)} disabled={view.currentPage + 1 >= view.pages}>Suivante</button>
         </nav>
-        <p className="import-preview-note">Compare cet aperçu au document original et consulte les contrôles non exécutés. Deux lignes identiques d’un même PDF sont conservées. Un document identique est reconnu par son empreinte source ; une simple ressemblance avec un autre import exige une vérification et suspend l’enregistrement.</p>
+        <p className="import-preview-note">Compare cet aperçu au document original et consulte les contrôles non exécutés. Deux lignes identiques d’un même document sont conservées comme occurrences distinctes. Seule la réimportation du même document avec le même résultat est reconnue comme déjà enregistrée.</p>
+        {preview.potential_duplicates > 0 && <p className="import-preview-note">{preview.potential_duplicates} opération(s) ressemblent à des opérations d’un autre import. Cette similarité est informative et ne supprime ni ne bloque aucune occurrence.</p>}
         <p className="import-preview-note">Les règles et la catégorisation automatique s’appliqueront après confirmation. L’analyse du fichier a pu utiliser le fournisseur IA configuré. L’aperçu expire à {new Date(preview.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} et disparaît au redémarrage du serveur.</p>
       </div>
       <footer className="import-preview-footer">

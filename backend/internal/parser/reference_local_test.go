@@ -128,7 +128,7 @@ func TestReferenceStatement009Local(t *testing.T) {
 	if first != "2026-08-25" || last != "2026-09-21" {
 		t.Fatal("dates d’opération non fidèles à la référence")
 	}
-	if result.Report == nil || result.Report.Detected != 81 || result.Report.Parsed != 81 || result.Report.Rejected != 0 || result.Report.TotalsControl != "passed" || result.Report.CountControl != "unverifiable" || result.Report.Completeness != "unknown" {
+	if result.Report == nil || result.Report.Detected != 81 || result.Report.Parsed != 81 || result.Report.Rejected != 0 || result.Report.TotalsControl != "passed" || result.Report.CountControl != "not_applicable" || result.Report.Completeness != "unknown" {
 		t.Fatal("rapport de référence incohérent ou nombre attendu fabriqué")
 	}
 	if result.PeriodStart != "2026-08-21" || result.PeriodEnd != "2026-09-21" {

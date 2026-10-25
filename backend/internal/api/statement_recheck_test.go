@@ -158,6 +158,12 @@ func TestStatementReviewLimitsPayloadAndPrioritizesFailedControls(t *testing.T) 
 	}
 }
 
+func TestStatementReviewLabelsInformationalAndNotApplicableControls(t *testing.T) {
+	if controlReviewLabel("informational") != "Information" || controlReviewLabel("not_applicable") != "Non applicable" {
+		t.Fatal("informational control was misrepresented as an unevaluated failure")
+	}
+}
+
 func TestAutomaticStatementCanBeManuallyAttestedOncePostgres(t *testing.T) {
 	db := statementTestDB(t)
 	s := &Server{DB: db}

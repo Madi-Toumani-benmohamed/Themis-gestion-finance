@@ -45,6 +45,8 @@ func statementReviewFacts(st checkedStatement) []analysisEvidence {
 			return 1
 		case "suspected":
 			return 2
+		case "informational", "not_applicable":
+			return 4
 		default:
 			return 3
 		}
@@ -70,6 +72,10 @@ func controlReviewLabel(status string) string {
 		return "Échec confirmé"
 	case "suspected":
 		return "Soupçon à examiner"
+	case "informational":
+		return "Information"
+	case "not_applicable":
+		return "Non applicable"
 	default:
 		return "Non établi"
 	}
