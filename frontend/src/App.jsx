@@ -72,13 +72,14 @@ export default function App() {
   }, [theme])
   const [txSearch, setTxSearch] = useState('')
   const [txMonth, setTxMonth] = useState('')
+  const [txTag, setTxTag] = useState(''), [txType, setTxType] = useState(''), [txMerchant, setTxMerchant] = useState('')
   const [txDomain, setTxDomain] = useState('')
   const [txBudget, setTxBudget] = useState('')
   const [txIds, setTxIds] = useState([])
   const [txFrom, setTxFrom] = useState('')
   const [txTo, setTxTo] = useState('')
   const [statementMonth, setStatementMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.budget_id || opts?.ids || opts?.domain)) setTxSearch(''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.budget_id || opts?.ids || opts?.domain || opts?.tag || opts?.type || opts?.merchant || opts?.month || opts?.from)) setTxSearch(''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxTag(opts?.tag || ''); setTxType(opts?.type || ''); setTxMerchant(opts?.merchant || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
@@ -395,10 +396,10 @@ export default function App() {
       )}
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
-      <main className={`page${tab === 'transactions' ? ' transactions-main' : ''}`} key={tab + ':' + refreshKey}>
+      <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : ''}`} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-        {tab === 'transactions' && <Transactions initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
-        {tab === 'analyse' && <Analyse onNavigate={navigateTo} />}
+        {tab === 'transactions' && <Transactions initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
+        {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
         {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
         {tab === 'credits' && <Credits />}
         {tab === 'simulate' && <Simulate />}

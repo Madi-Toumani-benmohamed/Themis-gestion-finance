@@ -1,183 +1,324 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
+import TagHistoryChart from '../components/TagHistoryChart'
 import {
-  ResponsiveContainer, BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  CartesianGrid, XAxis, YAxis, Tooltip, Legend,
+  TAG_HISTORY_DURATIONS,
+  tagHistoryWindow,
+  tagHistoryModel,
+} from '../components/tagHistoryModel.mjs'
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
 } from 'recharts'
-import { api, eur } from '../api'
+import { api } from '../api'
 import TagPickerNavigation from '../components/TagPickerNavigation'
 import '../components/TagPickerNavigation.css'
-
-const PALETTE = ['#5B5BD6', '#21935B', '#C77D2E', '#D6455D', '#8A5CD1', '#3F8F7B', '#B5548A', '#4C6FBF']
-function readColors() {
-  if (typeof window === 'undefined') return { MUTED: '#8A8A99', LINE: '#ECECF1', PAPER: '#fff', INK: '#16161D' }
-  const st = getComputedStyle(document.documentElement)
-  const v = (n, fb) => (st.getPropertyValue(n).trim() || fb)
-  return { MUTED: v('--muted', '#8A8A99'), LINE: v('--line', '#ECECF1'), PAPER: v('--paper', '#fff'), INK: v('--ink', '#16161D') }
-}
-function ChartTooltip({ active, payload, label, colors }) {
-  if (!active || !payload || !payload.length) return null
-  const rows = payload.filter((p) => p.value)
-  if (!rows.length) return null
-  return (
-    <div style={{ background: colors.PAPER, borderRadius: 14, border: `1px solid ${colors.LINE}`,
-      boxShadow: '0 12px 40px rgba(22,22,29,.16)', padding: '10px 14px', fontFamily: 'Inter, sans-serif', fontSize: 12.5 }}>
-      {label != null && <div style={{ color: colors.MUTED, marginBottom: 4, fontWeight: 500 }}>{label}</div>}
-      {rows.map((p, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, color: colors.INK, fontWeight: 600 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 9, background: p.color || p.fill || p.stroke }} />
-          <span style={{ flex: 1 }}>{p.name}</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{eur(p.value)}</span>
-        </div>
-      ))}
-    </div>
-  )
-}
-const fmtTick = (v) => (Math.abs(v) >= 1000 ? `${Math.round(v / 1000)}k` : v)
-
-// TagAnalysis — la vue croisée catégorie × tag. Deux angles :
-//  (1) répartition par tag DANS une catégorie choisie,
-//  (2) évolution de tags choisis au fil du temps, toutes catégories confondues.
-export default function TagAnalysis({ categories }) {
-  const [catId, setCatId] = useState('')
-  const [slices, setSlices] = useState(null)
-  const [allTags, setAllTags] = useState([])
-  const [pickedTags, setPickedTags] = useState([])
-  const [series, setSeries] = useState(null)
-
-  // catégorie par défaut = la première disponible
-  useEffect(() => {
-    if (!catId && categories.length) setCatId(String(categories[0].id))
-  }, [categories, catId])
-
-  // (1) répartition par tag dans la catégorie
-  useEffect(() => {
-    if (!catId) return
-    setSlices(null)
-    api.tagsInCategory(catId).then((d) => setSlices(d.slices || [])).catch(() => setSlices([]))
-  }, [catId])
-
-  // liste des tags existants (pour la sélection de la vue 2)
-  useEffect(() => {
-    api.tags().then((tags) => {
-      const names = tags.map((t) => t.name)
-      setAllTags(names)
-      setPickedTags(names.slice(0, 4)) // pré-sélection des premiers
-    }).catch(() => {})
-  }, [])
-
-  // (2) évolution temporelle des tags choisis
-  useEffect(() => {
-    if (pickedTags.length === 0) { setSeries({ buckets: [], series: [] }); return }
-    setSeries(null)
-    api.tagSeries(pickedTags, 'month').then(setSeries).catch(() => setSeries({ buckets: [], series: [] }))
-  }, [pickedTags])
-
-  const toggleTag = (name) => {
-    setPickedTags((p) => (p.includes(name) ? p.filter((x) => x !== name) : [...p, name]))
-  }
-
-  const catName = categories.find((c) => String(c.id) === String(catId))?.name || ''
-  const totalInCat = useMemo(() => (slices || []).reduce((s, x) => s + x.spent, 0), [slices])
-
-  // données du line chart : [{ mois, tagA, tagB, ... }]
-  const lineData = useMemo(() => {
-    if (!series || !series.buckets) return []
-    return series.buckets.map((b, i) => {
-      const row = { mois: b }
-      series.series.forEach((s) => { row[s.tag] = s.values[i] })
-      return row
-    })
-  }, [series])
-
-  const cc = readColors()
-
-  return (
-    <div className="tag-analysis">
-      <div className="section-head" style={{ marginTop: 40 }}>
-        <h2>Analyse par tag</h2>
+import {
+  analysisMonth,
+  analysisMoney,
+  analysisDate,
+} from '../components/analysisPageModel.mjs'
+import { useAnalysisResource } from '../components/analysisResources'
+const PALETTE = [
+  '#9c99ff',
+  '#55cda0',
+  '#e6ac63',
+  '#ee8d9c',
+  '#b697ed',
+  '#6fc7ba',
+]
+function State({ resource, children }) {
+  if (resource.loading) return <p role="status">Chargement des tags…</p>
+  if (resource.error)
+    return (
+      <div role="alert">
+        <p>{resource.error}</p>
+        <button className="btn-secondary" onClick={resource.retry}>
+          Réessayer
+        </button>
       </div>
-      <p className="muted" style={{ marginTop: -12, marginBottom: 24, fontSize: 13.5 }}>
-        Les catégories disent <em>où</em> part ton argent ; les tags disent <em>quoi</em> exactement.
-        Croise les deux ici.
-      </p>
-
-      <div className="tag-analysis-grid">
-        {/* Vue 1 : répartition par tag dans une catégorie */}
-        <div className="analysis-card">
-          <div className="analysis-card-head">
-            <h3>Répartition par tag</h3>
-            <select value={catId} onChange={(e) => setCatId(e.target.value)}>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          {slices === null ? (
-            <p className="muted" style={{ padding: 20 }}><span className="spinner" />Chargement…</p>
-          ) : slices.length === 0 ? (
-            <p className="widget-empty">Aucune dépense taguée dans « {catName} ». Ajoute des tags à tes transactions pour voir la répartition.</p>
-          ) : (
+    )
+  return children(resource.data)
+}
+function CategoryTags({ month, catId, onNavigate }) {
+  const resource = useAnalysisResource(
+    (signal) => api.tagsInCategory(catId, month, { signal }),
+    [catId, month],
+  )
+  return (
+    <State resource={resource}>
+      {(data) => (
+        <>
+          <p>
+            Total unique de la catégorie :{' '}
+            <strong>{analysisMoney(data.category_total)}</strong> ·{' '}
+            {data.category_count} opération(s).
+          </p>
+          <p className="analysis-footnote">
+            Une opération peut porter plusieurs tags. Les lignes se chevauchent
+            et ne s’additionnent pas. {data.overlap_count} opération(s)
+            multitag.
+          </p>
+          {data.slices?.length ? (
             <>
-              <ResponsiveContainer width="100%" height={230}>
-                <PieChart>
-                  <Pie data={slices} dataKey="spent" nameKey="tag" cx="50%" cy="50%"
-                       innerRadius={62} outerRadius={90} paddingAngle={3} cornerRadius={6} stroke="none">
-                    {slices.map((s, i) => (
-                      <Cell key={i} fill={s.tag === '(sans tag)' ? '#D0D0DA' : PALETTE[i % PALETTE.length]} />
+              <div
+                className="analysis-chart"
+                role="img"
+                aria-label="Dépenses par tag, non additives ; données dans le tableau"
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={data.slices}
+                    layout="vertical"
+                    margin={{ left: 10, right: 16 }}
+                  >
+                    <CartesianGrid stroke="var(--line)" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      unit=" €"
+                      tick={{ fill: 'var(--ink)', fontSize: 11 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="tag"
+                      width={95}
+                      tick={{ fill: 'var(--ink)', fontSize: 11 }}
+                    />
+                    <Tooltip formatter={(v) => analysisMoney(v)} />
+                    <Bar
+                      dataKey="spent"
+                      name="Débits observés"
+                      fill={PALETTE[0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="analysis-table-wrap">
+                <table className="analysis-table">
+                  <caption>
+                    Dépenses par tag · {month} · hors transferts et épargne.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th>Tag</th>
+                      <th className="amount">Observé</th>
+                      <th className="amount">Opérations</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.slices.map((s) => (
+                      <tr key={s.tag}>
+                        <td>
+                          <button
+                            className="link"
+                            onClick={() =>
+                              onNavigate?.('transactions', {
+                                month,
+                                domain: catId,
+                                type: 'debit',
+                                tag:
+                                  s.tag === '(sans tag)' ? '__none__' : s.tag,
+                              })
+                            }
+                          >
+                            {s.tag}
+                          </button>
+                        </td>
+                        <td className="amount">{analysisMoney(s.spent)}</td>
+                        <td className="amount">{s.count}</td>
+                      </tr>
                     ))}
-                  </Pie>
-                  <Tooltip content={<ChartTooltip colors={cc} />} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="tag-legend">
-                {slices.map((s, i) => (
-                  <div className="tag-legend-row" key={i}>
-                    <span className="tag-legend-dot" style={{ background: s.tag === '(sans tag)' ? '#D0D0DA' : PALETTE[i % PALETTE.length] }} />
-                    <span className="tag-legend-name">{s.tag}</span>
-                    <span className="tag-legend-val">{eur(s.spent)}</span>
-                    <span className="tag-legend-pct">{totalInCat > 0 ? Math.round(s.spent / totalInCat * 100) : 0}%</span>
-                  </div>
-                ))}
+                  </tbody>
+                </table>
               </div>
             </>
-          )}
-        </div>
-
-        {/* Vue 2 : évolution temporelle des tags */}
-        <div className="analysis-card">
-          <div className="analysis-card-head">
-            <h3>Évolution dans le temps</h3>
-          </div>
-          {allTags.length === 0 ? (
-            <p className="widget-empty">Aucun tag pour l'instant. Tague quelques transactions pour suivre leur évolution.</p>
           ) : (
-            <>
-              <TagPickerNavigation
-                tags={allTags}
-                pickedTags={pickedTags}
-                onToggle={toggleTag}
-              />
-              {series === null ? (
-                <p className="muted" style={{ padding: 20 }}><span className="spinner" />Chargement…</p>
-              ) : lineData.length === 0 ? (
-                <p className="widget-empty">Sélectionne au moins un tag pour voir son évolution.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={lineData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                    <CartesianGrid stroke={cc.LINE} strokeOpacity={0.5} vertical={false} />
-                    <XAxis dataKey="mois" tick={{ fontSize: 11, fill: cc.MUTED }} tickLine={false} axisLine={false} dy={6} minTickGap={24} />
-                    <YAxis tickFormatter={fmtTick} tick={{ fontSize: 11, fill: cc.MUTED }} tickLine={false} axisLine={false} />
-                    <Tooltip content={<ChartTooltip colors={cc} />} />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
-                    {(series.series || []).map((s, i) => (
-                      <Line key={s.tag} type="monotone" dataKey={s.tag}
-                            stroke={PALETTE[i % PALETTE.length]} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-            </>
+            <p>Aucune dépense ordinaire observée dans cette catégorie.</p>
           )}
-        </div>
+        </>
+      )}
+    </State>
+  )
+}
+function TagHistory({ month, tags, onNavigate }) {
+  const [picked, setPicked] = useState(tags.slice(0, 4).map((t) => t.name))
+  const [duration, setDuration] = useState('6')
+  const [window, setWindow] = useState(() => tagHistoryWindow(month, 6))
+  const [draftFrom, setDraftFrom] = useState(window.from.slice(0, 7)),
+    [draftTo, setDraftTo] = useState(month)
+  const [rangeError, setRangeError] = useState(null)
+  const resource = useAnalysisResource(
+    async (signal) => {
+      const data = picked.length
+        ? await api.tagSeries(picked, 'month', window.params, { signal })
+        : {
+            buckets: [],
+            series: [],
+            query_from: window.from,
+            query_to: window.to,
+          }
+      tagHistoryModel(data, window)
+      return data
+    },
+    [JSON.stringify(window.params), JSON.stringify(picked)],
+  )
+  const chooseDuration = (value) => {
+    setDuration(value)
+    setRangeError(null)
+    if (value !== 'custom') setWindow(tagHistoryWindow(month, Number(value)))
+  }
+  const applyRange = (event) => {
+    event.preventDefault()
+    try {
+      setWindow(tagHistoryWindow(month, 'custom', draftFrom, draftTo))
+      setRangeError(null)
+    } catch (error) {
+      setRangeError(error.message)
+    }
+  }
+  return (
+    <>
+      <div className="analysis-history-toolbar">
+        <label>
+          Période de l’historique
+          <select
+            value={duration}
+            onChange={(event) => chooseDuration(event.target.value)}
+          >
+            {TAG_HISTORY_DURATIONS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+            <option value="custom">Personnalisée</option>
+          </select>
+        </label>
+        <p>
+          Du {analysisDate(window.from)} au {analysisDate(window.to)} ·{' '}
+          {window.months} mois. Les durées prédéfinies se terminent au mois de
+          référence {month}.
+        </p>
       </div>
-    </div>
+      {duration === 'custom' && (
+        <form className="analysis-history-range" onSubmit={applyRange}>
+          <label>
+            Début de l’historique
+            <input
+              type="month"
+              required
+              min="0001-01"
+              max={month}
+              value={draftFrom}
+              onChange={(e) => setDraftFrom(e.target.value)}
+            />
+          </label>
+          <label>
+            Fin de l’historique
+            <input
+              type="month"
+              required
+              min="0001-01"
+              max={month}
+              value={draftTo}
+              onChange={(e) => setDraftTo(e.target.value)}
+            />
+          </label>
+          <button className="btn-secondary" type="submit">
+            Appliquer la période
+          </button>
+          <p>
+            Jusqu’à 50 ans par requête. Les bornes ne sont appliquées qu’après
+            validation.
+          </p>
+        </form>
+      )}
+      {rangeError && (
+        <p role="alert" className="notice err">
+          {rangeError}
+        </p>
+      )}
+      <TagPickerNavigation
+        tags={tags.map((t) => t.name)}
+        pickedTags={picked}
+        onToggle={(name) =>
+          setPicked((values) =>
+            values.includes(name)
+              ? values.filter((t) => t !== name)
+              : [...values, name],
+          )
+        }
+      />
+      <State resource={resource}>
+        {(data) => (
+          <TagHistoryChart
+            key={JSON.stringify(window.params) + JSON.stringify(picked)}
+            data={data}
+            window={window}
+            tags={tags}
+            picked={picked}
+            onNavigate={onNavigate}
+          />
+        )}
+      </State>
+    </>
+  )
+}
+export default function TagAnalysis({
+  categories,
+  month = analysisMonth(),
+  onNavigate,
+}) {
+  const [catId, setCatId] = useState(String(categories[0]?.id || ''))
+  const tags = useAnalysisResource((signal) => api.tags({ signal }), [])
+  return (
+    <>
+      <section className="analysis-panel">
+        <div className="analysis-panel-head">
+          <h2>Dans une catégorie, quels tags ?</h2>
+          <label>
+            Catégorie{' '}
+            <select value={catId} onChange={(e) => setCatId(e.target.value)}>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.parent_id ? '↳ ' : ''}
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {catId ? (
+          <CategoryTags
+            key={catId}
+            month={month}
+            catId={catId}
+            onNavigate={onNavigate}
+          />
+        ) : (
+          <p>Aucune catégorie disponible.</p>
+        )}
+      </section>
+      <section className="analysis-panel">
+        <h2>Évolution observée par tag</h2>
+        <p>
+          Explore tes habitudes sur la durée de ton choix. Couverture historique
+          non établie : les différences ne prouvent pas une variation à
+          périmètre constant.
+        </p>
+        <State resource={tags}>
+          {(values) =>
+            values.length ? (
+              <TagHistory month={month} tags={values} onNavigate={onNavigate} />
+            ) : (
+              <p>Aucun tag disponible.</p>
+            )
+          }
+        </State>
+      </section>
+    </>
   )
 }

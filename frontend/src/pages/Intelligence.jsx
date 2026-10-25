@@ -1,205 +1,431 @@
-import { useEffect, useState } from 'react'
-import { api, eur } from '../api'
+import { useState } from 'react'
+import { api } from '../api'
+import { useAnalysisResource } from '../components/analysisResources'
+import {
+  analysisMoney,
+  analysisPercent,
+  analysisDate,
+  analysisSource,
+  analysisMonth,
+} from '../components/analysisPageModel.mjs'
 
-const fr0 = (n) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n || 0)
-const frDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : ''
-
-// ── Vue 1 : nature des sorties (dépenses réelles / obligatoire / épargne) ──
-export function NatureBreakdown() {
-  const [n, setN] = useState(null)
-  useEffect(() => { api.intelNature().then(setN).catch(() => setN({ available: false })) }, [])
-  if (!n || !n.available) return null
+function Resource({ resource, children }) {
+  if (resource.loading)
+    return (
+      <p role="status" className="analysis-state">
+        Chargement de l’analyse…
+      </p>
+    )
+  if (resource.error)
+    return (
+      <div role="alert" className="notice err">
+        <p>{resource.error}</p>
+        <button className="btn-secondary" onClick={resource.retry}>
+          Réessayer
+        </button>
+      </div>
+    )
+  return children(resource.data)
+}
+export function NatureBreakdown({ report, onNavigate }) {
+  if (!report?.available)
+    return (
+      <p className="analysis-state">
+        Aucune donnée financière suffisamment documentée pour ce mois.
+      </p>
+    )
   const parts = [
-    { key: 'real', label: 'Dépenses réelles', value: n.real_spend, cls: 'nat-real' },
-    { key: 'mand', label: 'Impôts & cotisations', value: n.mandatory, cls: 'nat-mand' },
-    { key: 'save', label: 'Épargne', value: n.savings, cls: 'nat-save' },
-  ].filter((p) => p.value > 0)
-  const total = n.total_out || 1
+    ['real_spend', 'Débits ordinaires hors impôts identifiés'],
+    ['mandatory', 'Impôts et cotisations identifiés'],
+    ['savings', 'Épargne normalisée sortante'],
+    ['transfer_out', 'Autres transferts internes sortants'],
+  ]
   return (
-    <div className="intel-card">
-      <div className="section-head">
-        <h3>Où va ton argent ce mois-ci</h3>
-        <span className="section-sub">tout ce qui sort n'est pas une dépense</span>
-      </div>
-      <div className="nature-bar">
-        {parts.map((p) => (
-          <div key={p.key} className={`nature-seg ${p.cls}`} style={{ width: `${(p.value / total) * 100}%` }} title={`${p.label} : ${fr0(p.value)}`} />
-        ))}
-      </div>
-      <div className="nature-legend">
-        {parts.map((p) => (
-          <div key={p.key} className="nature-item">
-            <span className={`nature-dot ${p.cls}`} />
-            <span className="nature-label">{p.label}</span>
-            <span className="nature-val">{fr0(p.value)}</span>
+    <section className="analysis-panel">
+      <h2>Où vont les sorties observées ?</h2>
+      <p>
+        Les quatre postes sont disjoints et se réconcilient avec les débits
+        sources. Ils décrivent des opérations importées, sans estimation.
+      </p>
+      <dl className="analysis-definition">
+        {parts.map(([key, label]) => (
+          <div key={key}>
+            <dt>{label}</dt>
+            <dd>{analysisMoney(report[key])}</dd>
           </div>
         ))}
-      </div>
-      {n.savings > 0 && (
-        <p className="intel-note">
-          Sur {fr0(n.total_out)} sortis, {fr0(n.savings)} sont de l'épargne — de l'argent qui reste à toi.
-        </p>
-      )}
-    </div>
+        <div>
+          <dt>Total des sorties</dt>
+          <dd>{analysisMoney(report.total_out)}</dd>
+        </div>
+      </dl>
+      <h3>Lire les crédits séparément</h3>
+      <dl className="analysis-definition">
+        <div>
+          <dt>Crédits ordinaires</dt>
+          <dd>{analysisMoney(report.income)}</dd>
+        </div>
+        <div>
+          <dt>Transferts et épargne entrants</dt>
+          <dd>{analysisMoney(report.transfer_in)}</dd>
+        </div>
+        <div>
+          <dt>Flux ordinaire net observé</dt>
+          <dd>{analysisMoney(report.net)}</dd>
+        </div>
+      </dl>
+      <p className="analysis-footnote">
+        Le flux net correspond aux crédits ordinaires moins les débits
+        ordinaires. Ce n’est pas un solde de compte. Les remboursements et
+        annulations non rapprochés restent des crédits ; aucun appariement n’est
+        supposé.
+      </p>
+      <button
+        className="btn-secondary"
+        onClick={() =>
+          onNavigate?.('transactions', {
+            month: report.month,
+            from: report.query_from,
+            to: report.query_to,
+          })
+        }
+      >
+        Vérifier les opérations sources
+      </button>
+    </section>
   )
 }
-
-// ── Vue 2 : par marchand (chez qui, combien, tendance) ──
-export function MerchantsView() {
-  const [data, setData] = useState(null)
-  const [months, setMonths] = useState(3)
-  useEffect(() => { api.intelMerchants(months).then(setData).catch(() => setData(null)) }, [months])
-  if (!data || !data.merchants?.length) return null
-  const max = Math.max(...data.merchants.map((m) => m.total), 1)
+export function MerchantsView({ month = analysisMonth(), onNavigate }) {
+  const [months, setMonths] = useState(1)
+  const resource = useAnalysisResource(
+    (signal) => api.intelMerchants(months, month, { signal }),
+    [month, months],
+  )
   return (
-    <div className="intel-card">
-      <div className="section-head">
-        <h3>Chez qui tu dépenses</h3>
+    <section className="analysis-panel">
+      <div className="analysis-panel-head">
+        <h2>Chez qui les dépenses se concentrent-elles ?</h2>
         <div className="chart-controls">
-          {[1, 3, 6].map((m) => (
-            <button key={m} className={`seg-btn ${months === m ? 'active' : ''}`} onClick={() => setMonths(m)}>
-              {m} mois
+          {[1, 3, 6].map((n) => (
+            <button
+              className="btn-secondary"
+              key={n}
+              aria-pressed={months === n}
+              onClick={() => setMonths(n)}
+            >
+              {n} mois
             </button>
           ))}
         </div>
       </div>
-      <ul className="merchant-list">
-        {data.merchants.slice(0, 12).map((m) => (
-          <li key={m.name} className="merchant-row">
-            <div className="merchant-head">
-              <span className="merchant-name">{m.name}</span>
-              <span className="merchant-total">{fr0(m.total)}</span>
-            </div>
-            <div className="merchant-bar-track">
-              <div className="merchant-bar" style={{ width: `${(m.total / max) * 100}%` }} />
-            </div>
-            <div className="merchant-meta">
-              <span>{m.visits} fois · panier {fr0(m.avg_basket)}</span>
-              {m.trend_pct != null && (
-                <span className={`merchant-trend ${m.trend_pct > 0 ? 'up' : m.trend_pct < 0 ? 'down' : ''}`}>
-                  {m.trend_pct > 0 ? '▲' : m.trend_pct < 0 ? '▼' : ''} {Math.abs(m.trend_pct)}% vs période précédente
-                </span>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-// ── Vue 3 : comparaison par catégorie (ce mois vs habitude) ──
-export function CategoryComparison() {
-  const [data, setData] = useState(null)
-  useEffect(() => { api.intelComparison().then(setData).catch(() => setData(null)) }, [])
-  if (!data || !data.categories?.length) return null
-  const rows = data.categories.filter((c) => c.current > 0 || c.average > 0)
-  return (
-    <div className="intel-card">
-      <div className="section-head">
-        <h3>Ce mois-ci vs d'habitude</h3>
-        <span className="section-sub">par catégorie, comparé à ta moyenne</span>
-      </div>
-      <ul className="cmp-list">
-        {rows.map((c) => (
-          <li key={c.name} className="cmp-row">
-            <span className="cmp-name">{c.name}</span>
-            <span className="cmp-vals">{fr0(c.current)} <span className="cmp-avg">vs {fr0(c.average)}</span></span>
-            {c.delta_pct != null ? (
-              <span className={`cmp-delta ${c.delta_pct > 15 ? 'up' : c.delta_pct < -15 ? 'down' : 'flat'}`}>
-                {c.delta_pct > 0 ? '+' : ''}{c.delta_pct}%
-              </span>
-            ) : (
-              <span className="cmp-delta new">nouveau</span>
+      <Resource resource={resource}>
+        {(data) => (
+          <>
+            <p>
+              Du {analysisDate(data.query_from)} au{' '}
+              {analysisDate(data.query_to)} · débits ordinaires observés :{' '}
+              <strong>{analysisMoney(data.total)}</strong>.
+            </p>
+            <p className="analysis-footnote">
+              {data.reason}
+              {data.truncated &&
+                ' Les 40 premiers marchands sont affichés ; les parts utilisent toutes les dépenses de la fenêtre.'}
+            </p>
+            {data.comparable && (
+              <p className="analysis-footnote">
+                Référence comparable : du {analysisDate(data.reference_from)} au{' '}
+                {analysisDate(data.reference_to)}. Aucun pourcentage si le
+                montant de référence est nul.
+              </p>
             )}
-          </li>
-        ))}
-      </ul>
-    </div>
+            {data.merchants?.length ? (
+              <div className="analysis-table-wrap">
+                <table className="analysis-table">
+                  <caption>
+                    Montant et part sur la fenêtre ; panier moyen par
+                    transaction, arrondi au centime.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th>Marchand</th>
+                      <th className="amount">Dépensé</th>
+                      <th className="amount">Part</th>
+                      <th className="amount">Opérations</th>
+                      <th className="amount">Panier moyen</th>
+                      <th>Dernière opération</th>
+                      {data.comparable && <th className="amount">Variation</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.merchants.map((m) => (
+                      <tr key={m.name}>
+                        <td>
+                          <button
+                            className="link"
+                            onClick={() =>
+                              onNavigate?.('transactions', {
+                                merchant: m.name,
+                                from: data.query_from,
+                                to: data.query_to,
+                                type: 'debit',
+                              })
+                            }
+                          >
+                            {m.name}
+                          </button>
+                        </td>
+                        <td className="amount">{analysisMoney(m.total)}</td>
+                        <td className="amount">
+                          {analysisPercent(m.share_pct)}
+                        </td>
+                        <td className="amount">{m.visits}</td>
+                        <td className="amount">
+                          {analysisMoney(m.avg_basket)}
+                        </td>
+                        <td>{analysisDate(m.last_seen)}</td>
+                        {data.comparable && (
+                          <td className="amount">
+                            {analysisPercent(m.trend_pct)}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>Aucune dépense ordinaire observée sur cette fenêtre.</p>
+            )}
+          </>
+        )}
+      </Resource>
+    </section>
   )
 }
-
-// ── Vague 3 : synthèse IA (raisonne sur les faits des vagues 1 et 2) ──
-export function Narrative() {
-  const [n, setN] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const run = () => {
-    setLoading(true)
-    api.intelNarrative().then(setN).catch(() => setN({ available: false, reason: 'Erreur' })).finally(() => setLoading(false))
-  }
+export function CategoryComparison({ month = analysisMonth(), onNavigate }) {
+  const resource = useAnalysisResource(
+    (signal) => api.intelComparison(month, { signal }),
+    [month],
+  )
   return (
-    <div className="intel-card intel-narrative">
-      <div className="section-head">
-        <h3>Synthèse</h3>
-        <button className="btn-secondary" onClick={run} disabled={loading}>
-          {loading && <span className="spinner" />} {n ? 'Rafraîchir' : 'Analyser ma situation'}
-        </button>
+    <section className="analysis-panel">
+      <h2>Quelles catégories expliquent les écarts ?</h2>
+      <Resource resource={resource}>
+        {(data) => (
+          <>
+            <p className="analysis-state">{data.reason}</p>
+            <p>
+              Référence prévue : {data.reference_months?.join(' · ')}.{' '}
+              {data.comparable
+                ? `Diviseur commun : ${data.denominator} mois civils, y compris les mois documentés sans opération.`
+                : 'Les moyennes et variations restent indisponibles.'}
+            </p>
+            {data.categories?.length ? (
+              <div className="analysis-table-wrap">
+                <table className="analysis-table">
+                  <caption>
+                    Débits ordinaires. Moyennes réparties au centime pour
+                    conserver leur total.
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th>Catégorie</th>
+                      <th className="amount">Observé · {month}</th>
+                      <th className="amount">Moyenne de référence</th>
+                      <th className="amount">Écart</th>
+                      <th className="amount">Variation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.categories.map((c) => (
+                      <tr key={c.id ?? 'none'}>
+                        <td>
+                          <button
+                            className="link"
+                            onClick={() =>
+                              onNavigate?.('transactions', {
+                                month,
+                                domain: c.id ?? 'none',
+                                type: 'debit',
+                              })
+                            }
+                          >
+                            {c.name}
+                          </button>
+                        </td>
+                        <td className="amount">{analysisMoney(c.current)}</td>
+                        <td className="amount">
+                          {c.average == null
+                            ? 'Non établie'
+                            : analysisMoney(c.average)}
+                        </td>
+                        <td className="amount">
+                          {c.delta == null
+                            ? 'Non établi'
+                            : analysisMoney(c.delta)}
+                        </td>
+                        <td className="amount">
+                          {analysisPercent(c.delta_pct)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p>Aucune catégorie observée sur la période.</p>
+            )}
+          </>
+        )}
+      </Resource>
+    </section>
+  )
+}
+function NarrativeResult({ month, onNavigate }) {
+  const resource = useAnalysisResource(
+    (signal) => api.intelNarrative(month, { signal }),
+    [month],
+  )
+  return (
+    <Resource resource={resource}>
+      {(data) =>
+        data.available ? (
+          <>
+            <p>
+              Le modèle priorise des constats calculés par Thémis. Le texte et
+              les chiffres affichés proviennent exclusivement de ces constats.
+            </p>
+            {data.evidence?.map((f) => (
+              <div className="analysis-signal" key={f.id}>
+                <p>{f.text}</p>
+                {f.source && (
+                  <button
+                    className="link"
+                    onClick={() =>
+                      onNavigate?.(
+                        'transactions',
+                        analysisSource(f.source, { month }),
+                      )
+                    }
+                  >
+                    Vérifier les sources →
+                  </button>
+                )}
+              </div>
+            ))}
+            <p className="analysis-footnote">
+              {data.model} · lecture facultative, sans modification des
+              transactions.
+            </p>
+            <button className="link" onClick={resource.retry}>
+              Actualiser la lecture assistée
+            </button>
+          </>
+        ) : (
+          <p role="status">{data.reason}</p>
+        )
+      }
+    </Resource>
+  )
+}
+export function Narrative({ month = analysisMonth(), onNavigate }) {
+  const [run, setRun] = useState(false)
+  return (
+    <section className="analysis-panel">
+      <div className="analysis-panel-head">
+        <h2>Lecture assistée des constats</h2>
+        {!run && (
+          <button className="btn-secondary" onClick={() => setRun(true)}>
+            Prioriser avec l’IA
+          </button>
+        )}
       </div>
-      {!n && <p className="intel-note">Une lecture d'ensemble de ton mois, à partir des faits ci-dessous. L'IA commente, elle n'invente pas de chiffres.</p>}
-      {n && n.available && <p className="narrative-text">{n.narrative}</p>}
-      {n && !n.available && <p className="intel-note">{n.reason}</p>}
-      {n && n.available && n.model && (
-        <div className="narrative-model">
-          <span className="model-badge">{formatModel(n.model)}</span>
-          <span className="model-note">
-            {n.thinking_disabled
-              ? 'généré sans raisonnement (ce modèle ne le supporte pas)'
-              : 'raisonne sur les faits ci-dessous, jamais sur tes libellés'}
-          </span>
-        </div>
+      {run ? (
+        <NarrativeResult month={month} onNavigate={onNavigate} />
+      ) : (
+        <p>
+          Facultatif : utiliser le service IA existant pour prioriser les
+          observations vérifiables de ce mois. Les analyses ci-dessus
+          fonctionnent sans IA.
+        </p>
       )}
-    </div>
+    </section>
   )
 }
-
-// Met en forme « ollama (qwen2.5:14b) » → « Ollama · qwen2.5:14b ».
-function formatModel(raw) {
-  const m = /^(\w+)\s*\(([^)]+)\)$/.exec(raw)
-  if (!m) return raw
-  const prov = m[1].charAt(0).toUpperCase() + m[1].slice(1)
-  return `${prov} · ${m[2]}`
-}
-
-// ── Vague 2 : découvertes (motifs repérés automatiquement) ──
-export function Discoveries({ onNavigate }) {
-  const [data, setData] = useState(null)
-  useEffect(() => { api.intelDiscoveries().then(setData).catch(() => setData(null)) }, [])
-  if (!data || !data.discoveries?.length) return null
-  const icon = { duplicate_subs: '⧉', price_creep: '▲', seasonal: '↻', merchant_drift: '↗', tag_surge: '#', tag_project: '◱' }
+export function Discoveries({ month = analysisMonth(), onNavigate }) {
+  const resource = useAnalysisResource(
+    (signal) => api.intelDiscoveries(month, { signal }),
+    [month],
+  )
   return (
-    <div className="intel-card">
-      <div className="section-head">
-        <h3>Ce que thémis a repéré</h3>
-        <span className="section-sub">signaux possibles — à toi de juger</span>
-      </div>
-      <ul className="disc-list">
-        {data.discoveries.map((d, i) => (
-          <li key={i} className={`disc-item disc-${d.tone}`}>
-            <span className="disc-icon" aria-hidden="true">{icon[d.kind] || '•'}</span>
-            <div className="disc-body">
-              <div className="disc-title">{d.title}</div>
-              <p className="disc-detail">{d.detail}</p>
-              {d.query && (
-                <button className="disc-link" onClick={() => onNavigate?.('transactions', d.scope === 'month' && d.month ? { q: d.query, month: d.month } : { q: d.query })}>
-                  {d.scope === 'month' ? 'Voir les transactions du mois →' : 'Voir les transactions →'}
-                </button>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <section className="analysis-panel">
+      <h2>Ce que Thémis a repéré</h2>
+      <Resource resource={resource}>
+        {(data) => (
+          <>
+            <p>
+              Fenêtre d’observation : {analysisDate(data.query_from)} au{' '}
+              {analysisDate(data.query_to)}. Les détections sont des pistes de
+              vérification.
+            </p>
+            {data.discoveries?.length ? (
+              data.discoveries.map((d, i) => (
+                <article className="analysis-signal" key={d.id ?? i}>
+                  <h3>{d.title}</h3>
+                  <p>{d.detail}</p>
+                  {d.status && (
+                    <p>
+                      Statut :{' '}
+                      {d.status === 'confirmed' ? 'confirmé' : 'détecté'} ·
+                      confiance{' '}
+                      {d.confidence === 'probable'
+                        ? 'probable'
+                        : 'insuffisante'}
+                    </p>
+                  )}
+                  {d.source?.from && (
+                    <p className="analysis-footnote">
+                      Sources du {analysisDate(d.source.from)} au{' '}
+                      {analysisDate(d.source.to)}
+                    </p>
+                  )}
+                  {d.source && (
+                    <button
+                      className="link"
+                      onClick={() =>
+                        onNavigate?.('transactions', analysisSource(d.source))
+                      }
+                    >
+                      Vérifier les transactions →
+                    </button>
+                  )}
+                </article>
+              ))
+            ) : (
+              <p>
+                Aucun motif suffisamment documenté détecté. Cela ne prouve pas
+                l’absence de récurrences ou d’anomalies.
+              </p>
+            )}
+            {data.limitations?.map((text) => (
+              <p className="analysis-footnote" key={text}>
+                {text}
+              </p>
+            ))}
+          </>
+        )}
+      </Resource>
+    </section>
   )
 }
-
-export default function Intelligence({ onNavigate }) {
+// Kept for consumers of the former combined view.
+export default function Intelligence(props) {
   return (
-    <div className="intel-grid">
-      <Narrative />
-      <Discoveries onNavigate={onNavigate} />
-      <NatureBreakdown />
-      <CategoryComparison />
-      <MerchantsView />
-    </div>
+    <>
+      <Narrative {...props} />
+      <Discoveries {...props} />
+      <CategoryComparison {...props} />
+      <MerchantsView {...props} />
+    </>
   )
 }

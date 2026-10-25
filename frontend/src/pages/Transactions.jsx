@@ -8,7 +8,7 @@ import { transactionReportModel, transactionDayTotal, transactionMoney, transact
 import { TransactionDrawer, TransactionBulkDialog } from '../components/TransactionDetails'
 import './Transactions.css'
 
-export default function Transactions({ initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
+export default function Transactions({ initialTag = '', initialType = '', initialMerchant = '', initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
   const toast = useToast()
   const [compactTable, setCompactTable] = useState(() => window.matchMedia('(max-width: 760px)').matches)
   useEffect(() => {
@@ -18,7 +18,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     return () => media.removeEventListener('change', update)
   }, [])
   const [txs, setTxs] = useState([])
-  const [month, setMonth] = useState(initialMonth || (initialSearch || initialDomain || initialBudget || initialTransactionIds.length || initialFrom || initialTo ? '' : new Date().toISOString().slice(0, 7)))
+  const [month, setMonth] = useState(initialMonth || (initialTag || initialType || initialMerchant || initialSearch || initialDomain || initialBudget || initialTransactionIds.length || initialFrom || initialTo ? '' : new Date().toISOString().slice(0, 7)))
   const [from, setFrom] = useState(initialFrom)
   const [to, setTo] = useState(initialTo)
   const [showDates, setShowDates] = useState(Boolean(initialFrom || initialTo))
@@ -26,7 +26,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
   const [sourceFilter, setSourceFilter] = useState({ budget: initialBudget, ids: initialTransactionIds.slice().reverse() })
   const [sourcePage, setSourcePage] = useState(0)
   const [page, setPage] = useState(0), [report, setReport] = useState(null)
-  const [accountFilter, setAccountFilter] = useState(''), [accounts, setAccounts] = useState([]), [typeFilter, setTypeFilter] = useState('')
+  const [accountFilter, setAccountFilter] = useState(''), [accounts, setAccounts] = useState([]), [typeFilter, setTypeFilter] = useState(initialType)
   const [reliability, setReliability] = useState(null), [selected, setSelected] = useState(new Set()), [detail, setDetail] = useState(null), [bulk, setBulk] = useState(null)
   const [showTools, setShowTools] = useState(false)
   const abortRequest = useRef(null), periodTouched = useRef(false)
@@ -39,7 +39,8 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
   const [enrichBusy, setEnrichBusy] = useState(false)
   const [applyBusy, setApplyBusy] = useState(false)
   const [domains, setDomains] = useState([])
-  const [tagFilter, setTagFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState(initialTag)
+  const [merchantFilter, setMerchantFilter] = useState(initialMerchant)
   const [allTags, setAllTags] = useState([])
   const [manageDomains, setManageDomains] = useState(false)
   const [showAllDomains, setShowAllDomains] = useState(false)
@@ -63,7 +64,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
       // avec une recherche ou un mois déjà imposé (ex. clic sur une anomalie qui
       // concerne un autre mois). Sinon on garde « tous les mois » pour ne pas
       // masquer les transactions ciblées.
-      if (ms[0] && !periodTouched.current && !initialSearch && !initialMonth && !initialDomain && !initialBudget && !initialTransactionIds.length && !initialFrom && !initialTo) setMonth(ms[0])
+      if (ms[0] && !periodTouched.current && !initialTag && !initialType && !initialMerchant && !initialSearch && !initialMonth && !initialDomain && !initialBudget && !initialTransactionIds.length && !initialFrom && !initialTo) setMonth(ms[0])
     }).catch((e) => setErr(e.message))
   }, [])
 
@@ -76,6 +77,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     if (sourceFilter.ids.length) params.ids = sourceFilter.ids.slice(sourcePage * 1000, (sourcePage + 1) * 1000).join(',')
     if (domainFilter) params.domain = domainFilter
     if (accountFilter) params.account = accountFilter
+    if (merchantFilter) params.merchant = merchantFilter
     if (typeFilter) params.type = typeFilter
     if (search) params.q = search
     if (tagFilter) params.tag = tagFilter
@@ -100,12 +102,12 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
     finally { if (epoch === requestEpoch.current) setFetching(false) }
   }
 
-  useEffect(() => { setPage(0); setSelected(new Set()) }, [month, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
+  useEffect(() => { setPage(0); setSelected(new Set()) }, [month, merchantFilter, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
   useEffect(() => { setSelected(new Set()) }, [page])
   useEffect(() => {
     const timer = setTimeout(reload, search ? 250 : 0)
     return () => { clearTimeout(timer); requestEpoch.current++; abortRequest.current?.abort() }
-  }, [month, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage, page])
+  }, [month, merchantFilter, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage, page])
   useEffect(() => {
     let active = true
     setReliability(null)
@@ -116,7 +118,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
   const resetFilters = () => {
     periodTouched.current = true
     setMonth(months[0] || new Date().toISOString().slice(0, 7)); setFrom(''); setTo(''); setShowDates(false)
-    setSearch(''); setDomainFilter(''); setAccountFilter(''); setTypeFilter(''); setTagFilter(''); setSourceFilter({ budget: '', ids: [] }); setSourcePage(0); setPage(0)
+    setSearch(''); setDomainFilter(''); setAccountFilter(''); setTypeFilter(''); setTagFilter(''); setMerchantFilter(''); setSourceFilter({ budget: '', ids: [] }); setSourcePage(0); setPage(0)
   }
   const saveTransaction = async (tx, patch) => {
     await api.setTransactionMeta(tx.id, patch)
@@ -443,6 +445,7 @@ export default function Transactions({ initialSearch = '', initialMonth = '', in
       )}
 
       </div>
+      {merchantFilter && <p className="transaction-source">Marchand exact : {merchantFilter} <button className="link" onClick={() => setMerchantFilter('')}>Retirer ce filtre</button></p>}
       {(sourceFilter.budget || sourceFilter.ids.length > 0) && <div className="notice">Opérations contribuant {sourceFilter.budget ? 'à l’enveloppe sélectionnée' : 'à la récurrence sélectionnée'}. <button className="link" onClick={() => { setSourceFilter({ budget: '', ids: [] }); setSourcePage(0) }}>Retirer le filtre de provenance</button></div>}
       {sourceFilter.ids.length > 1000 && <nav className="transaction-source-nav" aria-label="Lots de provenance"><button className="btn-secondary" disabled={fetching || sourcePage === 0} onClick={() => { setSourcePage(value => value - 1); setPage(0) }}>Lot précédent</button><span>Lot de sources {sourcePage + 1} sur {Math.ceil(sourceFilter.ids.length / 1000)}. Synthèse limitée aux 1 000 identifiants de ce lot et aux filtres actifs ; elle ne représente pas toutes les sources.</span><button className="btn-secondary" disabled={fetching || (sourcePage + 1) * 1000 >= sourceFilter.ids.length} onClick={() => { setSourcePage(value => value + 1); setPage(0) }}>Lot suivant</button></nav>}
       <div className="toolbar transaction-filters" aria-label="Filtres des transactions">
