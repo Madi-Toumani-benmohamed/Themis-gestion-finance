@@ -11,9 +11,10 @@ import (
 // normalizerVersion doit être incrémenté quand le dictionnaire ou le pipeline
 // de normalisation évolue : toutes les transactions seront alors re-normalisées
 // au prochain démarrage (idempotent, quelques millisecondes à l'échelle perso).
-// Version 4 also repairs display aliases previously mixed across owners. Raw
-// bank labels, dates, categories and monetary amounts are never changed.
-const normalizerVersion = "4"
+// Version 4 repairs display aliases previously mixed across owners. Version 5
+// classifies explicit cash withdrawals and removes clock times from cleaned
+// names. Raw labels, dates, categories and monetary amounts are never changed.
+const normalizerVersion = "5"
 
 func (s *Server) BackfillDisplayLabels() {
 	if err := s.backfillDisplayLabels(); err != nil {

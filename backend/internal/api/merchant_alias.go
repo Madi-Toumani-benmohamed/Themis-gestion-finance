@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -32,7 +31,7 @@ func (s *Server) aliasFor(owner int64, merchant, rawLabel string) (string, bool)
 // listAliases renvoie les surnoms définis par l'utilisateur.
 func (s *Server) listAliases(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
-	rows, err := s.DB.Query(`SELECT id, match_key, display FROM merchant_aliases WHERE owner_id = $1 ORDER BY display`, owner)
+	rows, err := s.DB.Query(`SELECT id, match_key, display, is_pattern FROM merchant_aliases WHERE owner_id = $1 ORDER BY display`, owner)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -42,8 +41,9 @@ func (s *Server) listAliases(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id int64
 		var k, d string
-		if rows.Scan(&id, &k, &d) == nil {
-			out = append(out, map[string]any{"id": id, "match_key": k, "display": d})
+		var pattern bool
+		if rows.Scan(&id, &k, &d, &pattern) == nil {
+			out = append(out, map[string]any{"id": id, "match_key": k, "display": d, "is_pattern": pattern})
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -68,7 +68,13 @@ func (s *Server) setAlias(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("clé et nom requis"))
 		return
 	}
-	if _, err := s.DB.Exec(`
+	tx, err := s.DB.BeginTx(r.Context(), nil)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(r.Context(), `
 		INSERT INTO merchant_aliases (owner_id, match_key, display, is_pattern) VALUES ($1, $2, $3, $4)
 		ON CONFLICT (owner_id, lower(match_key)) DO UPDATE SET display = EXCLUDED.display, is_pattern = EXCLUDED.is_pattern`,
 		owner, in.MatchKey, in.Display, in.IsPattern); err != nil {
@@ -78,21 +84,30 @@ func (s *Server) setAlias(w http.ResponseWriter, r *http.Request) {
 	// Application immédiate. En mode motif, on matche toute transaction dont le
 	// libellé CONTIENT la clé (couvre les références variables). Sinon, matche
 	// exact sur le marchand (ou le libellé brut à défaut).
-	var res sql.Result
+	var res interface{ RowsAffected() (int64, error) }
 	if in.IsPattern {
-		res, _ = s.DB.Exec(`
+		res, err = tx.ExecContext(r.Context(), `
 			UPDATE transactions SET display_label = $1
-			WHERE owner_id = $2 AND (strpos(lower(label),lower($3))>0 OR strpos(lower(merchant),lower($3))>0)`,
+			WHERE owner_id = $2 AND (strpos(lower(COALESCE(NULLIF(merchant,''),label)),lower($3))>0 OR strpos(lower(label),lower($3))>0)`,
 			in.Display, owner, in.MatchKey)
 	} else {
-		res, _ = s.DB.Exec(`
+		res, err = tx.ExecContext(r.Context(), `
 			UPDATE transactions SET display_label = $1
 			WHERE owner_id = $2 AND lower(COALESCE(NULLIF(merchant,''), label)) = lower($3)`,
 			in.Display, owner, in.MatchKey)
 	}
-	n := int64(0)
-	if res != nil {
-		n, _ = res.RowsAffected()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": n})
 }

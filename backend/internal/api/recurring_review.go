@@ -86,16 +86,22 @@ func recurringReviewIdentity(t recurringReviewSource) (key, merchant, kind strin
 	if kind == "" {
 		kind = normalized.Kind
 	}
+	cash = kind == "cash_withdrawal" || recurringCashPattern.MatchString(t.Label) || recurringCashPattern.MatchString(t.Display)
 	merchant = strings.TrimSpace(t.Merchant)
 	if merchant == "" {
 		merchant = normalized.Merchant
+	}
+	if cash {
+		// Stable grouping label for recurring review only; normalize.Result keeps
+		// merchant empty so cash withdrawals never become merchant identities.
+		merchant = "Retrait DAB"
 	}
 	merchant = strings.Join(strings.Fields(merchant), " ")
 	if merchant == "" {
 		merchant = strings.TrimSpace(t.Label)
 	}
 	transfer = t.IsTransfer || kind == "savings" || normalized.Kind == "savings"
-	cash = recurringCashPattern.MatchString(t.Label) || recurringCashPattern.MatchString(t.Display) || recurringCashPattern.MatchString(merchant)
+	cash = cash || recurringCashPattern.MatchString(merchant)
 	scopeKind := kind
 	if transfer {
 		scopeKind = "transfer_savings"
