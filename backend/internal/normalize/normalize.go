@@ -25,7 +25,7 @@ import (
 type Result struct {
 	Display  string // ce que l'utilisateur voit
 	Merchant string // clé de regroupement (canonique pour les marchands connus)
-	Kind     string // "" | savings | tax | benefit | health : opérations interprétées
+	Kind     string // "" | savings | tax | benefit | health | cash_withdrawal : opérations interprétées
 }
 
 type entry struct {
@@ -137,17 +137,22 @@ var acronyms = map[string]bool{
 }
 
 var (
-	reCardRef = regexp.MustCompile(`(?i)\bX\s?\d{3,6}\b`)
-	reDate    = regexp.MustCompile(`\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b`)
-	reLongNum = regexp.MustCompile(`\b\d{5,}\b`)
+	reCardRef  = regexp.MustCompile(`(?i)\bX\s?\d{3,6}\b`)
+	reDate     = regexp.MustCompile(`\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b`)
+	reClock    = regexp.MustCompile(`(?i)\b\d{1,2}\s?h\s?\d{2}\b`)
+	reLongNum  = regexp.MustCompile(`\b\d{5,}\b`)
 	reShortNum = regexp.MustCompile(`\b\d{2,4}\b`)
 	// référence de transaction : « Ref-xxxx », « Ref xxxx », ou tout jeton
 	// mixte lettres+chiffres d'au moins 5 caractères (identifiants opaques type
 	// 927b2800281923c1, f24695gfgw…). Ces chaînes ne portent aucun sens humain.
 	reRefKeyword = regexp.MustCompile(`(?i)\bref[-\s:]*[0-9a-z]+\b`)
-	reSpaces  = regexp.MustCompile(`\s+`)
-	rePrefix  = regexp.MustCompile(`^(?:CB|CARTE|PRLV(?:\s+SEPA)?|VIR(?:\s+SEPA|\s+INST|EMENT)?|PAIEMENT(?:\s+CB)?|ACHAT(?:\s+CB)?|RETRAIT(?:\s+DAB)?|TIP|CHQ|CHEQUE|FACTURE|ECH(?:EANCE)?|MENS(?:UALITE)?\.?)\s+`)
+	reSpaces     = regexp.MustCompile(`\s+`)
+	rePrefix     = regexp.MustCompile(`^(?:CB|CARTE|PRLV(?:\s+SEPA)?|VIR(?:\s+SEPA|\s+INST|EMENT)?|PAIEMENT(?:\s+CB)?|ACHAT(?:\s+CB)?|RETRAIT(?:\s+DAB)?|TIP|CHQ|CHEQUE|FACTURE|ECH(?:EANCE)?|MENS(?:UALITE)?\.?)\s+`)
 )
+
+// Retraits : une opération de caisse n'est pas une identité de marchand. Le
+// libellé brut conserve le distributeur, le lieu et l'heure pour la traçabilité.
+var reCashWithdrawal = regexp.MustCompile(`(?i)^\s*(?:(?:CB|CARTE)\s+)?RET(?:RAIT)?\s+(?:DAB|DISTRIB(?:UTEUR)?)\b`)
 
 // jetons techniques sans valeur pour un humain, où qu'ils apparaissent
 var stopTokens = map[string]bool{
@@ -165,6 +170,9 @@ var stopTokens = map[string]bool{
 // Label normalise un libellé bancaire brut. Le montant sert aux entrées
 // interprétées dont l'affichage dépend du sens (versement vs retrait).
 func Label(raw string, amount float64) Result {
+	if reCashWithdrawal.MatchString(raw) {
+		return Result{Display: "Retrait DAB", Kind: "cash_withdrawal"}
+	}
 	// clé de comparaison : majuscules, ponctuation → espaces (MENS.PEL → MENS PEL)
 	up := strings.ToUpper(raw)
 	up = strings.Map(func(r rune) rune {
@@ -203,6 +211,7 @@ func Label(raw string, amount float64) Result {
 	c := reCardRef.ReplaceAllString(raw, " ")
 	c = reRefKeyword.ReplaceAllString(c, " ") // « Ref-xxxx » explicite
 	c = reDate.ReplaceAllString(c, " ")
+	c = reClock.ReplaceAllString(c, " ")
 	c = reLongNum.ReplaceAllString(c, " ")
 	// séparateurs de plateformes collés au marchand : SumUp *Léa, Zettle_Garage
 	c = strings.NewReplacer("*", " ", "_", " ", "/", " ").Replace(c)
@@ -235,8 +244,8 @@ func Label(raw string, amount float64) Result {
 		uw := strings.ToUpper(w)
 		if acronyms[uw] {
 			words[i] = uw
-		} else if len(w) > 1 {
-			words[i] = strings.ToUpper(w[:1]) + strings.ToLower(w[1:])
+		} else if runes := []rune(w); len(runes) > 1 {
+			words[i] = strings.ToUpper(string(runes[:1])) + strings.ToLower(string(runes[1:]))
 		} else {
 			words[i] = uw
 		}

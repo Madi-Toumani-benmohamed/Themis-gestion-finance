@@ -100,6 +100,52 @@ func TestNormalizerOwnerIsolationAndAtomicVersionPostgres(t *testing.T) {
 	}
 }
 
+func TestSetMerchantAliasIsAtomicAndOwnerScopedPostgres(t *testing.T) {
+	db := qualityTestDB(t)
+	_, err := db.Exec(`CREATE TEMP TABLE merchant_aliases(owner_id bigint,match_key text,display text,is_pattern bool DEFAULT false);
+ CREATE UNIQUE INDEX quality_alias_key ON merchant_aliases(owner_id,lower(match_key));
+ CREATE TEMP TABLE transactions(id bigint PRIMARY KEY,owner_id bigint,label text,merchant text,display_label text);
+ INSERT INTO transactions VALUES(1,1,'CB NAVAL GROUPE REF ABC','Naval Groupe','Naval Groupe'),(2,2,'CB NAVAL GROUPE REF ABC','Naval Groupe','Naval Groupe');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{DB: db}
+	request := func(body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/merchants/aliases", strings.NewReader(body))
+		req = req.WithContext(context.WithValue(req.Context(), ctxUserKey, &authUser{ID: 1}))
+		w := httptest.NewRecorder()
+		srv.setAlias(w, req)
+		return w
+	}
+	w := request(`{"match_key":"Naval Groupe","display":"Naval Group","is_pattern":false}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"updated":1`) {
+		t.Fatalf("alias exact échoué: %d %s", w.Code, w.Body)
+	}
+	var owner1, owner2 string
+	if err = db.QueryRow(`SELECT display_label FROM transactions WHERE id=1`).Scan(&owner1); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.QueryRow(`SELECT display_label FROM transactions WHERE id=2`).Scan(&owner2); err != nil {
+		t.Fatal(err)
+	}
+	if owner1 != "Naval Group" || owner2 != "Naval Groupe" {
+		t.Fatalf("portée propriétaire incorrecte: %q / %q", owner1, owner2)
+	}
+	_, err = db.Exec(`CREATE FUNCTION pg_temp.reject_alias_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic update failure'; END $$;
+ CREATE TRIGGER reject_alias_update BEFORE UPDATE OF display_label ON transactions FOR EACH ROW EXECUTE FUNCTION pg_temp.reject_alias_update();`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w = request(`{"match_key":"Naval Groupe","display":"Nom de test","is_pattern":false}`)
+	if w.Code != 500 {
+		t.Fatalf("l'erreur de propagation aurait dû échouer: %d %s", w.Code, w.Body)
+	}
+	var display string
+	if err = db.QueryRow(`SELECT display FROM merchant_aliases WHERE match_key='Naval Groupe'`).Scan(&display); err != nil || display != "Naval Group" {
+		t.Fatalf("alias modifié malgré l'échec de propagation: display=%q err=%v", display, err)
+	}
+}
+
 func TestCategorySeriesFinancialScopePostgres(t *testing.T) {
 	db := qualityTestDB(t)
 	_, err := db.Exec(`CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,name text,color text,is_transfer bool);

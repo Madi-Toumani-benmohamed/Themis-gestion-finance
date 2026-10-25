@@ -61,6 +61,21 @@ func TestRecurringReviewNeverCallsCashOrSavingsSubscriptions(t *testing.T) {
 		}
 	}
 }
+
+func TestRecurringReviewGroupsCashVariantsAsOperationType(t *testing.T) {
+	sources := []recurringReviewSource{
+		recurringTestSource(1, "2020-01-10", "Ret Distrib 14h23", -4000),
+		recurringTestSource(2, "2020-02-10", "Ret Distrib 17h29", -6000),
+		recurringTestSource(3, "2020-03-10", "Ret DAB X4519 Toulon Liberté 03/10 10H21", -5000),
+	}
+	out := buildRecurringReview(sources, recurringTestSpans(), recurringTestDate("2020-03-31"))
+	if len(out) != 1 || out[0].Merchant != "Retrait DAB" || out[0].OccurrenceCount != 3 || out[0].Nature == "subscription" {
+		t.Fatalf("variantes de retrait non groupées par type d'opération: %+v", out)
+	}
+	if len(out[0].TransactionIDs) != 3 {
+		t.Fatal("le regroupement doit conserver chaque opération distincte")
+	}
+}
 func TestRecurringReviewGroupsDirectionsAccountsAndCategoriesSeparately(t *testing.T) {
 	sources := []recurringReviewSource{}
 	var id int64
