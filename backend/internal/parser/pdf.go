@@ -21,6 +21,7 @@ type Word struct {
 
 // Row est une ligne reconstituée (fragments à Y proche, triés par X).
 type Row struct {
+	Line  int
 	Words []Word
 	Y     float64
 	Page  int

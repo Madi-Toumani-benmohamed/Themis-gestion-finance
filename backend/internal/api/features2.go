@@ -18,6 +18,7 @@ type account struct {
 	ID           int64    `json:"id"`
 	Name         string   `json:"name"`
 	Kind         string   `json:"kind"`
+	TrackingMode string   `json:"tracking_mode"`
 	InterestRate *float64 `json:"interest_rate"`
 	DepositLimit *float64 `json:"deposit_limit"`
 	Balance      *float64 `json:"balance"`      // dernier solde connu
@@ -33,15 +34,15 @@ var accountKinds = map[string]bool{
 // dernier relevé importé, ou dernier pointage manuel — le plus récent des deux.
 func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.DB.Query(`
-		SELECT a.id, a.name, a.kind, a.interest_rate, a.deposit_limit,
-		       (SELECT count(*) FROM statements st WHERE st.account_id = a.id) AS stmts,
+		SELECT a.id, a.name, a.kind, a.tracking_mode, a.interest_rate, a.deposit_limit,
+		       (SELECT count(*) FROM statements st WHERE st.account_id = a.id AND st.owner_id = a.owner_id) AS stmts,
 		       lastpos.balance, lastpos.d
 		FROM accounts a
 		LEFT JOIN LATERAL (
 			SELECT balance, d FROM (
 				SELECT st.closing_balance AS balance, st.period_end::date AS d
 				FROM statements st
-				WHERE st.account_id = a.id AND st.closing_balance IS NOT NULL
+				WHERE st.account_id = a.id AND st.owner_id = a.owner_id AND st.closing_balance IS NOT NULL
 				UNION ALL
 				SELECT sn.balance, sn.snap_date FROM account_snapshots sn WHERE sn.account_id = a.id
 			) x WHERE d IS NOT NULL ORDER BY d DESC LIMIT 1
@@ -58,7 +59,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		var a account
 		var d sql.NullString
 		var bal sql.NullFloat64
-		if err := rows.Scan(&a.ID, &a.Name, &a.Kind, &a.InterestRate, &a.DepositLimit, &a.Statements, &bal, &d); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.Kind, &a.TrackingMode, &a.InterestRate, &a.DepositLimit, &a.Statements, &bal, &d); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
 		}
@@ -86,9 +87,19 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 	if !accountKinds[in.Kind] {
 		in.Kind = "autre"
 	}
-	err := s.DB.QueryRow(`INSERT INTO accounts (name, kind, interest_rate, deposit_limit, owner_id)
-	                      VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		strings.TrimSpace(in.Name), in.Kind, in.InterestRate, in.DepositLimit, s.ownerID(r)).Scan(&in.ID)
+	if in.TrackingMode == "" {
+		in.TrackingMode = "manual"
+		if in.Kind == "courant" {
+			in.TrackingMode = "statements"
+		}
+	}
+	if in.TrackingMode != "manual" && in.TrackingMode != "statements" {
+		writeErr(w, 400, fmt.Errorf("mode de suivi invalide"))
+		return
+	}
+	err := s.DB.QueryRow(`INSERT INTO accounts (name, kind, interest_rate, deposit_limit, owner_id, tracking_mode)
+	                      VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		strings.TrimSpace(in.Name), in.Kind, in.InterestRate, in.DepositLimit, s.ownerID(r), in.TrackingMode).Scan(&in.ID)
 	if err != nil {
 		writeErr(w, http.StatusConflict, fmt.Errorf("un compte porte déjà ce nom"))
 		return

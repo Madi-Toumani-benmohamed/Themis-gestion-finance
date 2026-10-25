@@ -25,20 +25,21 @@ func TestReliabilityPostgres(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
- CREATE TEMP TABLE accounts(id bigint,owner_id bigint,name text);
+ CREATE TEMP TABLE accounts(id bigint,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigint,account_id bigint,owner_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz);
- CREATE TEMP TABLE transactions(statement_id bigint,owner_id bigint,tx_date date);
- INSERT INTO accounts VALUES(11,1,'Compte test'),(12,1,'Compte sans couverture validée'),(21,2,'AUTRE UTILISATEUR');
+ CREATE TEMP TABLE transactions(statement_id bigint,owner_id bigint,tx_date date,amount numeric(12,2) DEFAULT 0);
+ INSERT INTO accounts(id,owner_id,name) VALUES(11,1,'Compte test'),(12,1,'Compte sans couverture validée'),(21,2,'AUTRE UTILISATEUR');
  INSERT INTO statements VALUES
  (101,11,1,'cycle-a.pdf','2026-08-22','2026-09-21',true,'2026-09-23'),
  (102,11,1,'cycle-b.pdf','2026-09-22','2026-10-21',true,'2026-10-23'),
  (103,12,1,'controle.csv','2026-09-01','2026-09-30',false,'2026-10-23'),
  (104,12,1,'periode-inconnue.csv',null,null,false,'2026-10-23'),
  (201,21,2,'AUTRE-UTILISATEUR.pdf','2026-09-01','2026-09-30',true,'2026-10-23');
- INSERT INTO transactions VALUES(102,1,'2026-09-29'),(103,1,'2026-09-30'),(201,2,'2026-09-30');`)
+ INSERT INTO transactions(statement_id,owner_id,tx_date) VALUES(102,1,'2026-09-29'),(103,1,'2026-09-30'),(201,2,'2026-09-30');`)
 	if err != nil {
 		t.Fatal(err)
 	}
+ seedDocumentedStatementBalances(t,db)
 	srv := &Server{DB: db}
 	now := reliabilityTestDate(t, "2026-10-23")
 	report, err := srv.loadReliability(context.Background(), 1, "2026-09", now)

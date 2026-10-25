@@ -78,8 +78,9 @@ export default function App() {
   const [txIds, setTxIds] = useState([])
   const [txFrom, setTxFrom] = useState('')
   const [txTo, setTxTo] = useState('')
+  const [txStatement, setTxStatement] = useState('')
   const [statementMonth, setStatementMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.budget_id || opts?.ids || opts?.domain || opts?.tag || opts?.type || opts?.merchant || opts?.month || opts?.from)) setTxSearch(''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxTag(opts?.tag || ''); setTxType(opts?.type || ''); setTxMerchant(opts?.merchant || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.statement_id || opts?.budget_id || opts?.ids || opts?.domain || opts?.tag || opts?.type || opts?.merchant || opts?.month || opts?.from)) setTxSearch(''); setTxStatement(opts?.statement_id || ''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxTag(opts?.tag || ''); setTxType(opts?.type || ''); setTxMerchant(opts?.merchant || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
@@ -187,7 +188,9 @@ export default function App() {
       }
       const { preview, result: r } = outcome
       if (!silent) {
-        if (r.inserted === 0) {
+        if (r.inserted === 0 && !r.duplicates && r.statement_id != null) {
+          toast.info('Relevé enregistré sans opérations. Consulter ses contrôles dans Relevés.')
+        } else if (r.inserted === 0) {
           toast.info('Relevé déjà importé — aucune nouvelle transaction.')
         } else {
           const via = r.parser === 'local' ? 'parseur local' : r.parser === 'csv' ? 'CSV' : 'IA'
@@ -195,7 +198,8 @@ export default function App() {
           const aiCat = r.ai_categorized > 0 ? ` · ${r.ai_categorized} classées par l'IA` : ''
           const acct = accounts.find((a) => a.id === preview.account_id)
           const where = acct && acct.id !== 1 ? ` → ${acct.name}` : ''
-          toast.ok(`${r.inserted} transactions importées${where} (${via}) ${check}${aiCat}`)
+          if (r.validated) toast.ok(`${r.inserted} opérations enregistrées${where} (${via}) · rapprochement conforme ; consulter les limites du rapport` )
+          else toast.info(`${r.inserted} opérations provisoires enregistrées${where} (${via}) ${check}${aiCat}`)
           if (r.validated) {
             setStamped(true)
             setTimeout(() => setStamped(false), 1900)
@@ -203,7 +207,7 @@ export default function App() {
         }
         setRefreshKey((k) => k + 1)
       }
-      return { ok: true, inserted: r.inserted || 0 }
+      return { ok: true, inserted: r.inserted || 0, validated: r.validated }
     } catch (e) {
       if (!silent) toast.err(e.message)
       return { ok: false, inserted: 0 }
@@ -234,15 +238,15 @@ export default function App() {
       }
       if (files.length === 1) { await doUpload(files[0]); return }
 
-      let okCount = 0, totalInserted = 0, failed = 0, cancelled = 0
+      let okCount = 0, totalInserted = 0, failed = 0, cancelled = 0, verifiedCount = 0
       for (let i = 0; i < files.length; i++) {
         if (uploadQueueCancelled.current) { cancelled += files.length - i; break }
         const res = await doUpload(files[i], { silent: true, index: i + 1, total: files.length })
-        if (res && res.ok) { okCount++; totalInserted += res.inserted } else if (res?.cancelled) { cancelled++ } else { failed++ }
+        if (res && res.ok) { okCount++; totalInserted += res.inserted; if (res.validated) verifiedCount++ } else if (res?.cancelled) { cancelled++ } else { failed++ }
       }
       // Récapitulatif global
       if (failed === 0 && cancelled === 0) {
-        toast.ok(`${files.length} relevés importés · ${totalInserted} transactions au total`)
+        toast.info(`${files.length} relevés enregistrés · ${totalInserted} opérations · ${verifiedCount} rapprochements conformes ; consulter les rapports de contrôle`)
       } else if (okCount > 0) {
         toast.info(`${okCount}/${files.length} relevés importés (${totalInserted} transactions) · ${cancelled} annulé(s) · ${failed} en échec`)
       } else {
@@ -398,13 +402,13 @@ export default function App() {
 
       <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-        {tab === 'transactions' && <Transactions initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
+        {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
         {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
         {tab === 'credits' && <Credits />}
         {tab === 'simulate' && <Simulate />}
         {tab === 'accounts' && <Accounts />}
-        {tab === 'statements' && <Statements initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
+        {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
         {tab === 'assistant' && <Assistant />}

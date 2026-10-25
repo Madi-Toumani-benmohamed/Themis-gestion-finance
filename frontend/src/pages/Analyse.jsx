@@ -234,7 +234,7 @@ function MonthContent({ month, family, section, onNavigate, onExplore }) {
               <summary>Comprendre la couverture des données</summary>
               <p>
                 La complétude nécessite des relevés validés couvrant tous les
-                comptes connus. Les montants observés ne sont ni des prévisions
+                comptes soumis au suivi documentaire. Les montants observés ne sont ni des prévisions
                 ni un solde bancaire.
               </p>
               {report.coverage?.accounts?.length ? (
@@ -242,7 +242,7 @@ function MonthContent({ month, family, section, onNavigate, onExplore }) {
                   {report.coverage.accounts.map((a) => (
                     <li key={a.id}>
                       {a.name} :{' '}
-                      {a.status === 'documented'
+                      {a.tracking_mode === 'manual' ? 'pointage manuel, hors couverture documentaire' : a.status === 'documented'
                         ? 'couverture documentée'
                         : 'couverture à vérifier'}
                       {a.gaps?.map((g) => (

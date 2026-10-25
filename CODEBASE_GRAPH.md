@@ -44,6 +44,7 @@ themis/
 | Fichier | Responsabilité | Endpoints principaux |
 |---------|---------------|---------------------|
 | `handlers.go` | Router + handlers core | `/api/health`, `/api/statements*`, `/api/transactions*`, `/api/summary`, `/api/upload/progress`, `/api/period`, `/api/period/compare` |
+| `statement_controls.go` | Réconciliation exacte, contrôles de périodes, revue tracée, suppression atomique et mode documentaire | `GET/DELETE /api/statements*`, `PATCH /api/statements/{id}/validation`, `PATCH /api/accounts/{id}` |
 | `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
 | `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
 | `chat.go` | Assistant conversationnel | `POST /api/chat` (orchestration outils) |
@@ -84,7 +85,7 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - Appelé par `chat.go` (enrichit prompt) et `handlers.go` (apprend à l'import)
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `021_transaction_classification.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites hors du dossier embarqué)
+- `001_init.sql` → `025_statement_controls.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
 
 ---
 
@@ -419,7 +420,7 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 ### Synthèse financière — refonte UX (2026-10-23)
 
 - `frontend/src/components/FinancialSummary.jsx` + CSS dédié : remplace Hero, surface unique responsive, flux dominants, alertes hiérarchisées et dates distinctes. Modèle de présentation et tests Node dans `financialSummaryModel.*`.
-- `/api/hero` expose les calculs existants `income`, `expenses`, `net` et `period_complete`. `hero_diagnosis.go` vérifie une couverture continue par relevés validés pour tous les comptes connus, indépendamment du statut approximatif de `period.go`. En absence de preuve : bilan incomplet.
+- `/api/hero` expose les calculs existants `income`, `expenses`, `net` et `period_complete`. `hero_diagnosis.go` vérifie une couverture continue par relevés validés pour tous les comptes soumis au contrôle documentaire, indépendamment du statut approximatif de `period.go`. En absence de preuve : bilan incomplet.
 - Diagnostic provisoire indépendant du signe des flux et sans hypothèse de salaire. Alertes réelles conservées ; comparaisons limitées aux trois mois précédents documentés ; signaux récurrents limités au mois de leur dernière opération.
 - Tests : `hero_diagnosis_test.go` (cycle de salaire, alertes, intervalles de relevés), tests Node de présentation.
 
@@ -442,6 +443,20 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 ### CI — consommation GitHub Actions
 
 - `.github/workflows/ci.yml` exécute les tests Node `src/components/*.test.mjs` avant le build frontend.
+
+### Relevés — contrôle documentaire (2026-10-25)
+
+- `accounts.tracking_mode` distingue `statements` et `manual`. Migration 025 : initialisation selon le type métier existant, jamais le nom ; modification explicite dans Comptes. Les pointages et valorisations restent séparés des transactions, sans exigence mensuelle de relevé.
+- `statement_controls.go` enrichit le tableau historique de `/api/statements` : compte, centimes, réconciliation des écritures conservées, contrôles inconnus/échoués/soupçons, source de validation, 20 dernières revues. Les montants restent en NUMERIC/centimes ; les conversions flottantes ne servent que les anciens champs JSON.
+- `statement_recheck.go` expose `POST /api/statements/{id}/checks` (`deterministic` ou `combined`) : photographie en lecture seule, contrôle session/propriétaire, relecture facultative via le client LLM existant et `selectAnalysisEvidence`. Seuls les constats sans données bancaires ni identifiants sont transmis, plafonnés à 20 ; aucun verdict IA ou modification financière. Les échecs restent prioritaires et la requête est bornée à 30 s. Résultats de relance non persistés.
+- `statementDocumentedSQL` est partagé par la couverture et la provenance des Transactions : validation déclarée, période, propriétaire du compte, égalité comptable et absence de rupture confirmée entre soldes consécutifs. Les anciens flags incohérents restent stockés mais ne prouvent plus la couverture.
+- Après une validation manuelle autorisée, `finalizeStatementStatus` conserve le statut `validated` malgré les avertissements non bloquants ; ils restent détaillés. Les contrôles en échec continuent de bloquer la validation.
+- `reliability.go`, `hero_diagnosis.go`, `period.go` et la comparaison marchands excluent les comptes manuels du contrôle documentaire ; sans compte documentaire, la complétude reste inconnue. Les intervalles inclusifs partagés restent utilisés et les contrôles du mois courant s’arrêtent à aujourd’hui.
+- `PATCH /api/statements/{id}/validation` : `validate`/`reopen` avec justification, verrou propriétaire, validation et historique atomiques. Suppression en cascade explicite, métadonnées conservées dans `statement_validation_history`, liens étrangers incohérents bloqués, cache d’analyses du propriétaire invalidé ; export de l’historique complet.
+- `Statements.jsx/.css`, `statementPageModel.mjs` : synthèse, périmètres explicites, filtres/tri, détail natif clavier, revue et suppression confirmée. `DataReliability` reste le composant de couverture. `useModal.js` réutilise le gestionnaire de dialogue de Transactions. Adaptations minimales de Comptes, du texte de couverture d’Analyse et de la navigation.
+- Actions du relevé : validation/revue en haut du panneau, relance seule ou avec relecture IA, statuts vert/orange/rouge avec texte et symbole. Une validation automatique peut être confirmée manuellement une fois ; les erreurs mathématiques restent bloquantes.
+- `statement_id` devient un filtre commun au rapport paginé et à l’export des transactions ; un rebond depuis Relevés n’impose pas de mois qui masquerait les écritures hors période. L’aperçu d’import calcule son écart en centimes exacts. Les imports partiellement dédupliqués perdent la validation du parsing ; les relevés réellement sans opérations sont conservés.
+- Tests : `statement_controls_test.go`, `statement_migrations_test.go`, `statementPageModel.test.mjs`, `statements.browser.cjs` intégré à la CI. Audit et rapport : `docs/STATEMENTS_{AUDIT,CHANGES,TESTS}.md`.
 - Le contrôle syntaxique Python (`compileall`) ne nécessite pas l’installation de Graphiti et de ses dépendances ; il ne valide pas les imports ni le comportement du service.
 - Le build de l’image applicative attend backend, frontend, mémoire et Compose. Buildx utilise le cache GitHub Actions `themis-app` en mode `min`, sans publication d’image ; une erreur d’export de cache ne masque pas une erreur de build.
 
@@ -455,9 +470,9 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 
 ### Prévisualisation des imports
 
-- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` calcule les doublons selon les empreintes existantes et décrit les soldes/écarts disponibles.
+- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` expose le rapport de réconciliation et distingue document source identique, ressemblance non prouvée et période bancaire recouvrante. Aucun changement avant confirmation.
 - Aperçus en mémoire du `Server`, liés au propriétaire et au compte : TTL 15 min, 3 par utilisateur, 32 au total et budget estimé de 32 Mio ; limite de 20 000 opérations par aperçu. Suppression sur expiration par timer, annulation ou confirmation.
-- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Déduplication définitive par la contrainte SQL existante.
+- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Nouveaux uploads PDF/CSV : `import_fidelity.go` établit les occurrences par fichier/compte/indice ; rejeu identique sans modification des métadonnées ; ambiguïté intersources suspendue ; insertions atomiques sans conflit ignoré.
 - Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
 - `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
 - Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
@@ -479,7 +494,7 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Rapport, définitions, plan et risques ouverts : `docs/FINANCIAL_DATA_AUDIT.md`. Les anciennes mentions « périodes résolues » ne constituent pas une garantie globale.
 - `internal/money` : centimes entiers, précision et limites explicites. Validation/réconciliation du parsing exactes ; insertion des montants transactionnels en décimal. Les autres calculs Go/React restent à migrer.
 - CSV : échec explicite sur ligne invalide, double débit/crédit ou dates multiples divergentes ; aucun abandon silencieux d'opération.
-- Import : refus d'empreintes ambiguës dans un fichier et entre comptes, sans réécrire les empreintes historiques. Verrou transactionnel par propriétaire ; la déduplication historique ne distingue toujours pas toutes les opérations entre fichiers.
+- Import : les nouveaux PDF/CSV utilisent une identité de document et d’occurrence ; les empreintes historiques restent inchangées. Verrou par propriétaire, détection des similitudes et suspension des réimports ambigus. Voir le durcissement P0 ci-dessous.
 - `period.go` réutilise `loadReliability` et expose `completeness` (`complete`, `partial`, `unknown`) ; la dernière transaction ne prouve plus la couverture. Comparaisons limitées aux mois documentés. `summary` filtre le mois avant LIMIT et expose le même état.
 - Pulse : aucune qualification négative d'un déficit provisoire ; comparaison catégorie suspendue faute de couverture homogène. Mémoire IA explicitement indicative, heuristique de complétude fondée sur les volumes supprimée.
 - CI backend : PostgreSQL 16 isolé active les tests d'intégration auparavant optionnels. Tests financiers dans `money`, `parser/financial_invariants_test.go`, `api/period_invariants_test.go` et extensions du test d'import PostgreSQL.
@@ -564,3 +579,17 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Migrations 022/023 reprises sans altération ; 024 additive avec contraintes de propriétaire et conservation des preuves. Rollback 024 gardé contre toute perte de déclarations.
 - Tests : `features2_test.go`, `engagement_migrations_test.go`, `creditsPageModel.test.mjs`, `frontend/tests/credits.browser.cjs` (ajouté à la CI), `backend/tests/credits_http_smoke.py` pour une instance synthétique vide isolée.
 - Diagnostic, contrats, formules, validations et limites : `docs/CREDITS_TAXES_CODEX_{AUDIT,CHANGES,TESTS}.md`.
+
+
+### P0 — Fidélité de l’import PDF/CSV (2026-10-25)
+
+- `parser/poppler.go` : extraction Unicode et colonnes `pdftotext -layout`, plafonnée/contextualisée, temporaire privé ; colonnes normalisées par page dans `local.go`. Le décodeur Go reste un secours en l’absence de Poppler.
+- `parser/local.go` : références numériques de marge devant deux dates, opérations multiligne, date de valeur distincte, registre des candidats et absence de correction OCR choisie pour équilibrer les soldes.
+- `parser/import_report.go`, `models.ImportReport` : sommes exactes, contrôles indépendants des débits/crédits, soldes, compteur explicitement déclaré ou non vérifiable. OCR en revue ; résultat IA non confirmé non persistable. Complétude inconnue conservée séparément du rapprochement.
+- Des compteurs ou totaux déclarés contradictoires bloquent l’import, y compris après recalcul du rapport avant persistance. Les répétitions identiques restent acceptées ; le rapport partagé entre aperçu et Relevés expose le motif précis.
+- `api/import_fidelity.go`, migration additive `026_import_fidelity.sql` : identité fichier/compte/occurrence, preuve du parsing, rapport atomique, provenance des transactions ; aucune mutation/backfill de l’historique. Rollback gardé après utilisation.
+- `api/statement_controls.go`, `transactions.go` : rapports et références source accessibles au propriétaire ; un total indépendant divergent bloque la validation, même si le net équilibre les soldes. Validation historique explicitement nommée.
+- `ImportReport.jsx`, `ImportPreview.jsx`, `Statements.jsx`, `TransactionDetails.jsx` : rapport consultable, contrôle non exécuté explicite, import suspendu si anomalie confirmée ou source ambiguë ; date de valeur et références de document. Aucun déploiement automatique.
+- `cmd/importaudit`, `internal/importaudit` : audit historique READ ONLY, propriétaire obligatoire ; totaux/écarts, limites des preuves, aucune réparation.
+- `internal/testfixture/statement.go` : PDF synthétique Type 3/ToUnicode, trois pages et occurrences légitimes identiques. Tests réels extraction→parsing→PostgreSQL isolé→API ; PDF bancaire réel optionnel via `THEMIS_REFERENCE_PDF`, jamais en Git. CI exige Poppler (`THEMIS_REQUIRE_PDF_TESTS=1`) et exécute `import-fidelity.browser.cjs`.
+- Diagnostic et restrictions de réparation : `docs/IMPORT_FIDELITY_AUDIT.md`. Validations : `docs/IMPORT_FIDELITY_TESTS.md`.

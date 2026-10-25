@@ -2,14 +2,18 @@ package api
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
+	"themis/internal/parser"
 	"time"
 
 	"github.com/lib/pq"
 	"themis/internal/models"
+	"themis/internal/money"
 )
 
 const importPreviewTTL = 15 * time.Minute
@@ -36,6 +40,10 @@ func parsedImportSize(res *models.ParseResult) int {
 		for _, tag := range t.Tags {
 			size += len(tag)
 		}
+	}
+	if res.Report != nil {
+		raw, _ := json.Marshal(res.Report)
+		size += len(raw)
 	}
 	return size
 }
@@ -99,29 +107,33 @@ type importPreviewTransaction struct {
 	Duplicate bool    `json:"duplicate"`
 }
 type importPreviewResponse struct {
-	Token             string                     `json:"token"`
-	Expires           time.Time                  `json:"expires_at"`
-	Filename          string                     `json:"filename"`
-	AccountID         int64                      `json:"account_id"`
-	AccountName       string                     `json:"account_name"`
-	Parser            string                     `json:"parser"`
-	Validated         bool                       `json:"validated"`
-	PeriodStart       string                     `json:"period_start"`
-	PeriodEnd         string                     `json:"period_end"`
-	OpeningBalance    *float64                   `json:"opening_balance"`
-	ClosingBalance    *float64                   `json:"closing_balance"`
-	BalanceDifference *float64                   `json:"balance_difference"`
-	NewCount          int                        `json:"new_count"`
-	Duplicates        int                        `json:"duplicates"`
-	Transactions      []importPreviewTransaction `json:"transactions"`
+	Report              *models.ImportReport       `json:"import_report,omitempty"`
+	BlockedReason       string                     `json:"blocked_reason,omitempty"`
+	PotentialDuplicates int                        `json:"potential_duplicates"`
+	Token               string                     `json:"token"`
+	Expires             time.Time                  `json:"expires_at"`
+	Filename            string                     `json:"filename"`
+	AccountID           int64                      `json:"account_id"`
+	AccountName         string                     `json:"account_name"`
+	Parser              string                     `json:"parser"`
+	Validated           bool                       `json:"validated"`
+	PeriodStart         string                     `json:"period_start"`
+	PeriodEnd           string                     `json:"period_end"`
+	OpeningBalance      *float64                   `json:"opening_balance"`
+	ClosingBalance      *float64                   `json:"closing_balance"`
+	BalanceDifference   *float64                   `json:"balance_difference"`
+	NewCount            int                        `json:"new_count"`
+	Duplicates          int                        `json:"duplicates"`
+	Transactions        []importPreviewTransaction `json:"transactions"`
 }
 
 // Les empreintes et la portée (owner, hash) sont exactement celles de persist.
 // L'aperçu ne modifie pas les transactions et ne renvoie pas leurs empreintes.
 func describeImport(res *models.ParseResult, existing map[string]bool) importPreviewResponse {
-	out := importPreviewResponse{Parser: res.Parser, Validated: res.Validated, PeriodStart: res.PeriodStart, PeriodEnd: res.PeriodEnd, OpeningBalance: res.OpeningBalance, ClosingBalance: res.ClosingBalance, Transactions: []importPreviewTransaction{}}
+	out := importPreviewResponse{Report: res.Report, Parser: res.Parser, Validated: res.Validated, PeriodStart: res.PeriodStart, PeriodEnd: res.PeriodEnd, OpeningBalance: res.OpeningBalance, ClosingBalance: res.ClosingBalance, Transactions: []importPreviewTransaction{}}
 	seen := map[string]bool{}
-	sum := 0.0
+	sum := money.Cents(0)
+	amountsValid := true
 	for _, t := range res.Transactions {
 		duplicate := existing[t.Hash] || seen[t.Hash]
 		seen[t.Hash] = true
@@ -130,12 +142,21 @@ func describeImport(res *models.ParseResult, existing map[string]bool) importPre
 		} else {
 			out.NewCount++
 		}
-		sum += t.Amount
+		amount, e := money.FromLegacy(t.Amount)
+		if e != nil {
+			amountsValid = false
+		} else {
+			sum += amount
+		}
 		out.Transactions = append(out.Transactions, importPreviewTransaction{t.Date, t.Label, t.Amount, duplicate})
 	}
 	if res.OpeningBalance != nil && res.ClosingBalance != nil {
-		diff := *res.OpeningBalance + sum - *res.ClosingBalance
-		out.BalanceDifference = &diff
+		opening, e1 := money.FromLegacy(*res.OpeningBalance)
+		closing, e2 := money.FromLegacy(*res.ClosingBalance)
+		if amountsValid && e1 == nil && e2 == nil {
+			diff := float64(closing-opening-sum) / 100
+			out.BalanceDifference = &diff
+		}
 	}
 	return out
 }
@@ -176,6 +197,57 @@ func (s *Server) createImportPreview(w http.ResponseWriter, r *http.Request, fil
 		return
 	}
 	out := describeImport(res, existing)
+	if res.DocumentHash != "" {
+		out = describeImport(res, map[string]bool{})
+		// Equal entries within one source are separate occurrences, not duplicates.
+		out.NewCount = len(res.Transactions)
+		out.Duplicates = 0
+		for i := range out.Transactions {
+			out.Transactions[i].Duplicate = false
+		}
+		var fingerprint string
+		var count int
+		err = s.DB.QueryRowContext(r.Context(), `SELECT st.source_parse_hash,(SELECT count(*) FROM transactions t WHERE t.statement_id=st.id AND t.owner_id=st.owner_id) FROM statements st WHERE st.owner_id=$1 AND st.account_id=$2 AND st.source_sha256=$3`, owner, accountID, res.DocumentHash).Scan(&fingerprint, &count)
+		if err == nil {
+			if fingerprint == parseFingerprint(res) && count == len(res.Transactions) {
+				out.Duplicates = count
+				out.NewCount = 0
+				for i := range out.Transactions {
+					out.Transactions[i].Duplicate = true
+				}
+			} else {
+				out.BlockedReason = "Ce document est déjà enregistré avec un résultat différent. Un réimport contrôlé doit préserver les corrections manuelles."
+			}
+		} else if err != sql.ErrNoRows {
+			writeErr(w, 500, fmt.Errorf("vérification du document impossible"))
+			return
+		} else {
+			hashes = []string{}
+			for _, t := range res.Transactions {
+				hashes = append(hashes, parser.TxHash(t))
+			}
+			if err = s.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM transactions t JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id WHERE t.owner_id=$1 AND st.account_id=$2 AND (t.hash=ANY($3) OR t.source_business_hash=ANY($3))`, owner, accountID, pq.Array(hashes)).Scan(&out.PotentialDuplicates); err != nil {
+				writeErr(w, 500, fmt.Errorf("vérification des similitudes impossible"))
+				return
+			}
+			if res.Parser != "csv" && res.PeriodStart != "" && res.PeriodEnd != "" {
+				var overlap bool
+				if err = s.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM statements WHERE owner_id=$1 AND account_id=$2 AND period_start<$4::date AND period_end>$3::date)`, owner, accountID, res.PeriodStart, res.PeriodEnd).Scan(&overlap); err != nil {
+					writeErr(w, 500, fmt.Errorf("vérification des périodes impossible"))
+					return
+				}
+				if overlap {
+					out.BlockedReason = "Période recouvrant un relevé existant. Un réimport contrôlé est nécessaire avant tout remplacement."
+				}
+			}
+			if out.PotentialDuplicates > 0 {
+				out.BlockedReason = "Des opérations ressemblent à un autre import. Aucun doublon n'est prouvé : comparer les sources avant un réimport contrôlé."
+			}
+		}
+	}
+	if res.Report != nil && res.Report.Completeness == "failed" {
+		out.BlockedReason = "Les contrôles d'extraction ou de rapprochement ont échoué. Aucune opération ne sera enregistrée."
+	}
 	now := time.Now()
 	token, err := s.importPreviews.put(pendingImport{Owner: owner, AccountID: accountID, Filename: filename, Result: res, ProgressToken: progressToken}, now)
 	if err != nil {
