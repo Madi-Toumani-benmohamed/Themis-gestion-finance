@@ -1,8 +1,9 @@
 import { useModal } from './useModal'
 import { useId, useRef, useState } from 'react'
 import { transactionCents, transactionDate, transactionMoney, transactionTags, transactionTypeLabel } from './transactionPageModel.mjs'
+import TransactionReimbursements from './TransactionReimbursements'
 
-export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSave, onClose }) {
+export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSave, onClose, onRefresh }) {
   const ref = useRef(null), title = useId()
   const [domain, setDomain] = useState(tx.domain_id ?? ''), [tags, setTags] = useState((tx.tags || []).join(', '))
   const [categoryDirty, setCategoryDirty] = useState(false)
@@ -37,6 +38,7 @@ export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSa
         <div><dt>Origine de la catégorisation</dt><dd>{({ manual: 'Validée manuellement', rule: 'Règle déterministe', ai: 'Attribution IA historique', unknown: 'Origine non documentée' })[tx.classification_source] || 'Origine non documentée'}</dd></div>
       </dl>
       <p className="transaction-note">Les écritures originales sont conservées. Un crédit peut correspondre à un revenu, un remboursement ou une annulation ; son signe seul ne prouve pas sa nature.</p>
+      <TransactionReimbursements transaction={tx} onRefresh={onRefresh}/>
       {tx.suggestion && <aside className="transaction-ai-suggestion"><h3>Proposition IA à vérifier</h3><p>Catégorie suggérée : {domains.find(domain => domain.id === tx.suggestion.domain_id)?.name || 'Non proposée'}. Tags suggérés : {tx.suggestion.tags?.length ? tx.suggestion.tags.map(tag => `#${tag}`).join(', ') : 'aucun'}.</p><p>Cette proposition n’est pas un fait vérifié. Les données sources restent prioritaires.</p><button type="button" className="btn-secondary" disabled={busy} onClick={() => { if (tx.suggestion.domain_id) setDomain(tx.suggestion.domain_id); setTags([...new Set([...(tx.tags || []), ...(tx.suggestion.tags || [])])].join(', ')); setCategoryDirty(Boolean(tx.suggestion.domain_id)); setSaved(false) }}>Reprendre dans le formulaire</button><small>Vérifie les champs puis clique sur Enregistrer pour appliquer explicitement la correction.</small><button type="button" className="link" disabled={busy} onClick={async () => { setBusy(true); setError(null); try { await onSave(tx, { discard_suggestion: true }) } catch (error) { setError(error.message) } finally { setBusy(false) } }}>Ignorer la suggestion</button></aside>}
       <form onSubmit={save}>
         <h3>Corriger la classification</h3>

@@ -81,6 +81,24 @@
 .transaction-ai-suggestion { border:1px solid var(--line-strong); background:var(--paper-2); border-radius:var(--r-md); padding:16px; margin:18px 0; }
 .transaction-ai-suggestion p,.transaction-ai-suggestion small { display:block; font-size:11px; line-height:1.7; color:var(--muted); margin:8px 0; }
 .transaction-drawer .transaction-manual-validation { display:flex; align-items:center; gap:10px; line-height:1.6; }
+.transaction-reimbursements { margin-top:26px; padding:18px; border:1px solid var(--line); border-radius:12px; background:color-mix(in srgb,var(--paper) 88%,var(--accent) 12%); }
+.transaction-reimbursements > header,.reimbursement-case-heading,.reimbursement-actions { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.transaction-reimbursements h3 { margin:4px 0 0; font-size:16px; }
+.transaction-reimbursements h4 { margin:0; font-size:14px; }
+.reimbursement-scope-note,.reimbursement-source-detail { color:var(--muted); font-size:12px; line-height:1.6; }
+.reimbursement-case { margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--paper); }
+.reimbursement-case > p { margin:8px 0; font-size:13px; line-height:1.6; }
+.reimbursement-allocation-list { display:grid; gap:10px; padding:0; margin:12px 0 0; list-style:none; }
+.reimbursement-allocation-list li { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding-top:10px; border-top:1px solid var(--line); font-size:12px; line-height:1.6; overflow-wrap:anywhere; }
+.reimbursement-allocation-list li small { display:block; color:var(--muted); }
+.reimbursement-actions { margin-top:14px; justify-content:flex-start; }
+.reimbursement-void { margin-left:auto; }
+.reimbursement-allocation-form,.reimbursement-qualification-form { display:grid; gap:12px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+.reimbursement-allocation-form select,.reimbursement-allocation-form input,.reimbursement-qualification-form select,.reimbursement-qualification-form textarea { width:100%; min-width:0; }
+.reimbursement-allocation-form label,.reimbursement-qualification-form label { display:grid; gap:7px; font-size:12px; }
+.reimbursement-allocation-form small { color:var(--muted); line-height:1.6; }
+.reimbursement-allocation-form footer,.reimbursement-qualification-form footer { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; }
+.transaction-reimbursements button:focus-visible,.transaction-reimbursements select:focus-visible,.transaction-reimbursements input:focus-visible,.transaction-reimbursements textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .transaction-manual-validation input { width:18px; height:18px; flex-shrink:0; accent-color:var(--accent); }
 .transaction-tag-suggestions { display:flex; flex-wrap:wrap; gap:8px; }
 .transaction-tag-suggestions button { font-size:11px; }

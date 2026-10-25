@@ -391,17 +391,11 @@ export function TopWidget({ config, selectedMonth, data }) {
       setPeriodInfo({ isCurrent: cur.is_current || cur.status === 'current', incomplete: cur.status === 'incomplete' })
     }
 
-    api.categories().then((cats) => {
+    // The backend applies financialsql's owner-scoped transfer/savings predicate,
+    // including child domains; the roots-only categories API cannot do that.
+    api.transactions({ month: monthToUse, type: 'debit' }).then((txs) => {
       if (cancelled) return
-      const transferIds = new Set((cats || []).filter((c) => c.is_transfer).map((c) => c.id))
-      api.transactions({ month: monthToUse }).then((txs) => {
-        if (cancelled) return
-        setRows(txs.filter((t) => t.amount < 0 && t.kind !== 'savings' && !transferIds.has(t.domain_id))
-          .sort((a, b) => a.amount - b.amount)
-          .slice(0, config.count || 5))
-      }).catch(() => {
-        if (!cancelled) setRows([])
-      })
+      setRows(txs.sort((a, b) => a.amount - b.amount).slice(0, config.count || 5))
     }).catch(() => {
       if (!cancelled) setRows([])
     })

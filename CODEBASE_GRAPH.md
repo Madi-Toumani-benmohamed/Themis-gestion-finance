@@ -93,7 +93,14 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - Appelé par `chat.go` (enrichit prompt) et `handlers.go` (apprend à l'import)
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `025_statement_controls.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+- `001_init.sql` → `027_reimbursements.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+
+### Remboursements manuels
+- `reimbursements.go` expose les routes authentifiées `/api/reimbursements*`; `reimbursement_service.go` porte les snapshots, allocations en centimes, verrous, statuts et historique.
+- Migration 027 ajoute dossiers, allocations, historique, clés d’idempotence et contraintes multi-propriétaires; `db/rollbacks/027_reimbursements.sql` est un rollback gardé qui refuse la perte de données.
+- `statement_controls.go` bloque la suppression d’un relevé dont les opérations ont des liens actifs; les triggers PostgreSQL préservent cette règle hors API.
+- `TransactionReimbursements.jsx` est monté dans `TransactionDrawer` de `TransactionDetails.jsx`; `api.js` fournit les appels et `reimbursementModel.mjs` vérifie les montants en centimes. Les coûts nets affichés au détail n’alimentent aucun agrégat du MVP.
+- Tests : `reimbursements_integration_test.go`, `reimbursement_migration_test.go` et `reimbursementModel.test.mjs`.
 
 ---
 
@@ -119,7 +126,7 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 | `solde` | `SoldeWidget` | `data.monthly[]` |
 | `categories` | `CategoriesWidget` | `data.monthly[]`, `data.by_category[]` |
 | `trend` | `CategoryTrendWidget` | `data.by_category[]` |
-| `top` | `TopWidget` | `api.transactions()` + `api.categories()` |
+| `top` | `TopWidget` | `api.transactions({ month, type: 'debit' })` (backend financial scope; owner, transfer descendants and savings) |
 | `budgets` | `BudgetsWidget` | `api.budgets()` |
 | `subs` | `SubsWidget` | `api.recurring()` |
 | `attention` | `AttentionWidget` | `api.anomalies()` |
@@ -360,7 +367,8 @@ Rendre le dashboard navigable dans le temps sans nouvelle page ni duplication de
 |-----------|------|
 | `MonthSelector` (dans `Dashboard.jsx`) | UI : prev/next, dropdown 24 mois, bouton "mois en cours" |
 | `Hero`, `KpiRow`, `Journal` | Reçoivent `selectedMonth`, appellent API avec `month` |
-| `CategoriesWidget`, `KpiWidget`, `TopWidget` | Filtrent `data` selon `selectedMonth` |
+| `CategoriesWidget`, `KpiWidget` | Filtrent `data` selon `selectedMonth` |
+| `TopWidget` | Charge ses débits via l'API Transactions, avec le mois sélectionné et le filtre économique backend partagé |
 | `BudgetsWidget`, `AttentionWidget` | Appellent API avec `selectedMonth` |
 | `FluxWidget`/`FluxChart`, `SoldeWidget`, `CategoryTrendWidget` | Ligne verticale "Mois consulté" sur graphiques historiques |
 
