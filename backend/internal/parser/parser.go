@@ -85,7 +85,7 @@ func Parse(ctx context.Context, pdfData []byte, client llm.Client) (*models.Pars
 		ai, aiErr := ParseWithLLM(ctx, client, PlainText(rows))
 		if aiErr == nil {
 			ai.Validated = false
-			ai.Report = &models.ImportReport{Parsed: len(ai.Transactions), CountControl: "unverifiable", TotalsControl: "unverifiable", BalanceControl: "unverifiable", Completeness: "failed", Issues: []string{"ai_extraction_requires_review"}}
+			ai.Report = &models.ImportReport{Parsed: len(ai.Transactions), CountControl: "not_applicable", TotalsControl: "unverifiable", BalanceControl: "unverifiable", Completeness: "failed", Issues: []string{"ai_extraction_requires_review"}}
 			documentIdentity(ai, pdfData)
 			return ai, nil
 		}

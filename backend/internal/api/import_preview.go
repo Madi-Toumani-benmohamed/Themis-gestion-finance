@@ -240,13 +240,10 @@ func (s *Server) createImportPreview(w http.ResponseWriter, r *http.Request, fil
 					out.BlockedReason = "Période recouvrant un relevé existant. Un réimport contrôlé est nécessaire avant tout remplacement."
 				}
 			}
-			if out.PotentialDuplicates > 0 {
-				out.BlockedReason = "Des opérations ressemblent à un autre import. Aucun doublon n'est prouvé : comparer les sources avant un réimport contrôlé."
-			}
 		}
 	}
 	if res.Report != nil && res.Report.Completeness == "failed" {
-		out.BlockedReason = "Les contrôles d'extraction ou de rapprochement ont échoué. Aucune opération ne sera enregistrée."
+		out.BlockedReason = "Les contrôles d'extraction, de rapprochement ou de traçabilité ont échoué. Aucune opération ne sera enregistrée."
 	}
 	now := time.Now()
 	token, err := s.importPreviews.put(pendingImport{Owner: owner, AccountID: accountID, Filename: filename, Result: res, ProgressToken: progressToken}, now)

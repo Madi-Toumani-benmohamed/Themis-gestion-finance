@@ -202,6 +202,10 @@
 .statement-control-suspected {
   color: color-mix(in srgb, var(--warn) 60%, var(--ink));
 }
+.statement-control-informational,
+.statement-control-not_applicable {
+  color: var(--muted);
+}
 .statement-dialog {
   width: min(900px, calc(100vw - 24px));
   max-height: calc(100dvh - 32px);

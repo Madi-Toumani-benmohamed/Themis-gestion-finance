@@ -14,6 +14,8 @@ export const controlStatus = (status) =>
     failed: 'Échec confirmé',
     unknown: 'Non établi',
     suspected: 'À examiner',
+    informational: 'Information',
+    not_applicable: 'Non applicable',
   })[status] || 'Non exécuté'
 export function statementListModel(rows) {
   if (!Array.isArray(rows)) throw new Error('Liste des relevés indisponible.')

@@ -112,12 +112,12 @@ func TestImportPreviewPostgres(t *testing.T) {
 
 	// Equal business attributes do not establish a duplicate across documents.
 	csv := "Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n02/10/2026;TEST B;20,00\n"
-	blocked := preview(csv, "11")
-	if blocked.BlockedReason == "" || blocked.Duplicates != 0 {
-		t.Fatal("historical similarity presented as proven duplicate")
+	similar := preview(csv, "11")
+	if similar.BlockedReason != "" || similar.Duplicates != 0 || similar.PotentialDuplicates != 1 {
+		t.Fatal("historical similarity must be informational", similar)
 	}
-	if w := confirm(blocked.Token, 1); w.Code < 400 || count("transactions") != 1 {
-		t.Fatal("ambiguous historical import was not atomic")
+	if w := confirm(similar.Token, 1); w.Code != http.StatusCreated || count("transactions") != 3 || count("statements") != 2 {
+		t.Fatal("similar transactions should be preserved as separate occurrences", w.Code, count("transactions"), count("statements"))
 	}
 	// Start a genuinely new source; both identical occurrences must survive.
 	fresh := "Date;Libelle;Montant\n03/10/2026;NEW SOURCE;-5,00\n03/10/2026;NEW SOURCE;-5,00\n"
@@ -125,7 +125,7 @@ func TestImportPreviewPostgres(t *testing.T) {
 	if out.NewCount != 2 || out.Duplicates != 0 || out.Report == nil {
 		t.Fatalf("legitimate occurrences collapsed: %+v", out)
 	}
-	if count("transactions") != 1 || count("statements") != 1 {
+	if count("transactions") != 3 || count("statements") != 2 {
 		t.Fatal("preview wrote financial data")
 	}
 	if w := confirm(out.Token, 2); w.Code != http.StatusGone {
@@ -139,7 +139,7 @@ func TestImportPreviewPostgres(t *testing.T) {
 	}
 	out = preview(fresh, "11")
 	w := confirm(out.Token, 1)
-	if w.Code != http.StatusCreated || count("transactions") != 3 || count("statements") != 2 {
+	if w.Code != http.StatusCreated || count("transactions") != 5 || count("statements") != 3 {
 		t.Fatalf("source confirmation failed: %d %s", w.Code, w.Body)
 	}
 	if w = confirm(out.Token, 1); w.Code != http.StatusGone {
@@ -151,7 +151,7 @@ func TestImportPreviewPostgres(t *testing.T) {
 		t.Fatal("source duplicates not identified")
 	}
 	w = confirm(replay.Token, 1)
-	if w.Code != http.StatusOK || count("transactions") != 3 || count("statements") != 2 {
+	if w.Code != http.StatusOK || count("transactions") != 5 || count("statements") != 3 {
 		t.Fatalf("idempotent replay failed: %d %s", w.Code, w.Body)
 	}
 	// Two pending previews race for the same document: the second must recheck.
@@ -160,7 +160,7 @@ func TestImportPreviewPostgres(t *testing.T) {
 	if w = confirm(first.Token, 1); w.Code != http.StatusCreated {
 		t.Fatal("first confirmation", w.Code, w.Body)
 	}
-	if w = confirm(second.Token, 1); w.Code != http.StatusOK || count("transactions") != 4 {
+	if w = confirm(second.Token, 1); w.Code != http.StatusOK || count("transactions") != 6 {
 		t.Fatal("source race created duplicate", w.Code, w.Body)
 	}
 	// Same source on a second owned account is a separate provenance scope.
@@ -168,18 +168,18 @@ func TestImportPreviewPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := preview(fresh, "12")
-	if w = confirm(other.Token, 1); w.Code != http.StatusCreated || count("transactions") != 6 {
+	if w = confirm(other.Token, 1); w.Code != http.StatusCreated || count("transactions") != 8 {
 		t.Fatal("cross-account source collision", w.Code, w.Body)
 	}
 	var total string
-	if err = db.QueryRow(`SELECT sum(amount)::text FROM transactions WHERE owner_id=1`).Scan(&total); err != nil || total != "-10.00" {
+	if err = db.QueryRow(`SELECT sum(amount)::text FROM transactions WHERE owner_id=1`).Scan(&total); err != nil || total != "0.00" {
 		t.Fatalf("unreconciled source amounts: %s %v", total, err)
 	}
 	out = preview("Date;Libelle;Montant\n05/10/2026;OWNERSHIP TEST;-1,00\n", "11")
 	if _, err = db.Exec(`UPDATE accounts SET owner_id=2 WHERE id=11`); err != nil {
 		t.Fatal(err)
 	}
-	if w = confirm(out.Token, 1); w.Code != http.StatusBadRequest || count("transactions") != 6 {
+	if w = confirm(out.Token, 1); w.Code != http.StatusBadRequest || count("transactions") != 8 {
 		t.Fatal("account ownership not rechecked")
 	}
 

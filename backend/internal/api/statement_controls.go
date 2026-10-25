@@ -28,7 +28,7 @@ const statementDocumentedSQL = `st.validated AND st.period_start IS NOT NULL AND
 
 type statementControl struct {
 	Code      string `json:"code"`
-	Status    string `json:"status"` // passed, failed, unknown, suspected
+	Status    string `json:"status"` // passed, failed, unknown, suspected, informational, not_applicable
 	Severity  string `json:"severity"`
 	Detail    string `json:"detail"`
 	RelatedID int64  `json:"related_id,omitempty"`
@@ -94,8 +94,8 @@ func finalizeStatementStatus(st *checkedStatement) {
 			return
 		}
 	}
-	// A manual review can acknowledge non-blocking warnings such as suspected
-	// duplicate-looking operations or dates outside the statement period. Keep
+	// A manual review can acknowledge non-blocking warnings such as similar
+	// occurrences or dates outside the statement period. Keep
 	// those controls visible, but do not overwrite the owner's recorded status.
 	if st.EffectiveValidated && st.ValidationSource == "manual" {
 		st.Status = "validated"
@@ -119,7 +119,7 @@ func assessStatement(st *checkedStatement, outside, similar int) {
 		st.control("operation_dates", "suspected", "warning", fmt.Sprintf("%d opération(s) datée(s) hors période bancaire. Vérifier les dates d’opération et de valeur sur l’original ; aucune correction automatique.", outside), 0)
 	}
 	if similar > 0 {
-		st.control("similar_transactions", "suspected", "warning", fmt.Sprintf("%d opération(s) partagent date, montant et libellé avec une autre écriture du même compte : similarité à vérifier, pas un doublon confirmé.", similar), 0)
+		st.control("similar_transactions", "informational", "info", fmt.Sprintf("%d opération(s) du relevé partagent date, montant et libellé. Les occurrences sont conservées ; une ressemblance ne confirme pas un doublon.", similar), 0)
 	}
 	st.CanValidate = known && st.DifferenceCents != nil && *st.DifferenceCents == 0
 	if st.AccountID == nil {
@@ -128,7 +128,7 @@ func assessStatement(st *checkedStatement, outside, similar int) {
 	}
 	st.EffectiveValidated = st.Validated && st.CanValidate
 	st.Status = "analyzed"
-	if !st.CanValidate || outside > 0 || similar > 0 {
+	if !st.CanValidate || outside > 0 {
 		st.Status = "to_review"
 	} else if st.EffectiveValidated {
 		st.Status = "validated"
@@ -161,13 +161,20 @@ func assessStatement(st *checkedStatement, outside, similar int) {
 			st.control("declared_totals", "unknown", "warning", "Totaux indépendants non disponibles : contrôle non exécuté.", 0)
 		}
 		if r.ExpectedCount == nil {
-			st.control("declared_count", "unknown", "info", "Nombre attendu non fourni explicitement par le document : non vérifiable automatiquement.", 0)
+			st.control("declared_count", "not_applicable", "info", "Nombre attendu non fourni explicitement par le document : ce contrôle ne s’applique pas.", 0)
 		} else {
 			status, severity := "passed", "info"
 			if *r.ExpectedCount != st.TxCount {
 				status, severity = "failed", "error"
 			}
 			st.control("declared_count", status, severity, "Nombre enregistré comparé au nombre explicitement déclaré par le document.", 0)
+		}
+		if r.TraceabilityControl != "" {
+			if r.TraceabilityControl == "failed" {
+				st.control("source_traceability", "failed", "error", "Une ou plusieurs opérations n’ont pas de référence de page et de ligne source.", 0)
+			} else {
+				st.control("source_traceability", "passed", "info", "Chaque opération interprétée est rattachée à sa page et à sa ligne source.", 0)
+			}
 		}
 	}
 	finalizeStatementStatus(st)
@@ -244,7 +251,7 @@ func compareStatementPeriods(statements []checkedStatement) {
 
 func loadCheckedStatements(ctx context.Context, reader analysisReader, owner int64) ([]checkedStatement, error) {
 	rows, err := reader.QueryContext(ctx, `WITH grouped_operations AS (
- SELECT t.statement_id,count(*) OVER(PARTITION BY source.account_id,t.tx_date,t.amount,lower(trim(t.label))) n
+ SELECT t.statement_id,count(*) OVER(PARTITION BY t.statement_id,t.tx_date,t.amount,lower(trim(t.label))) n
  FROM transactions t JOIN statements source ON source.id=t.statement_id AND source.owner_id=t.owner_id WHERE t.owner_id=$1
  ), similar_groups AS (SELECT statement_id,count(*) n FROM grouped_operations WHERE n>1 GROUP BY statement_id)
  SELECT st.id,st.filename,st.period_start::text,st.period_end::text,

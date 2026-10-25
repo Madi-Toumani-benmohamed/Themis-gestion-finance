@@ -22,8 +22,15 @@ func reconcileImport(res *models.ParseResult, rows []Row) {
 	}
 	r.Parsed = len(res.Transactions)
 	r.Detected = len(r.Candidates)
-	r.Rejected = r.Detected - r.Parsed
-	r.CountControl = "unverifiable"
+	r.TraceabilityControl = "passed"
+	r.Rejected = 0
+	if r.Detected < r.Parsed {
+		r.Issues = appendUnique(r.Issues, "candidate_count_mismatch")
+		r.TraceabilityControl = "failed"
+	} else {
+		r.Rejected = r.Detected - r.Parsed
+	}
+	r.CountControl = "not_applicable"
 	r.TotalsControl = "unverifiable"
 	r.BalanceControl = "unverifiable"
 	r.Completeness = "unknown"
@@ -65,6 +72,9 @@ func reconcileImport(res *models.ParseResult, rows []Row) {
 	r.Debits = 0
 	r.Credits = 0
 	for _, t := range res.Transactions {
+		if t.SourcePage < 1 || t.SourceLine < 1 {
+			r.TraceabilityControl = "failed"
+		}
 		if (res.PeriodStart != "" && t.Date < res.PeriodStart) || (res.PeriodEnd != "" && t.Date > res.PeriodEnd) {
 			r.RequiresReview = true
 			r.Warnings = appendUnique(r.Warnings, "operation_date_outside_period")
@@ -107,14 +117,14 @@ func reconcileImport(res *models.ParseResult, rows []Row) {
 			}
 		}
 	}
-	if r.Rejected > 0 || len(r.Issues) > 0 || r.CountControl == "failed" || r.TotalsControl == "failed" || r.BalanceControl == "failed" {
+	if r.Rejected > 0 || len(r.Issues) > 0 || r.CountControl == "failed" || r.TotalsControl == "failed" || r.BalanceControl == "failed" || r.TraceabilityControl == "failed" {
 		r.Completeness = "failed"
 	}
-	if r.CountControl == "passed" && r.TotalsControl == "passed" && r.BalanceControl == "passed" && r.Completeness != "failed" {
+	if r.ExpectedCount != nil && r.CountControl == "passed" && r.TotalsControl == "passed" && r.BalanceControl == "passed" && r.TraceabilityControl == "passed" && r.Completeness != "failed" {
 		r.Completeness = "verified"
 	}
 	// A balanced net alone cannot validate a missing debit/credit pair.
-	res.Validated = r.BalanceControl == "passed" && r.TotalsControl == "passed" && r.Completeness != "failed" && !r.RequiresReview
+	res.Validated = r.BalanceControl == "passed" && r.TotalsControl == "passed" && r.TraceabilityControl == "passed" && r.Rejected == 0 && len(r.Issues) == 0 && r.Completeness != "failed" && !r.RequiresReview
 }
 
 func appendUnique(items []string, value string) []string {

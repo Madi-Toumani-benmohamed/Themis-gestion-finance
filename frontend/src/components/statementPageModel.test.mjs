@@ -6,6 +6,7 @@ import {
   filterStatements,
   statementStatus,
   statementStatusIcon,
+  controlStatus,
 } from './statementPageModel.mjs'
 const row = {
   id: 1,
@@ -87,4 +88,9 @@ test('bank periods spanning months and unknown dates remain inspectable', () => 
     filterStatements([row, unknown], { ids: new Set([1]) }).length,
     1,
   )
+})
+
+test('similarity and non-applicable controls are not displayed as confirmations missing', () => {
+  assert.equal(controlStatus('informational'), 'Information')
+  assert.equal(controlStatus('not_applicable'), 'Non applicable')
 })
