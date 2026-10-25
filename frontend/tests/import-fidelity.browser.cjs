@@ -53,6 +53,9 @@ async function main() {
   })
   await page.goto(process.env.THEMIS_UI_URL || 'http://127.0.0.1:5176')
   await page.locator(".sidebar-nav").getByRole("tab", {name:"Relevés",exact:true}).click()
+  // Let initial dashboard-only asynchronous requests settle before exercising
+  // the upload queue, so an unrelated widget render cannot race the preview.
+  await page.waitForTimeout(300)
   const open = async value => {
    mode = value
    await page.locator('input[type=file]').setInputFiles({ name: 'ANONYME TEST.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nTEST') })

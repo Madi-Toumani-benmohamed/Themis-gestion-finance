@@ -22,6 +22,20 @@ func fmtEUR(v float64) string {
 	return fmt.Sprintf("%.2f €", v)
 }
 
+const insightCategorySpikeSQL = `WITH monthly AS (
+			SELECT to_char(t.tx_date, 'YYYY-MM') AS m, t.domain_id, -SUM(t.amount) AS spent
+			FROM transactions t
+			WHERE t.amount < 0 AND t.domain_id IS NOT NULL AND t.owner_id = $1` + notTransferT + `
+			GROUP BY 1, 2
+		), last AS (SELECT max(m) AS m FROM monthly)
+		SELECT c.name, cur.spent, COALESCE(avg(hist.spent), 0)
+		FROM monthly cur
+		JOIN last ON cur.m = last.m
+		JOIN domains c ON c.id = cur.domain_id AND c.owner_id=$1
+		LEFT JOIN monthly hist ON hist.domain_id = cur.domain_id AND hist.m < cur.m
+		GROUP BY c.name, cur.spent
+		HAVING count(hist.m) >= 2`
+
 // listInsights agrège tout ce qui mérite l'attention : relevé du mois manquant,
 // transactions à trier, abonnements en hausse, catégories en forte hausse,
 // budgets dépassés. Une liste vide = tout est en ordre.
@@ -79,20 +93,7 @@ func (s *Server) listInsights(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Catégorie en forte hausse : dernier mois complet vs moyenne des 3 précédents
-	rows, err := s.DB.Query(`
-		WITH monthly AS (
-			SELECT to_char(tx_date, 'YYYY-MM') AS m, domain_id, -SUM(amount) AS spent
-			FROM transactions
-			WHERE amount < 0 AND domain_id IS NOT NULL AND owner_id = $1 AND (domain_id IS NULL OR domain_id NOT IN (SELECT id FROM domains WHERE is_transfer)) 
-			GROUP BY 1, 2
-		), last AS (SELECT max(m) AS m FROM monthly)
-		SELECT c.name, cur.spent, COALESCE(avg(hist.spent), 0)
-		FROM monthly cur
-		JOIN last ON cur.m = last.m
-		JOIN domains c ON c.id = cur.domain_id
-		LEFT JOIN monthly hist ON hist.domain_id = cur.domain_id AND hist.m < cur.m
-		GROUP BY c.name, cur.spent
-		HAVING count(hist.m) >= 2`, owner)
+	rows, err := s.DB.Query(insightCategorySpikeSQL, owner)
 	if err == nil {
 		for rows.Next() {
 			var name string
