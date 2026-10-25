@@ -136,6 +136,14 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("DELETE /api/credits/{id}/payments/{payment_id}", s.engagementAuthenticated(s.voidCreditPayment))
 	mux.HandleFunc("GET /api/credits/{id}/history", s.engagementAuthenticated(s.creditHistory))
 	mux.HandleFunc("GET /api/taxes/{id}/history", s.engagementAuthenticated(s.taxHistory))
+	mux.HandleFunc("GET /api/reimbursements", s.engagementAuthenticated(s.listReimbursements))
+	mux.HandleFunc("POST /api/reimbursements", s.engagementAuthenticated(s.createReimbursement))
+	mux.HandleFunc("GET /api/reimbursements/eligible-expenses", s.engagementAuthenticated(s.eligibleReimbursementExpenses))
+	mux.HandleFunc("GET /api/reimbursements/{id}", s.engagementAuthenticated(s.getReimbursement))
+	mux.HandleFunc("POST /api/reimbursements/{id}/allocations", s.engagementAuthenticated(s.createReimbursementAllocation))
+	mux.HandleFunc("DELETE /api/reimbursements/{id}/allocations/{allocation_id}", s.engagementAuthenticated(s.voidReimbursementAllocation))
+	mux.HandleFunc("POST /api/reimbursements/{id}/void", s.engagementAuthenticated(s.voidReimbursement))
+	mux.HandleFunc("GET /api/reimbursements/{id}/history", s.engagementAuthenticated(s.reimbursementHistory))
 	mux.HandleFunc("GET /api/insights", s.listInsights)
 
 	// Domaines & tags

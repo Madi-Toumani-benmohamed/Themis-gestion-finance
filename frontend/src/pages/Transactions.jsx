@@ -524,7 +524,7 @@ export default function Transactions({ initialStatement = '', initialTag = '', i
           <td className={'num amt' + (transactionCents(tx) > 0 ? ' credit' : '')}>{transactionCents(tx) > 0 ? '+' : ''}{transactionMoney(transactionCents(tx))}</td>
         </tr>)}</Fragment>)}</tbody></table></div>}
       {report && <nav className="transaction-pagination" aria-label="Pagination des transactions"><button className="btn-secondary" disabled={fetching || page === 0} onClick={() => setPage(value => value - 1)}>Précédent</button><span>Page {page + 1} sur {Math.max(1, Math.ceil(report.total / 100))} · 100 opérations maximum</span><button className="btn-secondary" disabled={fetching || (page + 1) * 100 >= report.total} onClick={() => setPage(value => value + 1)}>Suivant</button></nav>}
-      {detail && <TransactionDrawer key={detail.id} transaction={detail} domains={domains} allTags={allTags} onSave={saveTransaction} onClose={() => setDetail(null)}/>}
+      {detail && <TransactionDrawer key={detail.id} transaction={detail} domains={domains} allTags={allTags} onSave={saveTransaction} onRefresh={reload} onClose={() => setDetail(null)}/>}
       {bulk && <TransactionBulkDialog rows={bulk} domains={domains} onApply={applyBulk} onClose={() => setBulk(null)}/>}
     </div>
   )

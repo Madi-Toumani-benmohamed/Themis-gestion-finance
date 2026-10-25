@@ -14,6 +14,23 @@ type heroPoint struct {
 	Text string `json:"text"`
 }
 
+// heroCategoryIncreaseSQL uses the shared economic scope, including transfer
+// descendants, for category trend signals.
+const heroCategoryIncreaseSQL = `WITH cur AS (
+				SELECT d.name, -SUM(t.amount) AS dep
+				FROM transactions t JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
+				WHERE t.owner_id=$2 AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') = $1` + notTransferT + `
+				GROUP BY d.name
+			), hist AS (
+				SELECT d.name, -SUM(t.amount) / GREATEST(COUNT(DISTINCT to_char(t.tx_date,'YYYY-MM')),1) AS avg_dep
+				FROM transactions t JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
+				WHERE t.owner_id=$2 AND t.amount < 0 AND to_char(t.tx_date,'YYYY-MM') < $1 AND t.tx_date >= ($1 || '-01')::date - interval '3 months'` + notTransferT + `
+				GROUP BY d.name
+			)
+			SELECT cur.name, cur.dep, hist.avg_dep FROM cur JOIN hist ON hist.name = cur.name
+			WHERE hist.avg_dep > 0 AND cur.dep > hist.avg_dep * 1.3 AND cur.dep - hist.avg_dep > 40
+			ORDER BY cur.dep - hist.avg_dep DESC LIMIT 1`
+
 // hero produit la conclusion de l'analyse : un ton global, une phrase de
 // situation, et les faits réellement importants du mois. Tout est calculé
 // depuis les données (déterministe, instantané, vérifiable) — le reste de la
@@ -102,21 +119,7 @@ func (s *Server) hero(w http.ResponseWriter, r *http.Request) {
 	var upName string
 	var upCur, upAvg float64
 	if comparable {
-		q = `WITH cur AS (
-				SELECT d.name, -SUM(t.amount) AS dep
-				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
-				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') = $1
-				GROUP BY d.name
-			), hist AS (
-				SELECT d.name, -SUM(t.amount) / GREATEST(COUNT(DISTINCT to_char(t.tx_date,'YYYY-MM')),1) AS avg_dep
-				FROM transactions t JOIN domains d ON d.id = t.domain_id AND t.owner_id = $2
-				WHERE t.amount < 0 AND NOT d.is_transfer AND to_char(t.tx_date,'YYYY-MM') < $1 AND t.tx_date >= ($1 || '-01')::date - interval '3 months'
-				GROUP BY d.name
-			)
-			SELECT cur.name, cur.dep, hist.avg_dep FROM cur JOIN hist ON hist.name = cur.name
-			WHERE hist.avg_dep > 0 AND cur.dep > hist.avg_dep * 1.3 AND cur.dep - hist.avg_dep > 40
-			ORDER BY cur.dep - hist.avg_dep DESC LIMIT 1`
-		_ = s.DB.QueryRow(q, ref.String, owner).Scan(&upName, &upCur, &upAvg)
+		_ = s.DB.QueryRow(heroCategoryIncreaseSQL, ref.String, owner).Scan(&upName, &upCur, &upAvg)
 	}
 
 	// Baisse de revenus vs la moyenne des 3 mois précédents (>25 %) — seulement pour mois complet.
