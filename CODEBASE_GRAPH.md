@@ -601,3 +601,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `cmd/importaudit`, `internal/importaudit` : audit historique READ ONLY, propriétaire obligatoire ; totaux/écarts, limites des preuves, aucune réparation.
 - `internal/testfixture/statement.go` : PDF synthétique Type 3/ToUnicode, trois pages et occurrences légitimes identiques. Tests réels extraction→parsing→PostgreSQL isolé→API ; PDF bancaire réel optionnel via `THEMIS_REFERENCE_PDF`, jamais en Git. CI exige Poppler (`THEMIS_REQUIRE_PDF_TESTS=1`) et exécute `import-fidelity.browser.cjs`.
 - Diagnostic et restrictions de réparation : `docs/IMPORT_FIDELITY_AUDIT.md`. Validations : `docs/IMPORT_FIDELITY_TESTS.md`.
+
+### Intelligence financière — audit et normalisation des retraits (2026-10-25)
+
+- `docs/FINANCIAL_INTELLIGENCE_AUDIT.md` cartographie normalisation/alias, règles, tags, suggestions IA, Knowledge Graph, analyses/découvertes, Dashboard, simulations et qualité des données ; `docs/FINANCIAL_INTELLIGENCE_ROADMAP.md` classe les propositions P0–P3.
+- `normalize.Label` reconnaît explicitement `Ret Distrib`, `Ret DAB` et `Retrait DAB` comme `label_kind=cash_withdrawal`, libellé stable `Retrait DAB`, marchand vide. Les variantes d’heure sont retirées du nom générique et le Title Case traite les runes UTF‑8. Le brut et les transactions distinctes demeurent intacts.
+- `normalize_backfill.go` version 5 met à jour uniquement les colonnes de présentation/type par son transactionnel existant ; aucune migration SQL. `recurring_review.go` regroupe ces occurrences sous un libellé fonctionnel pour la revue, sans classer les retraits en abonnement.
+- `merchant_alias.go::setAlias` exécute désormais l’upsert et sa propagation dans une transaction unique, renvoie les erreurs au lieu de masquer l’échec et aligne le prédicat motif sur les clés vérifiées à l’import. La liste expose `is_pattern`, conservé par correction dans `MerchantList.jsx`. Test d’intégration synthétique : propriétaire isolé et rollback alias+transactions.
+- Tests ciblés : `normalize_test.go`, `recurring_review_test.go`, `transaction_quality_integration_test.go`. Résultats de validation et limitations consignés au compte rendu de mission.

@@ -25,7 +25,7 @@ export default function MerchantList() {
     if (!name || name === a.display) { setEditing(null); return }
     try {
       // setAlias fait un upsert sur match_key : on réutilise la même clé.
-      const r = await api.setMerchantAlias(a.match_key, name)
+      const r = await api.setMerchantAlias(a.match_key, name, a.is_pattern)
       toast.ok(`Renommé en « ${name} »${r.updated ? ` · ${r.updated} transaction(s)` : ''}.`)
       setEditing(null)
       load()
@@ -88,7 +88,9 @@ export default function MerchantList() {
                 ) : (
                   <div className="entity-name">{a.display}</div>
                 )}
-                <div className="entity-sub" title="libellé bancaire d'origine">{a.match_key}</div>
+                <div className="entity-sub" title={a.is_pattern ? 'Motif appliqué aux variantes correspondantes' : 'Clé exacte du libellé ou marchand'}>
+                  {a.is_pattern ? `Motif : ${a.match_key}` : a.match_key}
+                </div>
                 {editing !== a.id && (
                   <div className="entity-actions-row">
                     <button className="link" onClick={() => startEdit(a)}>corriger</button>
