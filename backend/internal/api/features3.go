@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"themis/internal/money"
 	"time"
 )
 
@@ -36,14 +35,15 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 		ph := make([]string, 0)
 		for _, raw := range strings.Split(cs, ",") {
 			id, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-			if err != nil {
-				continue // on ignore silencieusement les IDs non numériques
+			if err != nil || id <= 0 {
+				writeErr(w, 400, fmt.Errorf("catégorie invalide"))
+				return
 			}
 			args = append(args, id)
 			ph = append(ph, fmt.Sprintf("$%d", len(args)))
 		}
 		if len(ph) > 0 {
-			catFilter = " AND t.domain_id IN (" + strings.Join(ph, ",") + ")"
+			catFilter = " AND (d.id IN (" + strings.Join(ph, ",") + ") OR p.id IN (" + strings.Join(ph, ",") + "))"
 		}
 	}
 
@@ -73,13 +73,14 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 
 	sql := fmt.Sprintf(`
 		SELECT date_trunc('%s', t.tx_date) AS bucket,
-		       COALESCE(d.name, 'Sans domaine') AS cat,
-		       COALESCE(d.color, '#66736C') AS color,
+		       COALESCE(p.name,d.name, 'Sans domaine') AS cat,
+		       COALESCE(p.color,d.color, '#66736C') AS color,
 		       (-SUM(t.amount) FILTER (WHERE t.amount < 0))::text AS spent
 		FROM transactions t
 		LEFT JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
-		WHERE t.amount < 0 AND t.owner_id = $1 `+notTransferT+` %s
-		GROUP BY bucket, cat, color
+		LEFT JOIN domains p ON p.id=d.parent_id AND p.owner_id=t.owner_id
+        WHERE t.amount < 0 AND t.owner_id = $1 `+notTransferT+` %s
+		GROUP BY 1,2,3
 		ORDER BY bucket`, trunc, catFilter)
 
 	rows, err := s.DB.Query(sql, args...)
@@ -111,7 +112,7 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 			byBucket[key] = map[string]json.Number{}
 			bucketOrder = append(bucketOrder, key)
 		}
-		spent, err := money.Parse(spentText)
+		spent, err := parseAnalysisAmount(spentText)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -136,7 +137,7 @@ func (s *Server) categorySeries(w http.ResponseWriter, r *http.Request) {
 	for name, color := range colors {
 		cats = append(cats, map[string]string{"name": name, "color": color})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"series": series, "categories": cats})
+	writeJSON(w, http.StatusOK, map[string]any{"series": series, "categories": cats, "query_from": q.Get("from"), "query_to": q.Get("to"), "coverage": "unknown", "missing_buckets": "not_observed"})
 }
 
 func round2(v float64) float64 {

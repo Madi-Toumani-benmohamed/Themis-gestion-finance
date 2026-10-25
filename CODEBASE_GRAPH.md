@@ -529,3 +529,20 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Images mémoire/PostgreSQL d'initialisation/frontend autonome non root ; Nginx autonome sur8080 avec PID temporaire. Contextes de sécurité Kubernetes et volumes temporaires explicités ; backup atomique et privé.
 - Diagnostic Python historique : transport HTTP(S) contrôlé, TLS vérifié, cookies associés ; tests isolés `tests/test_navigation_transport.py` exécutés dans la CI.
 - Vérifications, justification des annotations, port du frontend autonome et contraintes des volumes : `docs/DEPLOYMENT_SECURITY.md`. Aucun manifeste appliqué sur un cluster ni volume réel modifié pour ces essais.
+
+### Analyse — exploration, périodes et preuves (2026-10-25)
+
+- `api/analysis_report.go` centralise les flux exacts, catégories réconciliées, sources et couverture pour `/api/intel/nature?month=...`. `reliability.go` peut lire une DB ou une transaction et un intervalle ; rapport et couverture partagent un snapshot en lecture seule.
+- `intelligence.go` borne marchands et comparaison au mois choisi : trois mois civils communs documentés pour les catégories, deux fenêtres de même durée documentées pour les marchands. Comparaisons inconnues nulles ; paniers par transaction, parts sur le total complet et limite de 40 marchands explicite.
+- `analytics.go`, `features3.go`, `tag_folders.go` : propriétaires concordants, dates strictes, centimes exacts, tags non additifs sur total unique, concentration sans multiplication des occurrences, projets observés à date. Pas de migration.
+- `analysis_discoveries.go` réutilise les récurrences et contextualise variations de marchands/tags et motifs annuels bornés. `narrative.go` fait sélectionner des constats vérifiés par le LLM existant ; le serveur produit le texte, impose les réserves et rejette les faits inconnus. Aucun KG ni contexte personnel global comme source transactionnelle.
+- `Analyse.jsx/.css` : synthèse immédiate et quatre familles, mois central, couverture explicite, chargement des détails à la demande. `analysisResources.js` annule et écarte les réponses obsolètes ; `analysisPageModel.mjs` valide les sommes au centime. Catégories/tags gardent graphiques et tableaux accessibles ; projets et outils globaux restent disponibles.
+- Navigation `App.jsx` → `Transactions.jsx` : filtres exacts catégorie/tag/type/marchand et dates. Paramètre `merchant` additif au filtre/à l’export existants, visible et retirable dans la page Transactions.
+- Tests `analysis*_test.go`, `analysisPageModel.test.mjs`, `frontend/tests/analysis.browser.cjs` ; parcours ajouté au job navigateur CI sans retrait des trois autres suites. Diagnostic : `docs/ANALYSIS_AUDIT.md`, définitions/contrats/vérifications/limites : `docs/ANALYSIS_IMPLEMENTATION.md`.
+
+### Analyse par tag — courbes et périodes longues (2026-10-25)
+
+- `components/ChartPrimitives.jsx` partage les couleurs, dégradés, axes et infobulle du Dashboard avec `TagHistoryChart.jsx`. Courbes d’aires non empilées, ruptures pour les mois sans observation, points isolés, brosse de zoom clavier et tableau/source exacts.
+- `pages/TagAnalysis.jsx` : durées 6/12/24/36/60/120 mois, ou deux mois personnalisés à valider ; sélection des tags conservée. La durée est propre à l’historique, distincte du croisement catégorie/tag mensuel.
+- `api/analytics.go` : fenêtre `months` jusqu’à 600, dates strictes et calendrier complet pour les séries bornées, trous `null` sans ajout de zéros. Agrégations SQL et propriété inchangées ; aucun nouvel endpoint ou schéma.
+- `tagHistoryModel.mjs` et tests, `api/tag_history_test.go`, parcours navigateur Analyse étendu : précision, bornes, données absentes, noms spéciaux, dix ans d’historique, zoom clavier et accessibilité.

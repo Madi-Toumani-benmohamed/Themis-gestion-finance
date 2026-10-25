@@ -22,7 +22,7 @@ const J = (u, method, body) =>
 // Analysis requests remain on the existing endpoints and can be cancelled.
 const scopedG = (path, params = {}, options = {}) => {
   const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')))
-  return fetch(path + (query.size ? `?${query}` : ''), { credentials: 'same-origin', signal: options.signal }).then(json)
+  return fetch(path + (query.size ? `?${query}` : ''), { credentials: 'same-origin', cache: 'no-store', signal: options.signal }).then(json)
 }
 
 export const api = {
@@ -161,7 +161,7 @@ export const api = {
   createDomain: (name, parentId, color) => J('/api/domains', 'POST', { name, parent_id: parentId ?? null, color }),
   deleteDomain: (id) => J(`/api/domains/${id}`, 'DELETE'),
   updateDomain: (id, patch) => J(`/api/domains/${id}`, 'PATCH', patch),
-  tags: () => G('/api/tags'),
+  tags: (options = {}) => scopedG('/api/tags', {}, options),
   renameTag: (name, newName) => J(`/api/tags/${encodeURIComponent(name)}`, 'PATCH', { name: newName }),
   deleteTag: (name) => J(`/api/tags/${encodeURIComponent(name)}`, 'DELETE'),
   tagFolders: (month, options = {}) => scopedG('/api/tag-folders', { month }, options),

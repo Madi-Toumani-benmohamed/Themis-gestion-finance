@@ -137,6 +137,12 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 			f.where += ` AND EXISTS(SELECT 1 FROM domains d WHERE d.owner_id=t.owner_id AND d.id=t.domain_id AND (d.id=` + p + ` OR d.parent_id=` + p + `))`
 		}
 	}
+	if raw := v.Get("merchant"); strings.TrimSpace(raw) != "" {
+		if len(raw) > 1000 {
+			return bad()
+		}
+		f.where += " AND COALESCE(NULLIF(t.merchant,''),NULLIF(t.display_label,''),t.label)=" + add(raw)
+	}
 	if raw := strings.TrimSpace(v.Get("tag")); raw != "" {
 		if raw == "__none__" {
 			f.where += ` AND NOT EXISTS(SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id)`

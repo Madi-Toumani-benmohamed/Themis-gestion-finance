@@ -147,7 +147,7 @@ export default function TagPickerNavigation({ tags, pickedTags, onToggle }) {
                       ]
                         .filter(Boolean)
                         .join(' ')}
-                      onClick={() => onToggle(t)}
+                      aria-pressed={pickedTags.includes(t)} onClick={() => onToggle(t)}
                     >
                       {t}
                     </button>
