@@ -42,6 +42,8 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("DELETE /api/statements/previews/{token}", s.cancelImportPreview)
 	mux.HandleFunc("GET /api/statements", s.listStatements)
 	mux.HandleFunc("DELETE /api/statements/{id}", s.deleteStatement)
+	mux.HandleFunc("PATCH /api/statements/{id}/validation", s.validateStatement)
+	mux.HandleFunc("POST /api/statements/{id}/checks", s.recheckStatement)
 	mux.HandleFunc("GET /api/transactions", s.listTransactions)
 	mux.HandleFunc("PATCH /api/transactions/{id}", s.updateTransaction)
 	mux.HandleFunc("GET /api/categories", s.listCategories)
@@ -116,6 +118,7 @@ func (s *Server) Router() http.Handler {
 	// Multi-comptes
 	mux.HandleFunc("GET /api/accounts", s.listAccounts)
 	mux.HandleFunc("POST /api/accounts", s.createAccount)
+	mux.HandleFunc("PATCH /api/accounts/{id}", s.updateAccountTracking)
 	mux.HandleFunc("DELETE /api/accounts/{id}", s.deleteAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/snapshots", s.addSnapshot)
 
@@ -315,17 +318,24 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if inserted == 0 {
+	if inserted == 0 && skipped > 0 {
 		// Relevé déjà importé : on ne garde pas d'enregistrement vide
-		_, _ = s.DB.Exec(`DELETE FROM statements WHERE id = $1 AND owner_id = $2`, stmtID, owner)
+		if res.DocumentHash == "" {
+			_, _ = s.DB.Exec(`DELETE FROM statements WHERE id = $1 AND owner_id = $2`, stmtID, owner)
+		}
+		var duplicateStatement any
+		if res.DocumentHash != "" {
+			duplicateStatement = stmtID
+		}
 		setUploadProgress(progressToken, ownerForProgress, "Terminé", "", 100, true)
 		writeJSON(w, http.StatusOK, map[string]any{
-			"statement_id": nil,
-			"parser":       res.Parser,
-			"validated":    res.Validated,
-			"inserted":     0,
-			"duplicates":   skipped,
-			"message":      "relevé déjà importé, aucune nouvelle transaction",
+			"statement_id":  duplicateStatement,
+			"parser":        res.Parser,
+			"validated":     res.Validated,
+			"inserted":      0,
+			"duplicates":    skipped,
+			"import_report": res.Report,
+			"message":       "relevé déjà importé, aucune nouvelle transaction",
 		})
 		return
 	}
@@ -354,7 +364,7 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 
 	// Apprendre les habitudes financières dans le graphe de connaissances.
 	// Non bloquant : une erreur KG n'empêche pas l'import.
-	if s.getMemory() != nil && s.getMemory().IsReady(r.Context()) && inserted > 0 {
+	if s.getMemory() != nil && s.getMemory().IsReady(r.Context()) && inserted > 0 && res.Validated {
 		go func() {
 			facts := memory.BuildFinancialFacts(res, owner)
 			if len(facts) > 0 {
@@ -371,6 +381,7 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 		"duplicates":     skipped,
 		"ai_categorized": 0, // legacy: proposals are not applied categories
 		"ai_suggested":   aiSuggested,
+		"import_report":  res.Report,
 		"period_start":   res.PeriodStart,
 		"period_end":     res.PeriodEnd,
 	})
@@ -403,6 +414,9 @@ func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) persist(filename string, res *models.ParseResult, accountID, ownerID int64) (inserted, skipped int, stmtID int64, err error) {
+	if res.DocumentHash != "" {
+		return s.persistDocument(filename, res, accountID, ownerID)
+	}
 	// Refuser toute ambiguïté avant la première écriture. Les empreintes
 	// historiques restent inchangées : aucune réécriture des données existantes.
 	seen := map[string]bool{}
@@ -482,40 +496,13 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 			skipped++
 		}
 	}
-	return inserted, skipped, stmtID, tx.Commit()
-}
-
-func (s *Server) listStatements(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.DB.Query(`
-		SELECT s.id, s.filename, s.period_start::text, s.period_end::text,
-		       s.opening_balance, s.closing_balance, s.parser, s.validated, s.uploaded_at::text,
-		       (SELECT COUNT(*) FROM transactions t WHERE t.statement_id = s.id)
-		FROM statements s WHERE s.owner_id = $1 ORDER BY s.period_start DESC NULLS LAST, s.id DESC`, s.ownerID(r))
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	defer rows.Close()
-	out := []models.Statement{}
-	for rows.Next() {
-		var st models.Statement
-		if err := rows.Scan(&st.ID, &st.Filename, &st.PeriodStart, &st.PeriodEnd,
-			&st.OpeningBalance, &st.ClosingBalance, &st.Parser, &st.Validated, &st.UploadedAt, &st.TxCount); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
+	if skipped > 0 {
+		if _, err = tx.Exec(`UPDATE statements SET validated=false WHERE id=$1 AND owner_id=$2`, stmtID, ownerID); err != nil {
+			return 0, 0, 0, err
 		}
-		out = append(out, st)
+		res.Validated = false
 	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) deleteStatement(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if _, err := s.DB.Exec(`DELETE FROM statements WHERE id = $1 AND owner_id = $2`, id, s.ownerID(r)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	return inserted, skipped, stmtID, tx.Commit()
 }
 
 // ---------- Transactions ----------

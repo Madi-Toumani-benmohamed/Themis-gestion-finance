@@ -19,16 +19,17 @@ func (s *Server) exportAll(w http.ResponseWriter, r *http.Request) {
 
 	owner := s.ownerID(r)
 	tables := map[string]string{
-		"credit_payments": `SELECT p.* FROM credit_payments p JOIN credits c ON c.id=p.credit_id AND c.owner_id=p.owner_id WHERE p.owner_id=$1 ORDER BY p.id`,
-		"credit_history":  `SELECT * FROM credit_history WHERE owner_id=$1 ORDER BY id`,
-		"tax_history":     `SELECT * FROM tax_history WHERE owner_id=$1 ORDER BY id`,
-		"accounts":        `SELECT id, name, kind, interest_rate, deposit_limit FROM accounts WHERE owner_id = $1 ORDER BY id`,
-		"domains":         `SELECT id, name, parent_id, color FROM domains WHERE owner_id = $1 ORDER BY id`,
-		"rules":           `SELECT id, pattern, domain_id FROM rules WHERE owner_id = $1 ORDER BY id`,
-		"budgets":         `SELECT id, domain_id, monthly_limit FROM budgets WHERE owner_id = $1 ORDER BY id`,
-		"credits":         `SELECT id, name, monthly_amount, months_total, start_month, note, opening_paid_cents, closed_at, archived_at FROM credits WHERE owner_id = $1 ORDER BY id`,
-		"taxes":           `SELECT id, name, amount, due_date::text, paid, paid_amount_cents, overdue_confirmed, archived_at FROM taxes WHERE owner_id = $1 ORDER BY id`,
-		"statements":      `SELECT id, account_id, filename, period_start::text, period_end::text, opening_balance, closing_balance, parser, validated FROM statements WHERE owner_id = $1 ORDER BY id`,
+		"statement_validation_history": `SELECT * FROM statement_validation_history WHERE owner_id=$1 ORDER BY id`,
+		"credit_payments":              `SELECT p.* FROM credit_payments p JOIN credits c ON c.id=p.credit_id AND c.owner_id=p.owner_id WHERE p.owner_id=$1 ORDER BY p.id`,
+		"credit_history":               `SELECT * FROM credit_history WHERE owner_id=$1 ORDER BY id`,
+		"tax_history":                  `SELECT * FROM tax_history WHERE owner_id=$1 ORDER BY id`,
+		"accounts":                     `SELECT id, name, kind, tracking_mode, interest_rate, deposit_limit FROM accounts WHERE owner_id = $1 ORDER BY id`,
+		"domains":                      `SELECT id, name, parent_id, color FROM domains WHERE owner_id = $1 ORDER BY id`,
+		"rules":                        `SELECT id, pattern, domain_id FROM rules WHERE owner_id = $1 ORDER BY id`,
+		"budgets":                      `SELECT id, domain_id, monthly_limit FROM budgets WHERE owner_id = $1 ORDER BY id`,
+		"credits":                      `SELECT id, name, monthly_amount, months_total, start_month, note, opening_paid_cents, closed_at, archived_at FROM credits WHERE owner_id = $1 ORDER BY id`,
+		"taxes":                        `SELECT id, name, amount, due_date::text, paid, paid_amount_cents, overdue_confirmed, archived_at FROM taxes WHERE owner_id = $1 ORDER BY id`,
+		"statements":                   `SELECT id, account_id, filename, period_start::text, period_end::text, opening_balance, closing_balance, parser, validated FROM statements WHERE owner_id = $1 ORDER BY id`,
 		"transactions": `SELECT t.id, t.statement_id, t.tx_date::text, t.label, t.amount, t.domain_id,
 		                        COALESCE(ARRAY_TO_STRING(ARRAY_AGG(tg.name) FILTER (WHERE tg.name IS NOT NULL), ','), '')
 		                 FROM transactions t

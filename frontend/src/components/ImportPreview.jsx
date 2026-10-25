@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { eur } from '../api'
 import { previewExpired, previewPage } from './importPreviewModel.mjs'
 import './ImportPreview.css'
+import ImportReport from './ImportReport'
 
 const dateLabel = value => value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('fr-FR') : 'Non déterminée'
 const amountLabel = value => value == null ? 'Non disponible' : eur(value)
@@ -37,7 +38,7 @@ export default function ImportPreview({ preview, onDecision }) {
         <dl className="import-preview-metrics">
           <div><dt>Opérations détectées</dt><dd>{preview.transactions.length}</dd></div>
           <div><dt>Nouvelles à cet instant</dt><dd>{preview.new_count}</dd></div>
-          <div><dt>Doublons à ignorer</dt><dd>{preview.duplicates}</dd></div>
+          <div><dt>Doublons confirmés</dt><dd>{preview.duplicates}</dd></div>
         </dl>
         <div className="import-preview-checks">
           <div>
@@ -50,11 +51,13 @@ export default function ImportPreview({ preview, onDecision }) {
             <dl className="import-preview-balances">
               <div><dt>Solde initial</dt><dd>{amountLabel(preview.opening_balance)}</dd></div>
               <div><dt>Solde final</dt><dd>{amountLabel(preview.closing_balance)}</dd></div>
-              <div><dt>Écart : initial + opérations − final</dt><dd>{amountLabel(preview.balance_difference)}</dd></div>
+              <div><dt>Écart : final − (initial + opérations)</dt><dd>{amountLabel(preview.balance_difference)}</dd></div>
             </dl>
             {preview.balance_difference == null && <p>Les soldes de contrôle ne sont pas tous disponibles. Un CSV ne permet généralement pas de valider cet équilibre.</p>}
           </div>
         </div>
+        {preview.blocked_reason && <p className="notice err" role="alert">{preview.blocked_reason}</p>}
+        <ImportReport report={preview.import_report} />
         <div className="import-preview-table-heading">
           <h3>Opérations extraites</h3>
           <label htmlFor={filterId}>Afficher</label>
@@ -62,14 +65,14 @@ export default function ImportPreview({ preview, onDecision }) {
             <option value="all">Toutes</option><option value="new">Nouvelles</option><option value="duplicates">Doublons</option>
           </select>
         </div>
-        <div className="import-preview-table-scroll">
+        <div className="import-preview-table-scroll" tabIndex={0} role="region" aria-label="Opérations extraites">
           <table>
             <thead><tr><th>Date</th><th>Libellé</th><th className="num">Montant</th><th>Traitement prévu</th></tr></thead>
             <tbody>
               {view.rows.map((t, index) => (
                 <tr key={`${view.currentPage}-${index}`}>
                   <td>{dateLabel(t.date)}</td><td>{t.label}</td><td className="num amt">{eur(t.amount)}</td>
-                  <td>{t.duplicate ? 'Doublon · ignoré' : 'À importer'}</td>
+                  <td>{t.duplicate ? 'Déjà enregistré · même document' : 'À importer'}</td>
                 </tr>
               ))}
               {view.total === 0 && <tr><td colSpan={4}>Aucune opération dans ce filtre.</td></tr>}
@@ -81,13 +84,13 @@ export default function ImportPreview({ preview, onDecision }) {
           <span aria-live="polite">Page {view.currentPage + 1} / {view.pages} · {view.total} opérations</span>
           <button className="btn-secondary" onClick={() => setPage(view.currentPage + 1)} disabled={view.currentPage + 1 >= view.pages}>Suivante</button>
         </nav>
-        <p className="import-preview-note">Compare cet aperçu au document original : seules les lignes exploitables par le parseur apparaissent ici. La déduplication suit les règles existantes (date, libellé normalisé et montant). Les doublons sont revérifiés à l’enregistrement ; les nombres définitifs peuvent changer si un autre import intervient.</p>
+        <p className="import-preview-note">Compare cet aperçu au document original et consulte les contrôles non exécutés. Deux lignes identiques d’un même PDF sont conservées. Un document identique est reconnu par son empreinte source ; une simple ressemblance avec un autre import exige une vérification et suspend l’enregistrement.</p>
         <p className="import-preview-note">Les règles et la catégorisation automatique s’appliqueront après confirmation. L’analyse du fichier a pu utiliser le fournisseur IA configuré. L’aperçu expire à {new Date(preview.expires_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} et disparaît au redémarrage du serveur.</p>
       </div>
       <footer className="import-preview-footer">
         {expired ? <p role="alert">Cet aperçu a expiré. Annule et sélectionne à nouveau le fichier.</p> : <p>Confirmer enregistre les opérations nouvelles dans <strong>{preview.account_name}</strong>.</p>}
-        <button className="btn" onClick={() => decide(true)} disabled={expired}>
-          {preview.new_count > 0 ? `Confirmer l’import (${preview.new_count} nouvelles)` : 'Terminer — aucune nouvelle opération'}
+        <button className="btn" onClick={() => decide(true)} disabled={expired || !!preview.blocked_reason}>
+          {preview.blocked_reason ? 'Import suspendu — vérification nécessaire' : preview.new_count > 0 ? `${preview.validated ? 'Confirmer l’import' : 'Enregistrer comme provisoire'} (${preview.new_count} nouvelles)` : 'Terminer — aucune nouvelle opération'}
         </button>
       </footer>
     </dialog>

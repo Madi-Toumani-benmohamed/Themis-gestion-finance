@@ -29,14 +29,14 @@ func TestBudgetsPostgres(t *testing.T) {
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`
  CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,name text,is_transfer bool DEFAULT false);
- CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
+ CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigserial PRIMARY KEY,account_id bigint,owner_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz DEFAULT now());
  CREATE TEMP TABLE budgets(id bigserial PRIMARY KEY,domain_id bigint REFERENCES domains(id),monthly_limit numeric(12,2) CHECK(monthly_limit>0),owner_id bigint,UNIQUE(owner_id,domain_id));
  CREATE TEMP TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,owner_id bigint,tx_date date,label text DEFAULT 'TEST',display_label text DEFAULT '',merchant text DEFAULT '',label_kind text DEFAULT '',amount numeric(12,2),domain_id bigint);
  CREATE TEMP TABLE tags(id bigint PRIMARY KEY,name text,owner_id bigint);
  CREATE TEMP TABLE transaction_tags(transaction_id bigint,tag_id bigint);
  INSERT INTO domains VALUES(1,1,null,'Personnel',false),(2,1,1,'Courses',false),(3,1,1,'Télécom',false),(4,1,null,'Virement',true),(5,1,4,'Livret',false),(6,1,null,'Loisirs',false),(7,2,null,'SECRET CATEGORY',false),(8,1,null,'Atteint',false),(9,1,null,'Vide',false);
- INSERT INTO accounts VALUES(1,1,'TEST');
+ INSERT INTO accounts(id,owner_id,name) VALUES(1,1,'TEST');
  INSERT INTO statements(account_id,owner_id,filename,period_start,period_end,validated) VALUES(1,1,'TEST','2020-01-01','2020-01-31',true);
  INSERT INTO budgets(domain_id,monthly_limit,owner_id) VALUES(1,100,1),(2,50,1),(4,500,1),(8,20,1),(9,30,1),(7,40,2);
  INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,label_kind) VALUES
@@ -48,6 +48,7 @@ func TestBudgetsPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+ seedDocumentedStatementBalances(t,db)
 	server := &Server{DB: db}
 	request := func(method, path, body string, owner int64) *http.Request {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))

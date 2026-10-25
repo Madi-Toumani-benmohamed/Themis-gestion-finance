@@ -343,7 +343,8 @@ func TestEngagementHistoryAtomicityAndReconciliationPostgres(t *testing.T) {
 func TestEngagementExportOwnerIsolationPostgres(t *testing.T) {
 	db := engagementTestDB(t)
 	s := &Server{DB: db}
-	_, err := db.Exec(`CREATE TABLE accounts(id bigint,name text,kind text,interest_rate numeric,deposit_limit numeric,owner_id bigint);
+	_, err := db.Exec(`CREATE TABLE statement_validation_history(owner_id bigint,id bigint);
+ CREATE TABLE accounts(id bigint,name text,kind text,interest_rate numeric,deposit_limit numeric,owner_id bigint,tracking_mode text DEFAULT 'statements');
  CREATE TABLE domains(id bigint,name text,parent_id bigint,color text,owner_id bigint);
  CREATE TABLE rules(id bigint,pattern text,domain_id bigint,owner_id bigint);
  CREATE TABLE budgets(id bigint,domain_id bigint,monthly_limit numeric,owner_id bigint);

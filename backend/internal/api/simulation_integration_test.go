@@ -21,11 +21,11 @@ func TestSimulationPostgres(t *testing.T) {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	_, err = db.Exec(`CREATE TEMP TABLE accounts(id bigint,owner_id bigint,name text);
+	_, err = db.Exec(`CREATE TEMP TABLE accounts(id bigint,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE domains(id bigint,name text,is_transfer bool,owner_id bigint DEFAULT 1,parent_id bigint);
  CREATE TEMP TABLE statements(id bigint,account_id bigint,owner_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz DEFAULT now());
  CREATE TEMP TABLE transactions(statement_id bigint,owner_id bigint,tx_date date,amount numeric(12,2),domain_id bigint,hash text UNIQUE,label_kind text DEFAULT '');
- INSERT INTO accounts VALUES(1,1,'TEST');
+ INSERT INTO accounts(id,owner_id,name) VALUES(1,1,'TEST');
  INSERT INTO domains(id,name,is_transfer) VALUES(1,'A',false),(2,'B',false),(3,'Virement interne',true);
  INSERT INTO statements(id,account_id,owner_id,filename,period_start,period_end,validated)
  SELECT n,1,1,'TEST',date_trunc('month',CURRENT_DATE)-n*interval '1 month',date_trunc('month',CURRENT_DATE)-(n-1)*interval '1 month'-interval '1 day',true FROM generate_series(1,3) n;
@@ -45,6 +45,7 @@ func TestSimulationPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+ seedDocumentedStatementBalances(t,db)
 	srv := &Server{DB: db}
 	run := func(owner int64) (*httptest.ResponseRecorder, map[string]json.RawMessage) {
 		t.Helper()
@@ -93,7 +94,7 @@ func TestSimulationPostgres(t *testing.T) {
 		t.Fatal("missing data presented as zero")
 	}
 	// Un mois sans opération peut être un zéro établi uniquement si documenté.
-	if _, err = db.Exec(`DELETE FROM transactions WHERE owner_id=1;UPDATE statements SET validated=true`); err != nil {
+	if _, err = db.Exec(`DELETE FROM transactions WHERE owner_id=1;UPDATE statements SET validated=true,opening_balance=0,closing_balance=0`); err != nil {
 		t.Fatal(err)
 	}
 	w, out = run(1)

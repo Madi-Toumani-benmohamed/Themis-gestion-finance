@@ -13,6 +13,18 @@ import (
 	"themis/internal/parser"
 )
 
+func TestDescribeImportExactCentDifference(t *testing.T) {
+	opening, closing := 0.0, 0.3
+	res := &models.ParseResult{OpeningBalance: &opening, ClosingBalance: &closing, Transactions: []models.Transaction{{Amount: 0.1}, {Amount: 0.2}}}
+	if diff := describeImport(res, nil).BalanceDifference; diff == nil || *diff != 0 {
+		t.Fatal("preview used inexact arithmetic", diff)
+	}
+	closing = 0.31
+	if diff := describeImport(res, nil).BalanceDifference; diff == nil || *diff != 0.01 {
+		t.Fatal("difference sign or cents incorrect", diff)
+	}
+}
+
 func TestDescribeImportDuplicatesAndBalances(t *testing.T) {
 	a := models.Transaction{Date: "2026-10-01", Label: "TEST A", Amount: -10}
 	a.Hash = parser.TxHash(a)

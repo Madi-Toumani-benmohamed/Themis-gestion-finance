@@ -16,6 +16,7 @@ func sampleRows() []Row {
 		row(95, w("Ancien", 50, 45), w("solde", 100, 38), w("au", 142, 15), w("21.05.2026", 160, 70), w("306,46", 490, 40)),
 		row(90, w("22.05", 50, 35), w("22.05", 90, 35), w("Carte", 130, 35), w("Burger", 170, 42), w("23,10", 405, 38)),
 		row(85, w("03.06", 50, 35), w("Virement", 90, 60), w("reçu", 155, 30), w("300,00", 488, 42)),
+		row(81, w("Total des opérations", 50, 160), w("23,10", 405, 38), w("300,00", 488, 42)),
 		row(80, w("Nouveau", 50, 55), w("solde", 108, 38), w("au", 150, 15), w("22.06.2026", 168, 70), w("583,36", 490, 40)),
 	}
 }
@@ -52,6 +53,7 @@ func TestChooseYearCrossYear(t *testing.T) {
 		row(95, w("Ancien", 50, 45), w("solde", 100, 38), w("au", 142, 15), w("20.12.2025", 160, 70), w("100,00", 490, 40)),
 		row(90, w("28.12", 50, 35), w("Achat", 90, 40), w("10,00", 405, 38)),
 		row(85, w("05.01", 50, 35), w("Achat", 90, 40), w("20,00", 405, 38)),
+		row(81, w("Total des opérations", 50, 160), w("30,00", 405, 38), w("0,00", 488, 42)),
 		row(80, w("Nouveau", 50, 55), w("solde", 108, 38), w("au", 150, 15), w("19.01.2026", 168, 70), w("70,00", 490, 40)),
 	}
 	res, err := ParseLocal(rows)
@@ -96,26 +98,13 @@ func TestBankNameNotAHeader(t *testing.T) {
 	}
 }
 
-func TestReconcileArbitratesOCR(t *testing.T) {
-	// deux lectures ambiguës : seule la combinaison (560 ; 7,50) équilibre
-	alt1, alt2 := 560.00, -7.90
-	res := &models.ParseResult{
-		Transactions: []models.Transaction{
-			{Date: "2026-06-05", Label: "A", Amount: 960.00, AltAmount: &alt1},
-			{Date: "2026-06-08", Label: "B", Amount: -7.50, AltAmount: &alt2},
-		},
-	}
-	open, close := 100.00, 652.50 // 100 + 560 - 7.50
-	res.OpeningBalance, res.ClosingBalance = &open, &close
-	if Validate(res) {
-		t.Fatalf("ne devrait pas valider avant réconciliation")
-	}
-	reconcile(res, nil, nil)
-	if !res.Validated {
-		t.Fatalf("la réconciliation devrait trouver la combinaison équilibrée")
-	}
-	if res.Transactions[0].Amount != 560.00 || res.Transactions[1].Amount != -7.50 {
-		t.Errorf("mauvaise combinaison retenue: %v / %v", res.Transactions[0].Amount, res.Transactions[1].Amount)
+func TestReconciliationNeverChoosesAnOCRAmountToBalance(t *testing.T) {
+	alt := 560.0
+	open, close := 100.0, 652.5
+	res := &models.ParseResult{OpeningBalance: &open, ClosingBalance: &close, Transactions: []models.Transaction{{Amount: 960, AltAmount: &alt}, {Amount: -7.5}}}
+	reconcileImport(res, nil)
+	if res.Validated || res.Transactions[0].Amount != 960 || res.Report.Completeness != "failed" {
+		t.Fatal("OCR ambiguity must remain explicit; balancing must not overwrite source readings")
 	}
 }
 

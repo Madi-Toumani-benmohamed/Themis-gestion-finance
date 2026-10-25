@@ -43,14 +43,14 @@ func TestRecurringReviewPostgres(t *testing.T) {
 	}
 	defer db.Close()
 	_, err = db.Exec(`CREATE TABLE users(id bigint PRIMARY KEY);
- CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
+ CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text DEFAULT 'statements');
  CREATE TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,name text,is_transfer bool);
  CREATE TABLE statements(id bigint PRIMARY KEY,owner_id bigint,account_id bigint,filename text,period_start date,period_end date,validated bool,uploaded_at timestamptz DEFAULT now());
  CREATE TABLE transactions(id bigserial PRIMARY KEY,owner_id bigint,statement_id bigint,tx_date date,label text,amount numeric(12,2),domain_id bigint,merchant text DEFAULT '',display_label text DEFAULT '',label_kind text DEFAULT '');
  CREATE TABLE schema_migrations(name text PRIMARY KEY);
  INSERT INTO schema_migrations VALUES('020_recurring_reviews.sql');
  INSERT INTO users VALUES(1),(2);
- INSERT INTO accounts VALUES(11,1,'TEST'),(21,2,'OTHER TEST');
+ INSERT INTO accounts(id,owner_id,name) VALUES(11,1,'TEST'),(21,2,'OTHER TEST');
  INSERT INTO domains VALUES(1,1,null,'Abonnements',false),(2,1,null,'Épargne',true),(3,1,2,'Sous-catégorie',false),(4,1,null,'Retraits',false),(20,2,null,'OTHER PRIVATE DOMAIN',false);
  INSERT INTO statements(id,owner_id,account_id,filename,period_start,period_end,validated) VALUES(100,1,11,'TEST','2020-01-01','2020-03-31',true);
  INSERT INTO transactions(owner_id,statement_id,tx_date,label,amount,domain_id,merchant,display_label)
@@ -67,6 +67,7 @@ func TestRecurringReviewPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+ seedDocumentedStatementBalances(t,db)
 	migration, err := os.ReadFile("../db/migrations/020_recurring_reviews.sql")
 	if err != nil {
 		t.Fatal(err)

@@ -33,7 +33,7 @@ function AccountCoverage({ account, current, onInspect }) {
               Cela ne signifie pas nécessairement que des opérations sont absentes.
             </p>
           </div>
-        ) : <p>Les relevés validés couvrent la période examinée sans interruption.</p>}
+        ) : <p>Les relevés validés documentent la période examinée sans interruption de dates. Cela ne prouve pas l’exhaustivité de chaque extraction.</p>}
         {account.unknown_periods > 0 && (
           <p className="data-reliability-explanation">
             {account.unknown_periods} relevé(s) ont une période absente ou invalide : ils sont présentés à titre de vérification
@@ -76,9 +76,10 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
     let active = true
     setReport(null)
     setError(null)
-    api.reliability(month).then(value => { if (active) setReport(value) })
+    const abort = new AbortController()
+    api.reliability(month, { signal: abort.signal }).then(value => { if (active) setReport(value) })
       .catch(err => { if (active) setError(err.message) })
-    return () => { active = false }
+    return () => { active = false; abort.abort() }
   }, [month, attempt])
   const summary = report ? reliabilitySummary(report) : null
 
@@ -86,7 +87,7 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
     <section className="data-reliability" aria-labelledby={titleId}>
       <header className="data-reliability-header">
         <div>
-          <h2 id={titleId}>Fiabilité des données</h2>
+          <h2 id={titleId}>Couverture documentaire</h2>
           <p>Vérifie les périodes documentées par tes relevés, compte par compte.</p>
         </div>
         <div className="data-reliability-month">
@@ -104,7 +105,7 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
       ) : !report ? <p role="status">Vérification de la couverture…</p> : (
         <>
           <div className="data-reliability-overview" aria-live="polite">
-            <p><strong>{summary.documented} / {summary.total}</strong> comptes documentés{report.current ? ' à date' : ' sur le mois'}</p>
+            <p><strong>{summary.documented} / {summary.total}</strong> comptes soumis au suivi documentaire couverts{report.current ? ' à date' : ' sur le mois'}</p>
             <p>
               <strong>{summary.toReview}</strong> relevés à vérifier
               {summary.unknownPeriods > 0 && <span> · {summary.unknownPeriods} à période indéterminée</span>}
@@ -114,6 +115,7 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
               <time dateTime={report.through}>{reliabilityDate(report.through)}</time>
             </p>
           </div>
+          {report.accounts.some(a => a.tracking_mode === 'manual') && <p className="data-reliability-explanation">{report.accounts.filter(a => a.tracking_mode === 'manual').length} compte(s) suivis par pointage, exclus du dénominateur documentaire.</p>}
           {report.current && (
             <p className="data-reliability-explanation">
               Les jours à venir ne sont pas considérés comme manquants.
@@ -121,10 +123,10 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
             </p>
           )}
           {summary.total === 0 ? (
-            <p>Aucun compte ni relevé disponible. Importe un premier relevé pour examiner la couverture.</p>
+            <p>Aucun compte soumis au suivi documentaire. Les comptes suivis par pointage ne nécessitent pas de relevé mensuel.</p>
           ) : (
             <div className="data-reliability-accounts">
-              {report.accounts.map(account => (
+              {report.accounts.filter(account => account.tracking_mode !== 'manual').map(account => (
                 <AccountCoverage key={account.id} account={account} current={report.current} onInspect={onInspect} />
               ))}
             </div>
@@ -132,7 +134,7 @@ export function DataReliability({ month, onMonthChange, onInspect, onGoUpload })
           <footer className="data-reliability-footer">
             <p>
               La date du dernier import et la dernière transaction ne prouvent pas la complétude.
-              Seules les périodes de relevés validés sont prises en compte ; les comptes sans relevé restent non documentés.
+              Seules les périodes réconciliées de relevés validés sont prises en compte. Les pointages et valorisations manuels restent dans Comptes et sont exclus de ce contrôle.
             </p>
             {onGoUpload && <button className="btn-secondary" onClick={onGoUpload}>Importer un relevé</button>}
           </footer>
