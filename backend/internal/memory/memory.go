@@ -8,9 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"themis/internal/models"
@@ -44,35 +46,50 @@ type Client struct {
 
 // New crée un client prêt à l'emploi.
 func New(cfg Config) *Client {
+	cfg.URL = strings.TrimRight(cfg.URL, "/")
 	return &Client{
 		cfg:  cfg,
 		http: &http.Client{Timeout: cfg.RequestTimeout},
 	}
 }
 
-// IsReady vérifie que le service KG est joignable.
+// Enabled and Configured report configuration without performing network IO.
+func (c *Client) Enabled() bool    { return c.cfg.Enabled }
+func (c *Client) Configured() bool { return c.cfg.URL != "" }
+
+// IsReady checks only the health endpoint; no graph facts are read or changed.
 func (c *Client) IsReady(ctx context.Context) bool {
 	if !c.cfg.Enabled || c.cfg.URL == "" {
 		return false
 	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.cfg.URL+"/health", nil)
 	if err != nil {
 		return false
 	}
-	resp, err := c.http.Do(req)
+	client := *c.http
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	response, err := client.Do(req)
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return false
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&body) == nil && body.Status == "ok"
 }
 
 // ────────────────────────── Learn ────────────────────────────
 
 type learnIn struct {
-	GroupID  string   `json:"group_id"`
-	Facts    []factIn `json:"facts"`
-	Source   string   `json:"source"`
+	GroupID string   `json:"group_id"`
+	Facts   []factIn `json:"facts"`
+	Source  string   `json:"source"`
 }
 
 type factIn struct {

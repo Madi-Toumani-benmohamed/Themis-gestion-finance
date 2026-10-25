@@ -99,17 +99,17 @@ export const api = {
     }).then(json),
   deleteBudget: (id) => fetch(`/api/budgets/${id}`, { method: 'DELETE' }).then(json),
   recurring: (minMonths = 2) => fetch(`/api/recurring?min_months=${minMonths}`).then(json),
-  adminConfig: () => fetch('/api/admin/config').then(json),
+  adminConfig: (options = {}) => scopedG('/api/admin/config', {}, options),
   adminPutConfig: (cfg) =>
     fetch('/api/admin/config', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg),
     }).then(json),
-  adminTestAI: (cfg) =>
+  adminTestAI: (cfg, options = {}) =>
     fetch('/api/admin/ai/test', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg || {}),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg || {}), signal: options.signal,
     }).then(json),
-  adminOllamaModels: (url) =>
-    fetch('/api/admin/ollama/models' + (url ? `?url=${encodeURIComponent(url)}` : '')).then(json),
+  adminOllamaModels: (url, options = {}) => scopedG('/api/admin/ollama/models', { url }, options),
+  adminTestMemory: (options = {}) => fetch('/api/admin/ai/memory/test', { method: 'POST', credentials: 'same-origin', signal: options.signal }).then(json),
   adminStats: () => fetch('/api/admin/stats').then(json),
   adminReapplyRules: () => fetch('/api/admin/reapply-rules', { method: 'POST' }).then(json),
   applyRules: () => fetch('/api/rules/apply', { method: 'POST', credentials: 'same-origin' }).then(json),

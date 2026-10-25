@@ -61,7 +61,7 @@ themis/
 | `narrative.go` | Synthèse narrative IA | `GET /api/intel/narrative` |
 | `coherence.go` | Vérif cohérence données | `GET /api/coherence` |
 | `merchant_alias.go` | Renommage marchands | `/api/merchants/*` |
-| `admin.go` | Config IA persistée + stats | `/api/admin/*` |
+| `admin.go`, `ai_configuration.go`, `ai_diagnostics.go` | Clients IA, configuration globale masquée, validation administrative, révisions et contrôles explicites | `/api/admin/config`, `/api/admin/ai/test`, `/api/admin/ollama/models`, `/api/admin/ai/memory/test` |
 | `period.go` | Infos période + comparaison | `GET /api/period`, `GET /api/period/compare` |
 
 ### Modèles (`backend/internal/models/models.go`)
@@ -270,7 +270,8 @@ APP_PORT=8080
 COOKIE_SECURE=false
 
 # IA
-AI_PROVIDER=ollama|anthropic|mistral|freellm|none
+AI_PROVIDER=openai|ollama|anthropic|mistral|freellm|none
+AI_TRUSTED_ENDPOINTS=    # Bases HTTP(S) exactes autorisées côté serveur, séparées par virgules
 OLLAMA_URL=http://ollama:11434/v1   # Variable legacy - préférer REMOTE_OLLAMA_BASE_URL
 REMOTE_OLLAMA_BASE_URL=   # URL Ollama distante (Mac hôte), vide = conteneur local (profile local-ai)
 OLLAMA_MODEL=qwen2.5:14b
@@ -427,13 +428,16 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - Vite 8.3.4 et `@vitejs/plugin-react` 6.1.2 : mise à niveau conjointe pour respecter les peer dependencies. Build avec Node.js 22 (Docker et CI).
 - Correctifs PostCSS, Browserslist et baseline-browser-mapping intégrés via Dependabot.
 
-### Fournisseur OpenAI — Admin
+### Configuration IA — Admin (consolidation 2026-10-25)
 
 - `backend/internal/llm/openai.go` : client Responses HTTP (`store: false`), sorties texte/JSON, détection des réponses incomplètes et erreurs sans corps sensible. Aucun SDK ajouté.
-- `admin.go` : configuration persistée `openai_model` / `openai_key`, clé masquée (`openai_key_set`), conservation de la clé lors du test et de la sauvegarde avec champ vide, repli environnement.
+- `ai_configuration.go` : configuration globale `settings.ai_config` (`owner_id IS NULL`), fusion des PUT partiels, secrets absents du DTO, `clear_keys` explicite, repli environnement et `expected_revision` facultatif pour compatibilité. Les endpoints IA imposent un administrateur authentifié même avant le premier compte ; la clé est interdite aux réglages génériques.
+- `ai_diagnostics.go` : contrôles explicites et bornés, résultats datés et liés aux paramètres testés ; le test ne persiste pas la configuration. Contrôle mémoire facultatif distinct, sans lecture du graphe. Les diagnostics sont en mémoire et redeviennent non testés après redémarrage.
+- `llm/network.go` : URL Ollama/FreeLLM validées, DNS vérifié à la connexion et IP fixée, sans proxy ambiant ni redirection. Bases privées/HTTP autorisées uniquement via `OLLAMA_URL`, `FREELLM_URL` ou `AI_TRUSTED_ENDPOINTS` côté opérateur. Métadonnées/link-local toujours refusées. Les erreurs des fournisseurs ne renvoient pas les corps externes.
 - `config.go` + configurations Compose : `OPENAI_API_KEY` / `OPENAI_MODEL`. Modèle par défaut `gpt-4.1-mini`, modifiable.
-- `frontend/src/pages/Admin.jsx` : choix OpenAI, champs modèle/clé et test existant. La mémoire Graphiti garde son fournisseur Ollama séparé.
+- `frontend/src/components/AIConfiguration.jsx` + `.css` + `aiConfigurationModel.mjs` : panneaux Fournisseur, Comportement, Diagnostic et Mémoire ; brouillon, activation et connexion vérifiée distincts. `Admin.jsx` conserve les autres actions administratives. `App.jsx` répercute l’activation IA ; `api.js` annule les lectures et contrôles obsolètes. La mémoire Graphiti garde sa configuration serveur séparée.
 - Tests `llm/openai_test.go`, `api/admin_openai_test.go`, `config/openai_test.go` : contrat Responses simulé, erreurs/refus/troncature, persistance, masquage et sélection du fournisseur.
+- Tests supplémentaires : `api/ai_configuration_test.go`, `llm/network_test.go`, `memory/health_test.go`, tests du contexte, `aiConfigurationModel.test.mjs` et `tests/ai-configuration.browser.cjs` intégré à la CI. Rapports : `docs/AI_CONFIGURATION_{AUDIT,CHANGES,TESTS}.md`.
 
 ### CI — consommation GitHub Actions
 

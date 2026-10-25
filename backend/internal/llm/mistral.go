@@ -5,15 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 const mistralURL = "https://api.mistral.ai/v1/chat/completions"
 
 // Mistral appelle l'API Mistral AI (cloud). Les données envoyées quittent la machine.
 type Mistral struct {
-	APIKey string
-	Model  string
+	HTTPClient *http.Client
+	APIKey     string
+	Model      string
 }
 
 func (m *Mistral) Name() string { return "mistral (" + m.Model + ")" }
@@ -24,9 +27,9 @@ type mistralMsg struct {
 }
 
 type mistralReq struct {
-	Model    string      `json:"model"`
-	Messages []mistralMsg `json:"messages"`
-	MaxTokens int        `json:"max_tokens"`
+	Model     string       `json:"model"`
+	Messages  []mistralMsg `json:"messages"`
+	MaxTokens int          `json:"max_tokens"`
 }
 
 type mistralResp struct {
@@ -43,8 +46,8 @@ type mistralResp struct {
 func (m *Mistral) Complete(ctx context.Context, system, user string, maxTokens int, wantJSON bool) (string, error) {
 	messages := []mistralMsg{{Role: "system", Content: system}, {Role: "user", Content: user}}
 	body, _ := json.Marshal(mistralReq{
-		Model:    m.Model,
-		Messages: messages,
+		Model:     m.Model,
+		Messages:  messages,
 		MaxTokens: maxTokens,
 	})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mistralURL, bytes.NewReader(body))
@@ -54,21 +57,24 @@ func (m *Mistral) Complete(ctx context.Context, system, user string, maxTokens i
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+m.APIKey)
 
-	client := &http.Client{Timeout: cloudTimeout()}
+	client := providerHTTPClient(m.HTTPClient, cloudTimeout())
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", &ProviderError{Status: resp.StatusCode}
+	}
 
 	var mr mistralResp
-	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
-		return "", err
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&mr); err != nil {
+		return "", &ProviderError{Kind: "response"}
 	}
 	if mr.Error != nil {
-		return "", fmt.Errorf("API Mistral: %s", mr.Error.Message)
+		return "", &ProviderError{Kind: "response"}
 	}
-	if len(mr.Choices) == 0 {
+	if len(mr.Choices) == 0 || strings.TrimSpace(mr.Choices[0].Message.Content) == "" {
 		return "", fmt.Errorf("réponse vide de Mistral")
 	}
 	return mr.Choices[0].Message.Content, nil

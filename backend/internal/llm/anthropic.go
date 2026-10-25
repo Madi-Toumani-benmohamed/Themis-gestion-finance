@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
+	"strings"
 )
 
 const anthropicURL = "https://api.anthropic.com/v1/messages"
@@ -13,8 +14,9 @@ const anthropicURL = "https://api.anthropic.com/v1/messages"
 // Anthropic appelle l'API Claude. Les données envoyées quittent la machine :
 // à réserver aux utilisateurs qui l'acceptent (voir Ollama pour du 100 % local).
 type Anthropic struct {
-	APIKey string
-	Model  string
+	HTTPClient *http.Client
+	APIKey     string
+	Model      string
 }
 
 func (a *Anthropic) Name() string { return "anthropic (" + a.Model + ")" }
@@ -54,25 +56,31 @@ func (a *Anthropic) Complete(ctx context.Context, system, user string, maxTokens
 	req.Header.Set("x-api-key", a.APIKey)
 	req.Header.Set("anthropic-version", "2023-06-01")
 
-	client := &http.Client{Timeout: cloudTimeout()}
+	client := providerHTTPClient(a.HTTPClient, cloudTimeout())
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", providerNetworkError(ctx, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", &ProviderError{Status: resp.StatusCode}
+	}
 
 	var cr anthropicResp
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-		return "", err
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&cr); err != nil {
+		return "", &ProviderError{Kind: "response"}
 	}
 	if cr.Error != nil {
-		return "", fmt.Errorf("API Anthropic: %s", cr.Error.Message)
+		return "", &ProviderError{Kind: "response"}
 	}
 	out := ""
 	for _, c := range cr.Content {
 		if c.Type == "text" {
 			out += c.Text
 		}
+	}
+	if strings.TrimSpace(out) == "" {
+		return "", &ProviderError{Kind: "response"}
 	}
 	return out, nil
 }
