@@ -428,6 +428,38 @@ func (s *Server) changeStatement(w http.ResponseWriter, r *http.Request, deletin
 			writeErr(w, 409, fmt.Errorf("rattachements incohérents : suppression bloquée pour préserver les données"))
 			return
 		}
+		// Serialize statement deletion with allocation creation. The service locks
+		// source and target transaction rows before checking allocation capacity.
+		lockedTransactions, lockErr := tx.QueryContext(r.Context(), `SELECT id FROM transactions WHERE statement_id=$1 AND owner_id=$2 ORDER BY id FOR UPDATE`, id, owner)
+		if lockErr != nil {
+			writeErr(w, 500, fmt.Errorf("contrôle des remboursements indisponible"))
+			return
+		}
+		for lockedTransactions.Next() {
+			var transactionID int64
+			if lockErr = lockedTransactions.Scan(&transactionID); lockErr != nil {
+				break
+			}
+		}
+		if lockErr == nil {
+			lockErr = lockedTransactions.Err()
+		}
+		lockedTransactions.Close()
+		if lockErr != nil {
+			writeErr(w, 500, fmt.Errorf("contrôle des remboursements indisponible"))
+			return
+		}
+		var linked bool
+		if err = tx.QueryRowContext(r.Context(), `SELECT
+		 EXISTS(SELECT 1 FROM reimbursement_cases c JOIN transactions t ON t.id=c.credit_transaction_id AND t.owner_id=c.owner_id WHERE t.statement_id=$1 AND c.owner_id=$2 AND c.status<>'voided')
+		 OR EXISTS(SELECT 1 FROM reimbursement_allocations a JOIN transactions t ON t.id=a.expense_transaction_id AND t.owner_id=a.owner_id WHERE t.statement_id=$1 AND a.owner_id=$2 AND a.voided_at IS NULL)`, id, owner).Scan(&linked); err != nil {
+			writeErr(w, 500, fmt.Errorf("contrôle des remboursements indisponible"))
+			return
+		}
+		if linked {
+			writeErr(w, 409, fmt.Errorf("suppression bloquée : annule d’abord les rapprochements de remboursement actifs"))
+			return
+		}
 	}
 	snapshot, _ := json.Marshal(st)
 	if _, err = tx.ExecContext(r.Context(), `INSERT INTO statement_validation_history(statement_id,resource_id,owner_id,actor_id,action,previous_validated,note,snapshot) VALUES($1::integer,$1::bigint,$2,$2,$3,$4,$5,$6)`, id, owner, action, st.Validated, note, snapshot); err != nil {

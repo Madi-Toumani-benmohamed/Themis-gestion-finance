@@ -164,6 +164,20 @@ export const api = {
   voidCreditPayment: (id, paymentId, note) => J(`/api/credits/${id}/payments/${paymentId}`, 'DELETE', { note }),
   engagementHistory: (kind, id, offset = 0, options = {}) => scopedG(`/api/${kind}/${id}/history`, { offset }, options),
 
+  // Manual reimbursement qualification and exact-cent allocation workflows.
+  reimbursements: (params = {}, options = {}) => scopedG('/api/reimbursements', params, options),
+  reimbursement: (id, options = {}) => scopedG(`/api/reimbursements/${id}`, {}, options),
+  createReimbursement: (data) => J('/api/reimbursements', 'POST', data),
+  eligibleReimbursementExpenses: (caseId, params = {}, options = {}) => scopedG('/api/reimbursements/eligible-expenses', { case_id: caseId, ...params }, options),
+  createReimbursementAllocation: (caseId, allocation, idempotencyKey) => fetch(`/api/reimbursements/${caseId}/allocations`, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(allocation),
+  }).then(json),
+  voidReimbursementAllocation: (caseId, allocationId, reason = '') => J(`/api/reimbursements/${caseId}/allocations/${allocationId}`, 'DELETE', { reason }),
+  voidReimbursement: (caseId, reason = '') => J(`/api/reimbursements/${caseId}/void`, 'POST', { reason }),
+  reimbursementHistory: (caseId, params = {}, options = {}) => scopedG(`/api/reimbursements/${caseId}/history`, params, options),
+
   // Domaines & tags
   domains: () => G('/api/domains'),
   createDomain: (name, parentId, color) => J('/api/domains', 'POST', { name, parent_id: parentId ?? null, color }),

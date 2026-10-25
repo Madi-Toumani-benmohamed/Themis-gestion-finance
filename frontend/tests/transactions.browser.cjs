@@ -22,6 +22,17 @@ rows[5].tags = ['taxes']
 rows[4].suggestion = { domain_id: 2, tags: ['facture'], source: 'ai' }
 for (let i = 0; i < 101; i++) rows.push(row(1000 + i, '01', 0, `OPERATION TEST ${i}`))
 let failPatch = new Set(), failReport = false, requests = [], patches = [], empty = false, slow = false
+let reimbursement = null, reimbursementAllocations = [], reimbursementHistory = [], allocationRequests = [], failReimbursementRead = false, failNextAllocation = false
+const reimbursementView = () => {
+  if (!reimbursement) return null
+  const credit = rows.find(t => t.id === reimbursement.credit_transaction_id)
+  const active = reimbursementAllocations.filter(a => !a.voided_at)
+  const allocated = active.reduce((sum, a) => sum + a.amount_cents, 0)
+  const status = reimbursement.status === 'voided' ? 'voided' : allocated === 0 ? 'unmatched' : allocated === credit.amount_cents ? 'allocated' : 'partial'
+  return { ...reimbursement, status, allocated_cents: allocated, unallocated_cents: credit.amount_cents - allocated,
+    credit: { transaction_id: credit.id, date: credit.date, amount_cents: credit.amount_cents, label: credit.label, display_label: credit.display_label, merchant: credit.merchant },
+    allocations: reimbursementAllocations.map(a => ({ ...a, expense: { transaction_id: a.expense_transaction_id, date: rows.find(t => t.id === a.expense_transaction_id)?.date, amount_cents: rows.find(t => t.id === a.expense_transaction_id)?.amount_cents, label: rows.find(t => t.id === a.expense_transaction_id)?.label, display_label: rows.find(t => t.id === a.expense_transaction_id)?.display_label, merchant: rows.find(t => t.id === a.expense_transaction_id)?.merchant } })) }
+}
 function report(params) {
   let found = empty ? [] : rows.slice()
   const selectedMonth = params.get('month')
@@ -68,6 +79,23 @@ async function main() {
       if (slow) await new Promise(resolve => setTimeout(resolve, 500))
       data = report(url.searchParams)
       if (failReport) { status = 500; data = { error: 'ERREUR RESEAU TEST' } }
+    } else if (path === '/api/reimbursements' && request.method() === 'GET') {
+      const target = Number(url.searchParams.get('transaction_id'))
+      const view = reimbursementView()
+      data = { cases: view && (target === reimbursement.credit_transaction_id || reimbursementAllocations.some(a => a.expense_transaction_id === target)) ? [view] : [], total: view ? 1 : 0, limit: 100, offset: 0 }
+      if (failReimbursementRead) { status = 500; data = { error: 'ERREUR RAPPROCHEMENT TEST' } }
+    } else if (path === '/api/reimbursements' && request.method() === 'POST') {
+      const input = request.postDataJSON(), credit = rows.find(t => t.id === input.credit_transaction_id)
+      reimbursement = { id: 51, credit_transaction_id: credit.id, kind: input.kind, status: 'unmatched', note: input.note || '' }
+      reimbursementAllocations = []; reimbursementHistory.push({ event_type: 'case_created' }); data = reimbursementView(); status = 201
+    } else if (path === '/api/reimbursements/eligible-expenses') {
+      data = { expenses: [7, 4].map(id => { const t = rows.find(row => row.id === id); const used = reimbursementAllocations.filter(a => a.expense_transaction_id === id && !a.voided_at).reduce((sum, a) => sum + a.amount_cents, 0); return { transaction_id: id, date: t.date, amount_cents: t.amount_cents, label: t.label, display_label: t.display_label, merchant: t.merchant, remaining_cents: -t.amount_cents - used } }).filter(item => item.remaining_cents > 0), total: 2, limit: 100, offset: 0 }
+    } else if (/^\/api\/reimbursements\/\d+\/allocations$/.test(path) && request.method() === 'POST') {
+      const input = request.postDataJSON(); allocationRequests.push({ input, key: request.headers()['idempotency-key'] })
+      if (failNextAllocation) { failNextAllocation = false; status = 500; data = { error: 'ERREUR ALLOCATION TEST' } }
+      else { const allocation = { id: reimbursementAllocations.length + 61, expense_transaction_id: input.expense_transaction_id, amount_cents: input.amount_cents, created_at: new Date().toISOString(), voided_at: null }; reimbursementAllocations.push(allocation); reimbursementHistory.push({ event_type: 'allocation_created' }); data = reimbursementView(); status = 201 }
+    } else if (/^\/api\/reimbursements\/\d+\/allocations\/\d+$/.test(path) && request.method() === 'DELETE') {
+      const id = Number(path.split('/').at(-1)); reimbursementAllocations = reimbursementAllocations.map(a => a.id === id ? { ...a, voided_at: new Date().toISOString(), void_reason: request.postDataJSON().reason } : a); reimbursementHistory.push({ event_type: 'allocation_voided' }); status = 204
     } else if (/^\/api\/transactions\/\d+$/.test(path) && request.method() === 'PATCH') {
       const id = Number(path.split('/').at(-1)), patch = request.postDataJSON()
       patches.push({ id, patch })
@@ -80,7 +108,7 @@ async function main() {
   const settle = () => page.evaluate(async () => { await document.fonts.ready; await new Promise(requestAnimationFrame); await Promise.all(document.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished.catch(() => {}))) })
   const count = text => page.locator('.transaction-list-heading').filter({ hasText: text }).waitFor()
   const search = page.getByRole('searchbox', { name: 'Recherche', exact: true })
-  const reset = async () => { await page.getByRole('button', { name: 'Réinitialiser les filtres' }).click(); await count('107 opérations'); await settle() }
+  const reset = async () => { await page.getByRole('button', { name: 'Réinitialiser les filtres' }).click(); await count(`${rows.length} opérations`); await settle() }
   const detail = () => page.getByRole('dialog', { name: 'Détail de la transaction' })
   const transactionRow = id => page.getByRole('checkbox', {name: `Sélectionner l’opération ${id}`, exact: true}).locator('xpath=ancestor::tr')
   const positiveColors = async () => {
@@ -213,6 +241,51 @@ async function main() {
   slow = false; await search.fill('CAFE'); await count('1 opération'); await page.waitForTimeout(600)
   assert.equal(await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).count(), 1)
   await reset()
+  // Explicit refund qualification, exact partial allocation, limit validation, and traced revocation.
+  rows.push(row(6, '05', 3000, 'REMBOURSEMENT TEST'))
+  await reset()
+  failReimbursementRead = true
+  await page.getByRole('button', { name: 'Détail de REMBOURSEMENT TEST', exact: true }).click(); await detail().waitFor()
+  await detail().getByRole('alert').filter({ hasText: 'ERREUR RAPPROCHEMENT TEST' }).waitFor()
+  failReimbursementRead = false
+  await detail().getByRole('button', { name: 'Réessayer', exact: true }).click()
+  await detail().getByRole('button', { name: 'Qualifier comme remboursement', exact: true }).waitFor()
+  await detail().getByRole('button', { name: 'Qualifier comme remboursement', exact: true }).click()
+  await detail().getByRole('combobox', { name: 'Nature du remboursement' }).selectOption('merchant_refund')
+  await detail().getByRole('button', { name: 'Confirmer la qualification', exact: true }).click()
+  await detail().getByText('Retour ou annulation commerciale', { exact: true }).waitFor()
+  assert.match(await detail().innerText(), /Non affecté : 30,00/)
+  await detail().getByRole('button', { name: 'Associer à une dépense', exact: true }).click()
+  await detail().getByRole('combobox', { name: 'Dépense' }).selectOption('7')
+  const allocationAmount = detail().getByRole('textbox', { name: 'Montant à associer (€)' })
+  await allocationAmount.fill('50,00')
+  assert.equal(await detail().getByRole('button', { name: 'Confirmer l’association' }).isDisabled(), true)
+  await detail().getByRole('alert').filter({ hasText: 'dépasse' }).waitFor()
+  await allocationAmount.fill('5,00')
+  await page.on('dialog', dialog => dialog.accept())
+  failNextAllocation = true
+  await detail().getByRole('button', { name: 'Confirmer l’association' }).click()
+  await detail().getByRole('alert').filter({ hasText: 'Association non confirmée' }).waitFor()
+  assert.equal(reimbursementAllocations.length, 0)
+  await detail().getByRole('button', { name: 'Confirmer l’association' }).click()
+  await detail().getByText(/Affecté : 5,00/).waitFor()
+  assert.equal(allocationRequests.length, 2); assert.equal(allocationRequests[0].key, allocationRequests[1].key, 'network retry reuses the idempotency key'); assert.equal(allocationRequests[0].input.amount_cents, 500)
+  assert.equal(allocationRequests[0].input.expense_transaction_id, 7); assert.ok(allocationRequests[0].key.length >= 16)
+  await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
+  await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).click(); await detail().waitFor()
+  assert.match(await detail().innerText(), /Remboursé : 5,00/)
+  assert.match(await detail().innerText(), /Coût personnel net indicatif : 7,34/)
+  await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
+  await page.getByRole('button', { name: 'Détail de REMBOURSEMENT TEST', exact: true }).click(); await detail().waitFor()
+  await detail().getByRole('button', { name: 'Retirer', exact: true }).click()
+  await detail().getByText('Association annulée le', { exact: false }).waitFor()
+  assert.equal(reimbursementHistory.filter(event => event.event_type === 'allocation_voided').length, 1)
+  await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Détail de REMBOURSEMENT TEST', exact: true }).click(); await settle()
+  assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, 'reimbursement drawer fits mobile viewport')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 1920, height: 1080 })
   const output = process.env.THEMIS_TRANSACTIONS_ARTIFACTS || '/tmp/themis-transactions-ui'
   fs.mkdirSync(output, { recursive: true })
   const viewports = [{width:1920,height:1080},{width:1280,height:800},{width:960,height:540},{width:768,height:1024},{width:390,height:844},{width:320,height:700}]
@@ -251,7 +324,7 @@ async function main() {
   await page.getByRole('button',{name:'Importer un ou plusieurs relevés',exact:true}).click()
   await (await chooser).setFiles([])
   assert.deepEqual(errors, [])
-  console.log('Transactions browser PASS: filters, exact totals, pagination, drawer, errors, edits, suggestions, bulk partial failures, period/stale requests, 6 viewports, keyboard and dark/light Axe.')
+  console.log('Transactions browser PASS: filters, exact totals, pagination, drawer, refund qualification/allocation/revocation, errors, edits, suggestions, bulk partial failures, period/stale requests, 6 viewports, keyboard and dark/light Axe.')
   await browser.close()
 }
 main().catch(error => { console.error(error); process.exit(1) })
