@@ -147,14 +147,19 @@ export const api = {
   addSnapshot: (id, date, balance) => J(`/api/accounts/${id}/snapshots`, 'POST', { date, balance }),
 
   // Crédits, taxes, dettes
-  credits: () => G('/api/credits'),
+  credits: (params = {}, options = {}) => scopedG('/api/credits', params, options),
   createCredit: (c) => J('/api/credits', 'POST', c),
+  updateCredit: (id, patch) => J(`/api/credits/${id}`, 'PATCH', patch),
   deleteCredit: (id) => J(`/api/credits/${id}`, 'DELETE'),
-  taxes: () => G('/api/taxes'),
+  taxes: (params = {}, options = {}) => scopedG('/api/taxes', params, options),
   createTax: (t) => J('/api/taxes', 'POST', t),
   setTaxPaid: (id, paid) => J(`/api/taxes/${id}`, 'PATCH', { paid }),
   deleteTax: (id) => J(`/api/taxes/${id}`, 'DELETE'),
-  obligations: () => G('/api/obligations'),
+  obligations: (options = {}) => scopedG('/api/obligations', {}, options),
+  patchTax: (id, patch) => J(`/api/taxes/${id}`, 'PATCH', patch),
+  creditPayment: (id, payment) => J(`/api/credits/${id}/payments`, 'POST', payment),
+  voidCreditPayment: (id, paymentId, note) => J(`/api/credits/${id}/payments/${paymentId}`, 'DELETE', { note }),
+  engagementHistory: (kind, id, offset = 0, options = {}) => scopedG(`/api/${kind}/${id}/history`, { offset }, options),
 
   // Domaines & tags
   domains: () => G('/api/domains'),

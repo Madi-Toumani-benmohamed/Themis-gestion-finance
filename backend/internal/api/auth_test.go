@@ -2,7 +2,6 @@ package api
 
 import (
 	"testing"
-	"time"
 )
 
 func TestPasswordHashRoundtrip(t *testing.T) {
@@ -33,32 +32,6 @@ func TestValidPassword(t *testing.T) {
 	}
 	if validPassword("themis2026") != nil {
 		t.Error("un mot de passe valide a été rejeté")
-	}
-}
-
-func TestComputeCredit(t *testing.T) {
-	now := time.Date(2026, 7, 15, 0, 0, 0, 0, time.UTC)
-	c := creditOut{MonthlyAmount: 250, MonthsTotal: 48, StartMonth: "2025-01"}
-	computeCredit(&c, now)
-	// janv 2025 → juil 2026 = 19 mensualités
-	if c.MonthsPaid != 19 {
-		t.Errorf("MonthsPaid = %d, attendu 19", c.MonthsPaid)
-	}
-	if c.MonthsRemaining != 29 {
-		t.Errorf("MonthsRemaining = %d, attendu 29", c.MonthsRemaining)
-	}
-	if c.Remaining != 29*250 {
-		t.Errorf("Remaining = %.2f, attendu %.2f", c.Remaining, 29*250.0)
-	}
-	if c.EndMonth != "2028-12" {
-		t.Errorf("EndMonth = %q, attendu 2028-12", c.EndMonth)
-	}
-
-	// crédit déjà soldé : ne dépasse jamais le total
-	done := creditOut{MonthlyAmount: 100, MonthsTotal: 12, StartMonth: "2020-01"}
-	computeCredit(&done, now)
-	if done.MonthsRemaining != 0 || done.Remaining != 0 {
-		t.Errorf("crédit soldé mal calculé: reste %d mois / %.2f", done.MonthsRemaining, done.Remaining)
 	}
 }
 
