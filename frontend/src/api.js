@@ -32,7 +32,7 @@ export const api = {
   anomalies: (month) => fetch('/api/anomalies' + (month ? `?month=${month}` : '')).then(json),
   journal: (month) => fetch('/api/journal' + (month ? `?month=${month}` : '')).then(json),
   remaining: (month) => fetch('/api/remaining' + (month ? `?month=${month}` : '')).then(json),
-  reliability: (month) => G('/api/reliability?' + new URLSearchParams({ month })),
+  reliability: (month, options = {}) => scopedG('/api/reliability', { month }, options),
   coverage: () => fetch('/api/coverage').then(json),
   intelMerchants: (months = 3, month, options = {}) => scopedG('/api/intel/merchants', { months, month }, options),
   intelNature: (month, options = {}) => scopedG('/api/intel/nature', { month }, options),
@@ -68,7 +68,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pattern, domain_id: domainId, tags, apply }),
     }).then(json),
-  statements: () => fetch('/api/statements').then(json),
+  statements: (options = {}) => scopedG('/api/statements', {}, options),
+  validateStatement: (id, action, note) => J(`/api/statements/${id}/validation`, 'PATCH', { action, note }),
+  recheckStatement: (id, mode) => J(`/api/statements/${id}/checks`, 'POST', { mode }),
   deleteStatement: (id) => fetch(`/api/statements/${id}`, { method: 'DELETE' }).then(json),
   upload: (file, accountId, progressToken) => {
     const fd = new FormData()
@@ -143,6 +145,7 @@ export const api = {
   // Comptes
   accounts: () => G('/api/accounts'),
   createAccount: (a) => J('/api/accounts', 'POST', a),
+  updateAccountTracking: (id, tracking_mode) => J(`/api/accounts/${id}`, 'PATCH', { tracking_mode }),
   deleteAccount: (id) => J(`/api/accounts/${id}`, 'DELETE'),
   addSnapshot: (id, date, balance) => J(`/api/accounts/${id}/snapshots`, 'POST', { date, balance }),
 

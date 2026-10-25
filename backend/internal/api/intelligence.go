@@ -176,12 +176,18 @@ func (s *Server) merchantsView(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, fmt.Errorf("couverture des marchands indisponible"))
 		return
 	}
-	comparable := !current && len(coverage.Accounts) > 0
+	comparable := !current
+	required := 0
 	for _, account := range coverage.Accounts {
+		if account.TrackingMode == "manual" {
+			continue
+		}
+		required++
 		if account.Status != "documented" {
 			comparable = false
 		}
 	}
+	comparable = comparable && required > 0
 	if comparable {
 		var orphan bool
 		err = tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM transactions t WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date

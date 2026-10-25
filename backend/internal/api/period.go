@@ -53,9 +53,17 @@ func (s *Server) getPeriodInfo(owner int64, month string) (periodInfo, error) {
 // La présence d'une opération ne prouve aucun jour de couverture.
 func periodFromReliability(report reliabilityReport, lastTx string, days int, current bool, today int) periodInfo {
 	info := periodInfo{Month: report.Month, IsCurrent: current, LastTxDate: lastTx, DaysInMonth: days, Completeness: "unknown", Status: "incomplete"}
-	documented := len(report.Accounts) > 0
+	documented := false
+	required := 0
 	covered := days
 	for _, account := range report.Accounts {
+		if account.TrackingMode == "manual" {
+			continue
+		}
+		required++
+		if required == 1 {
+			documented = true
+		}
 		if account.Status != "documented" {
 			documented = false
 		}

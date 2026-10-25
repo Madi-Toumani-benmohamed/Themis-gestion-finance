@@ -40,7 +40,7 @@ func ParseCSV(data []byte) (*models.ParseResult, error) {
 		return nil, fmt.Errorf("colonnes non reconnues : il faut au moins une date, un libellé et un montant (ou débit/crédit)")
 	}
 
-	res := &models.ParseResult{Parser: "csv"}
+	res := &models.ParseResult{Parser: "csv", Report: &models.ImportReport{Candidates: []models.ImportCandidate{}, Issues: []string{}}}
 	var minDate, maxDate string
 
 	for rowIndex, row := range rows[headerIdx+1:] {
@@ -85,7 +85,8 @@ func ParseCSV(data []byte) (*models.ParseResult, error) {
 			return nil, fmt.Errorf("ligne CSV %d : montant invalide ou absent", headerIdx+rowIndex+2)
 		}
 
-		tx := models.Transaction{Date: iso, Label: cleanLabel(label), Amount: amount}
+		tx := models.Transaction{Date: iso, Label: cleanLabel(label), Amount: amount, SourcePage: 1, SourceLine: headerIdx + rowIndex + 2}
+		res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: len(res.Transactions), Page: 1, Line: tx.SourceLine, Status: "parsed"})
 		tx.Hash = TxHash(tx)
 		res.Transactions = append(res.Transactions, tx)
 
@@ -105,6 +106,8 @@ func ParseCSV(data []byte) (*models.ParseResult, error) {
 	// Un CSV ne porte pas de solde d'ouverture/clôture fiable : pas de validation
 	// au centime (contrairement au PDF). On marque comme non validé.
 	res.Validated = false
+	reconcileImport(res, nil)
+	documentIdentity(res, data)
 	return res, nil
 }
 

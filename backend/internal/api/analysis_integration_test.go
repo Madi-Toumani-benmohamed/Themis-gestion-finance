@@ -17,13 +17,13 @@ func analysisTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db := qualityTestDB(t)
 	_, err := db.Exec(`CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,name text,color text,is_transfer bool DEFAULT false);
- CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
+ CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigint PRIMARY KEY,owner_id bigint,account_id bigint,filename text,validated bool,period_start date,period_end date,uploaded_at timestamptz DEFAULT now());
  CREATE TEMP TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,owner_id bigint,tx_date date,label text DEFAULT 'TEST',display_label text DEFAULT '',merchant text DEFAULT '',label_kind text DEFAULT '',amount numeric(12,2),domain_id bigint);
  CREATE TEMP TABLE tags(id bigint PRIMARY KEY,owner_id bigint,name text);
  CREATE TEMP TABLE transaction_tags(transaction_id bigint,tag_id bigint,PRIMARY KEY(transaction_id,tag_id));
  CREATE TEMP TABLE tag_folder_prefs(owner_id bigint,tag_name text,state text,PRIMARY KEY(owner_id,tag_name));
- INSERT INTO accounts VALUES(1,1,'TEST'),(2,2,'SECRET');
+ INSERT INTO accounts(id,owner_id,name) VALUES(1,1,'TEST'),(2,2,'SECRET');
  INSERT INTO domains VALUES(1,1,NULL,'Courses','#ffffff',false),(2,1,1,'Enfant','#ffffff',false),(3,1,NULL,'Interne','#ffffff',true),(4,1,3,'Interne enfant','#ffffff',false),(5,2,NULL,'SECRET','#ffffff',true);
  INSERT INTO statements(id,owner_id,account_id,filename,validated,period_start,period_end) VALUES(1,1,1,'TEST.csv',true,'2019-10-01','2020-02-29'),(2,2,2,'SECRET.csv',true,'2019-10-01','2020-02-29');
  INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,label_kind,merchant) VALUES
@@ -37,6 +37,7 @@ func analysisTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedDocumentedStatementBalances(t, db)
 	return db
 }
 func TestAnalysisReportPostgres(t *testing.T) {
@@ -140,7 +141,7 @@ func TestAnalysisSignalsPostgres(t *testing.T) {
  (100,1,1,'2019-10-10',-10,1,'TREND TEST'),(101,1,1,'2019-11-10',-20,1,'TREND TEST'),(102,1,1,'2019-12-10',-30,1,'TREND TEST'),(103,1,1,'2020-01-10',-100,1,'TREND TEST'),
  (104,1,1,'2018-02-10',-80,1,'ANNUAL TEST'),(105,1,1,'2019-02-10',-80,1,'ANNUAL TEST'),
  (106,1,1,'2020-02-10',-999,1,'FUTURE TEST');
- INSERT INTO transaction_tags VALUES(100,4),(101,4),(102,4),(103,4);`)
+ INSERT INTO transaction_tags VALUES(100,4),(101,4),(102,4),(103,4);UPDATE statements st SET closing_balance=opening_balance+COALESCE((SELECT SUM(t.amount) FROM transactions t WHERE t.statement_id=st.id AND t.owner_id=st.owner_id),0);`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +314,7 @@ func TestAnalysisCategoryAndMerchantSourcesPostgres(t *testing.T) {
 func TestAnalysisMerchantsComparableWindowsPostgres(t *testing.T) {
 	db := analysisTestDB(t)
 	srv := &Server{DB: db}
-	_, err := db.Exec(`INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,merchant) VALUES(1,1,'2019-12-10',-10,1,'CAFE TEST')`)
+	_, err := db.Exec(`INSERT INTO transactions(statement_id,owner_id,tx_date,amount,domain_id,merchant) VALUES(1,1,'2019-12-10',-10,1,'CAFE TEST');UPDATE statements SET closing_balance=closing_balance-10 WHERE id=1`)
 	if err != nil {
 		t.Fatal(err)
 	}

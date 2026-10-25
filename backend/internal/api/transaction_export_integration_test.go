@@ -28,7 +28,7 @@ func TestTransactionExportPostgres(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	_, err = db.Exec(`CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,is_transfer bool DEFAULT false,name text);
- CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
+ CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigint PRIMARY KEY,owner_id bigint,account_id bigint,filename text,validated bool,period_start date,period_end date);
  CREATE TEMP TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,owner_id bigint,tx_date date,label text,display_label text DEFAULT '',merchant text DEFAULT '',label_kind text DEFAULT '',amount numeric(12,2),domain_id bigint,classification_source text DEFAULT 'unknown');
  CREATE TEMP TABLE tags(id bigint PRIMARY KEY,owner_id bigint,name text);
@@ -36,7 +36,7 @@ func TestTransactionExportPostgres(t *testing.T) {
  CREATE TEMP TABLE transaction_suggestions(transaction_id bigint PRIMARY KEY,owner_id bigint,domain_id bigint,tags text[],source text);
  CREATE TEMP TABLE budgets(id bigint PRIMARY KEY,owner_id bigint,domain_id bigint);
  INSERT INTO domains VALUES(1,1,null,false,'=TEST CATEGORY'),(2,1,null,true,'TEST TRANSFER'),(3,1,1,false,'TEST CHILD'),(10,2,null,false,'SECRET CATEGORY');
- INSERT INTO accounts VALUES(1,1,'TEST CURRENT'),(2,1,'TEST SAVINGS'),(10,2,'SECRET ACCOUNT');
+ INSERT INTO accounts(id,owner_id,name) VALUES(1,1,'TEST CURRENT'),(2,1,'TEST SAVINGS'),(10,2,'SECRET ACCOUNT');
  INSERT INTO statements VALUES(1,1,1,'TEST SOURCE',true,'2020-01-01','2020-01-31'),(2,1,2,'TEST SAVINGS',false,null,null),(10,2,10,'SECRET SOURCE',true,'2020-01-01','2020-01-31');
  INSERT INTO transactions(statement_id,owner_id,tx_date,label,merchant,label_kind,amount,domain_id) VALUES
  (1,1,'2020-01-01','=RAW FORMULA','TEST MERCHANT','',-0.10,1),
@@ -53,6 +53,7 @@ func TestTransactionExportPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedDocumentedStatementBalances(t, db)
 	s := &Server{DB: db}
 	call := func(path string, export bool) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("GET", path, nil)

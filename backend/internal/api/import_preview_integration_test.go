@@ -47,13 +47,13 @@ func TestImportPreviewPostgres(t *testing.T) {
 	}
 	defer db.Close()
 	_, err = db.Exec(`
- CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text);
- CREATE TABLE statements(id bigserial PRIMARY KEY,filename text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,parser text,validated bool NOT NULL DEFAULT false,uploaded_at timestamptz DEFAULT now(),account_id bigint,owner_id bigint);
- CREATE TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,tx_date date,label text,amount numeric,domain_id bigint,hash text,owner_id bigint,display_label text,merchant text,label_kind text,classification_source text DEFAULT 'unknown',UNIQUE(owner_id,hash));
+ CREATE TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text DEFAULT 'statements');
+ CREATE TABLE statements(id bigserial PRIMARY KEY,filename text,period_start date,period_end date,opening_balance numeric,closing_balance numeric,parser text,validated bool NOT NULL DEFAULT false,uploaded_at timestamptz DEFAULT now(),account_id bigint,owner_id bigint,source_sha256 text,source_parse_hash text,import_report jsonb);
+ CREATE TABLE transactions(id bigserial PRIMARY KEY,statement_id bigint,tx_date date,label text,amount numeric,domain_id bigint,hash text,owner_id bigint,display_label text,merchant text,label_kind text,classification_source text DEFAULT 'unknown',source_business_hash text,source_index integer,source_page integer,source_line integer,value_date date,UNIQUE(owner_id,hash));
  CREATE TABLE domains(id bigint PRIMARY KEY,name text,color text,is_transfer bool,parent_id bigint,owner_id bigint);
  CREATE TABLE rules(id bigserial,pattern text,domain_id bigint,owner_id bigint,tags text);
  CREATE TABLE merchant_aliases(owner_id bigint,match_key text,display text,is_pattern bool DEFAULT false);
- INSERT INTO accounts VALUES(11,1,'COMPTE TEST'),(21,2,'AUTRE COMPTE');
+ INSERT INTO accounts(id,owner_id,name) VALUES(11,1,'COMPTE TEST'),(21,2,'AUTRE COMPTE');
  INSERT INTO statements(id,filename,owner_id,account_id) VALUES(100,'seed-1',1,11),(200,'seed-2',2,21);`)
 	if err != nil {
 		t.Fatal(err)
@@ -109,20 +109,27 @@ func TestImportPreviewPostgres(t *testing.T) {
 		srv.confirmImportPreview(w, req)
 		return w
 	}
-	ambiguous := preview("Date;Libelle;Montant\n02/10/2026;TEST B;20,00\n02/10/2026;TEST B;20,00\n", "11")
-	if w := confirm(ambiguous.Token, 1); w.Code < 400 || count("transactions") != 1 || count("statements") != 1 {
-		t.Fatal("ambiguous identical occurrences were silently merged")
-	}
+
+	// Equal business attributes do not establish a duplicate across documents.
 	csv := "Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n02/10/2026;TEST B;20,00\n"
-	out := preview(csv, "11")
-	if out.NewCount != 1 || out.Duplicates != 1 || out.AccountID != 11 || out.BalanceDifference != nil {
-		t.Fatalf("unexpected preview: %+v", out)
+	blocked := preview(csv, "11")
+	if blocked.BlockedReason == "" || blocked.Duplicates != 0 {
+		t.Fatal("historical similarity presented as proven duplicate")
 	}
-	if count("statements") != 1 || count("transactions") != 1 {
+	if w := confirm(blocked.Token, 1); w.Code < 400 || count("transactions") != 1 {
+		t.Fatal("ambiguous historical import was not atomic")
+	}
+	// Start a genuinely new source; both identical occurrences must survive.
+	fresh := "Date;Libelle;Montant\n03/10/2026;NEW SOURCE;-5,00\n03/10/2026;NEW SOURCE;-5,00\n"
+	out := preview(fresh, "11")
+	if out.NewCount != 2 || out.Duplicates != 0 || out.Report == nil {
+		t.Fatalf("legitimate occurrences collapsed: %+v", out)
+	}
+	if count("transactions") != 1 || count("statements") != 1 {
 		t.Fatal("preview wrote financial data")
 	}
 	if w := confirm(out.Token, 2); w.Code != http.StatusGone {
-		t.Fatal("another owner confirmed preview")
+		t.Fatal("foreign preview confirmed")
 	}
 	cancel := ownerRequest("DELETE", "/api/statements/previews/"+out.Token, 1)
 	cancel.SetPathValue("token", out.Token)
@@ -130,54 +137,52 @@ func TestImportPreviewPostgres(t *testing.T) {
 	if w := confirm(out.Token, 1); w.Code != http.StatusGone {
 		t.Fatal("cancelled preview confirmed")
 	}
-	if count("statements") != 1 || count("transactions") != 1 {
-		t.Fatal("cancel changed financial data")
-	}
-	out = preview(csv, "11")
-	// Un autre import survient après l'aperçu : la contrainte SQL reste décisive.
-	if _, err = db.Exec(`INSERT INTO transactions(statement_id,tx_date,label,amount,hash,owner_id) VALUES(100,$1,$2,$3,$4,1)`, b.Date, b.Label, b.Amount, parser.TxHash(b)); err != nil {
-		t.Fatal(err)
-	}
+	out = preview(fresh, "11")
 	w := confirm(out.Token, 1)
-	if w.Code != http.StatusOK || count("statements") != 1 || count("transactions") != 2 {
-		t.Fatalf("concurrent duplicates: %d %s", w.Code, w.Body)
-	}
-	var result struct {
-		Inserted   int `json:"inserted"`
-		Duplicates int `json:"duplicates"`
-	}
-	_ = json.NewDecoder(w.Body).Decode(&result)
-	if result.Inserted != 0 || result.Duplicates != 2 {
-		t.Fatalf("duplicates not rechecked: %+v", result)
-	}
-	out = preview("Date;Libelle;Montant\n03/10/2026;TEST C;-5,00\n", "11")
-	w = confirm(out.Token, 1)
 	if w.Code != http.StatusCreated || count("transactions") != 3 || count("statements") != 2 {
-		t.Fatalf("confirmation failed: %d %s", w.Code, w.Body)
+		t.Fatalf("source confirmation failed: %d %s", w.Code, w.Body)
 	}
-	if w = confirm(out.Token, 1); w.Code != http.StatusGone || count("transactions") != 3 {
-		t.Fatal("confirmation replay was accepted")
+	if w = confirm(out.Token, 1); w.Code != http.StatusGone {
+		t.Fatal("token replay accepted")
 	}
-	// Vérifier qu'une collision sur un autre compte ne supprime aucune ligne.
-	if _, err = db.Exec(`INSERT INTO accounts VALUES(12,1,'SECOND COMPTE TEST')`); err != nil {
+	// Identical source content, including occurrences, is idempotent.
+	replay := preview(fresh, "11")
+	if replay.NewCount != 0 || replay.Duplicates != 2 {
+		t.Fatal("source duplicates not identified")
+	}
+	w = confirm(replay.Token, 1)
+	if w.Code != http.StatusOK || count("transactions") != 3 || count("statements") != 2 {
+		t.Fatalf("idempotent replay failed: %d %s", w.Code, w.Body)
+	}
+	// Two pending previews race for the same document: the second must recheck.
+	concurrent := "Date;Libelle;Montant\n04/10/2026;CONCURRENT SOURCE;20,00\n"
+	first, second := preview(concurrent, "11"), preview(concurrent, "11")
+	if w = confirm(first.Token, 1); w.Code != http.StatusCreated {
+		t.Fatal("first confirmation", w.Code, w.Body)
+	}
+	if w = confirm(second.Token, 1); w.Code != http.StatusOK || count("transactions") != 4 {
+		t.Fatal("source race created duplicate", w.Code, w.Body)
+	}
+	// Same source on a second owned account is a separate provenance scope.
+	if _, err = db.Exec(`INSERT INTO accounts(id,owner_id,name) VALUES(12,1,'SECOND COMPTE TEST')`); err != nil {
 		t.Fatal(err)
 	}
-	collision := preview("Date;Libelle;Montant\n01/10/2026;TEST A;-10,00\n", "12")
-	if w := confirm(collision.Token, 1); w.Code < 400 || count("transactions") != 3 || count("statements") != 2 {
-		t.Fatal("cross-account collision was silently discarded")
+	other := preview(fresh, "12")
+	if w = confirm(other.Token, 1); w.Code != http.StatusCreated || count("transactions") != 6 {
+		t.Fatal("cross-account source collision", w.Code, w.Body)
 	}
-	// La somme persistée doit être exactement celle des trois sources.
 	var total string
-	if err = db.QueryRow(`SELECT sum(amount)::text FROM transactions WHERE owner_id=1`).Scan(&total); err != nil || total != "5.00" {
-		t.Fatalf("unreconciled database total %s: %v", total, err)
+	if err = db.QueryRow(`SELECT sum(amount)::text FROM transactions WHERE owner_id=1`).Scan(&total); err != nil || total != "-10.00" {
+		t.Fatalf("unreconciled source amounts: %s %v", total, err)
 	}
-	out = preview(csv, "11")
+	out = preview("Date;Libelle;Montant\n05/10/2026;OWNERSHIP TEST;-1,00\n", "11")
 	if _, err = db.Exec(`UPDATE accounts SET owner_id=2 WHERE id=11`); err != nil {
 		t.Fatal(err)
 	}
-	if w = confirm(out.Token, 1); w.Code != http.StatusBadRequest || count("transactions") != 3 {
-		t.Fatal("confirmation did not recheck account ownership")
+	if w = confirm(out.Token, 1); w.Code != http.StatusBadRequest || count("transactions") != 6 {
+		t.Fatal("account ownership not rechecked")
 	}
+
 	// API/dashboard source : un mois ancien doit rester interrogeable même si
 	// des mois plus récents existent ; les catégories doivent avoir la même borne.
 	if _, err = db.Exec(`INSERT INTO transactions(statement_id,owner_id,tx_date,label,amount,hash) VALUES(100,1,'2020-01-03','HISTORIQUE TEST',-12.34,'historical-test')`); err != nil {

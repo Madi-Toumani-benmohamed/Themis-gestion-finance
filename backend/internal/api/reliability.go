@@ -24,6 +24,7 @@ type reliabilityStatement struct {
 type reliabilityAccount struct {
 	ID              int64                  `json:"id"`
 	Name            string                 `json:"name"`
+	TrackingMode    string                 `json:"tracking_mode"`
 	LastImport      string                 `json:"last_import"`
 	LastTransaction string                 `json:"last_transaction"`
 	Status          string                 `json:"status"`
@@ -91,6 +92,13 @@ func assessReliabilityAccount(a *reliabilityAccount, first, last time.Time) {
 	spans := []heroDateSpan{}
 	a.ToReview = 0
 	a.UnknownPeriods = 0
+	if a.TrackingMode == "manual" {
+		a.Status = "not_required"
+		a.Gaps = []reliabilityGap{}
+		return
+	}
+	a.ToReview = 0
+	a.UnknownPeriods = 0
 	for i := range a.Statements {
 		st := &a.Statements[i]
 		from, e1 := time.Parse("2006-01-02", st.From)
@@ -140,14 +148,14 @@ func loadReliabilityFrom(ctx context.Context, reader analysisReader, owner int64
 
 func loadReliabilityRangeFrom(ctx context.Context, reader analysisReader, owner int64, first, last time.Time, current bool) (reliabilityReport, error) {
 	report := reliabilityReport{Month: first.Format("2006-01"), Current: current, Through: last.Format("2006-01-02"), Accounts: []reliabilityAccount{}}
-	// Inclure tous les comptes connus comme dans heroMonthCovered. Les relevés
+	// Le mode explicite sépare les comptes documentaires des pointages manuels. Les relevés
 	// dont le compte n'est pas identifiable restent visibles sans nom externe.
 	rows, err := reader.QueryContext(ctx, `WITH scope AS (
- SELECT id,name FROM accounts WHERE owner_id=$1
- UNION SELECT DISTINCT COALESCE(st.account_id,0),'Compte non identifié'
+ SELECT id,name,tracking_mode FROM accounts WHERE owner_id=$1
+ UNION SELECT DISTINCT COALESCE(st.account_id,0),'Compte non identifié','statements'
  FROM statements st WHERE st.owner_id=$1 AND NOT EXISTS (
  SELECT 1 FROM accounts a WHERE a.owner_id=$1 AND a.id=st.account_id)
- ) SELECT c.id,c.name,
+ ) SELECT c.id,c.name,c.tracking_mode,
  COALESCE((SELECT max(st.uploaded_at)::date::text FROM statements st WHERE st.owner_id=$1 AND COALESCE(st.account_id,0)=c.id),''),
  COALESCE((SELECT max(t.tx_date)::text FROM transactions t JOIN statements st ON st.id=t.statement_id AND st.owner_id=$1
  WHERE t.owner_id=$1 AND COALESCE(st.account_id,0)=c.id AND t.tx_date BETWEEN $2::date AND $3::date),'')
@@ -158,7 +166,7 @@ func loadReliabilityRangeFrom(ctx context.Context, reader analysisReader, owner 
 	indices := map[int64]int{}
 	for rows.Next() {
 		a := reliabilityAccount{Statements: []reliabilityStatement{}}
-		if err = rows.Scan(&a.ID, &a.Name, &a.LastImport, &a.LastTransaction); err != nil {
+		if err = rows.Scan(&a.ID, &a.Name, &a.TrackingMode, &a.LastImport, &a.LastTransaction); err != nil {
 			rows.Close()
 			return report, err
 		}
@@ -170,8 +178,8 @@ func loadReliabilityRangeFrom(ctx context.Context, reader analysisReader, owner 
 	if err != nil {
 		return report, err
 	}
-	rows, err = reader.QueryContext(ctx, `SELECT id,COALESCE(account_id,0),filename,COALESCE(period_start::text,''),COALESCE(period_end::text,''),validated
- FROM statements WHERE owner_id=$1 AND (
+	rows, err = reader.QueryContext(ctx, `SELECT id,COALESCE(account_id,0),filename,COALESCE(period_start::text,''),COALESCE(period_end::text,''),COALESCE((`+statementDocumentedSQL+`),false)
+ FROM statements st WHERE owner_id=$1 AND (
  period_start IS NULL OR period_end IS NULL OR period_end<period_start OR
  (period_start<=$3::date AND period_end>=$2::date)) ORDER BY period_start NULLS LAST,id`, owner, first.Format("2006-01-02"), last.Format("2006-01-02"))
 	if err != nil {
