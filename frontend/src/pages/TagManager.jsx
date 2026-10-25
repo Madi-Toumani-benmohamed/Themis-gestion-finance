@@ -15,6 +15,7 @@ export default function TagManager() {
 
   const load = () => {
     setError(null)
+    setTags(null)
     return api
       .tags()
       .then(setTags)
@@ -45,7 +46,7 @@ export default function TagManager() {
           ? `« ${oldName} » fusionné avec « ${neo} ».`
           : `« ${oldName} » renommé en « ${neo} ».`,
       )
-      load()
+      await load()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -59,7 +60,7 @@ export default function TagManager() {
       await api.deleteTag(name)
       setMsg(`Tag « ${name} » supprimé.`)
       setConfirmDel(null)
-      load()
+      await load()
     } catch (e) {
       setError(e.message)
     } finally {

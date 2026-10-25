@@ -85,6 +85,10 @@ async function main() {
       q = url.searchParams,
       m = q.get('month') || month
     requests.push(path + url.search)
+    if (Number(process.env.THEMIS_TEST_API_DELAY_MS) > 0)
+      await new Promise((resolve) =>
+        setTimeout(resolve, Number(process.env.THEMIS_TEST_API_DELAY_MS)),
+      )
     let data = {},
       status = 200
     if (delay && path === delay) await new Promise((r) => setTimeout(r, 650))
@@ -460,7 +464,13 @@ async function main() {
   await family('Pilotage').click()
   await page.getByRole('button', { name: /projet test.*180,02/ }).click()
   await page.getByRole('button', { name: 'voir les transactions →' }).waitFor()
+  const preferenceSaved = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'PUT' &&
+      new URL(response.url()).pathname.endsWith('/pref'),
+  )
   await page.getByRole('button', { name: "ce n'est pas un projet" }).click()
+  await preferenceSaved
   await settle()
   assert.deepEqual(preferences, [{ state: 'hidden' }])
   const tagSource = page.waitForRequest(
@@ -718,18 +728,35 @@ async function main() {
       fullPage: true,
     })
   }
+  const waitForAnalysisData = async () => {
+    await page.waitForFunction(() =>
+      Array.from(
+        document.querySelectorAll('.analysis-page [role="status"]'),
+      ).every((node) => !node.textContent.includes('Chargement')),
+    )
+    await settle()
+  }
   await page.setViewportSize({ width: 1920, height: 1080 })
   await family('Flux financiers').click()
   await detail('Par catégorie').click()
-  await settle()
+  await page.locator('.analysis-page .section .recharts-wrapper').waitFor()
+  await waitForAnalysisData()
   assert.deepEqual(
-    (await new AxeBuilder({ page }).analyze()).violations.map((v) => v.id),
+    (await new AxeBuilder({ page }).analyze()).violations.map((v) => ({
+      id: v.id,
+      nodes: v.nodes.map((n) => ({
+        target: n.target,
+        html: n.html,
+        failureSummary: n.failureSummary,
+      })),
+    })),
     [],
     'category chart axe',
   )
   await family('Pilotage').click()
   await detail('Analyse par tag').click()
-  await settle()
+  await page.locator('.analysis-tag-history-chart .recharts-wrapper').waitFor()
+  await waitForAnalysisData()
   assert.deepEqual(
     (await new AxeBuilder({ page }).analyze()).violations.map((v) => ({
       id: v.id,
@@ -751,11 +778,7 @@ async function main() {
     ]) {
       await family(group).click()
       await detail(section).click()
-      await page
-        .getByRole('status')
-        .filter({ hasText: /Chargement/ })
-        .waitFor({ state: 'hidden' })
-        .catch(() => {})
+      await waitForAnalysisData()
       if (section === 'Analyse par tag' && width === 320) {
         const longRequest = historyRequest(24)
         await page
