@@ -52,7 +52,12 @@ jobs:
         working-directory: backend
         run: go mod download
 
+      - name: Install deterministic PDF extraction
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Run tests
+        env:
+          THEMIS_REQUIRE_PDF_TESTS: '1'
         working-directory: backend
         run: go test -race ./...
 
@@ -116,6 +121,7 @@ jobs:
           NODE_PATH: ${{ runner.temp }}/themis-ui/node_modules
           THEMIS_UI_ARTIFACTS: ${{ runner.temp }}/themis-budgets-ui
           THEMIS_AI_ARTIFACTS: ${{ runner.temp }}/themis-ai-ui
+          THEMIS_STATEMENTS_ARTIFACTS: ${{ runner.temp }}/themis-statements-ui
           THEMIS_CREDITS_ARTIFACTS: ${{ runner.temp }}/themis-credits-ui
           THEMIS_TRANSACTIONS_ARTIFACTS: ${{ runner.temp }}/themis-transactions-ui
         run: |
@@ -133,6 +139,8 @@ jobs:
           node tests/analysis.browser.cjs
           node tests/credits.browser.cjs
           node tests/ai-configuration.browser.cjs
+          node tests/statements.browser.cjs
+          node tests/import-fidelity.browser.cjs
 
   memory:
     name: Knowledge Graph Python

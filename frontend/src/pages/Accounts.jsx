@@ -80,6 +80,11 @@ export default function Accounts() {
               </div>
               <div className="account-name">{a.name}</div>
               <div className="account-balance">{a.balance != null ? eur(a.balance) : '—'}</div>
+              <label className="account-tracking">Mode de suivi
+                <select aria-label={`Mode de suivi de ${a.name}`} value={a.tracking_mode || (a.kind==='courant'?'statements':'manual')} onChange={async e=>{try{await api.updateAccountTracking(a.id,e.target.value);toast.ok('Mode de suivi enregistré.');load()}catch(error){toast.err(error.message)}}}>
+                  <option value="statements">Relevés et contrôle documentaire</option><option value="manual">Pointage / valorisation manuelle</option>
+                </select>
+              </label>
               <div className="account-meta">
                 {a.balance_date && <span>au {a.balance_date}</span>}
                 {a.interest_rate != null && <span>· {a.interest_rate} %/an</span>}

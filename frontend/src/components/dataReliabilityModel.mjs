@@ -1,5 +1,5 @@
 export function reliabilitySummary(report) {
-  const accounts = report.accounts ?? []
+  const accounts = (report.accounts ?? []).filter(a => a.tracking_mode !== 'manual')
   return {
     total: accounts.length,
     documented: accounts.filter(a => a.status === 'documented').length,

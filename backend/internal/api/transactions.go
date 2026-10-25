@@ -43,6 +43,14 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 			*target = n
 		}
 	}
+	if raw := v.Get("statement_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			return bad()
+		}
+		f.where += " AND t.statement_id=" + add(id) + " AND EXISTS(SELECT 1 FROM statements st WHERE st.id=t.statement_id AND st.owner_id=t.owner_id)"
+	}
+
 	if raw := v.Get("ids"); raw != "" {
 		ids, err := parseTransactionSourceIDs(raw)
 		if err != nil {
@@ -57,7 +65,7 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 		return bad()
 	}
 	month := v.Get("month")
-	if report && month == "" && v.Get("from") == "" && v.Get("to") == "" && v.Get("ids") == "" && v.Get("all") != "1" {
+	if report && month == "" && v.Get("from") == "" && v.Get("to") == "" && v.Get("ids") == "" && v.Get("all") != "1" && v.Get("statement_id") == "" {
 		month = now.Format("2006-01")
 	}
 	if month != "" {
@@ -177,6 +185,9 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 }
 
 type transactionReportRow struct {
+	SourcePage           *int                   `json:"source_page,omitempty"`
+	SourceLine           *int                   `json:"source_line,omitempty"`
+	ValueDate            *string                `json:"value_date,omitempty"`
 	ID                   int64                  `json:"id"`
 	StatementID          *int64                 `json:"statement_id,omitempty"`
 	Date                 string                 `json:"date"`
@@ -317,9 +328,9 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 	rows, err := tx.QueryContext(r.Context(), `SELECT t.id,t.statement_id,t.tx_date::text,t.label,t.display_label,t.merchant,t.label_kind,t.amount::text,
  CASE WHEN EXISTS(SELECT 1 FROM domains valid_domain WHERE valid_domain.id=t.domain_id AND valid_domain.owner_id=t.owner_id) THEN t.domain_id ELSE NULL END,
  COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}'),
- a.id,COALESCE(a.name,''),COALESCE(st.filename,''),st.validated,st.period_start::text,st.period_end::text,
+ a.id,COALESCE(a.name,''),COALESCE(st.filename,''),CASE WHEN st.id IS NULL THEN NULL ELSE COALESCE((`+statementDocumentedSQL+`),false) END,st.period_start::text,st.period_end::text,
  CASE WHEN NOT `+financialExpenseSQLT+` THEN 'transfer' WHEN t.amount<0 THEN 'debit' WHEN t.amount>0 THEN 'credit' ELSE 'neutral' END,t.classification_source,
- sug.domain_id,COALESCE(sug.tags,'{}'),COALESCE(sug.source,'')
+ sug.domain_id,COALESCE(sug.tags,'{}'),COALESCE(sug.source,''),(to_jsonb(t)->>'source_page')::integer,(to_jsonb(t)->>'source_line')::integer,to_jsonb(t)->>'value_date'
  FROM transactions t LEFT JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id
  LEFT JOIN accounts a ON a.id=st.account_id AND a.owner_id=t.owner_id
  LEFT JOIN transaction_suggestions sug ON sug.transaction_id=t.id AND sug.owner_id=t.owner_id AND EXISTS(SELECT 1 FROM domains suggested_domain WHERE suggested_domain.id=sug.domain_id AND suggested_domain.owner_id=t.owner_id)
@@ -334,7 +345,7 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 		var suggestionDomain *int64
 		var suggestionTags []string
 		var suggestionSource string
-		if err = rows.Scan(&t.ID, &t.StatementID, &t.Date, &t.Label, &t.Display, &t.Merchant, &t.Kind, &amount, &t.DomainID, pq.Array(&t.Tags), &t.AccountID, &t.AccountName, &t.StatementFilename, &t.StatementValidated, &t.StatementPeriodStart, &t.StatementPeriodEnd, &t.FinancialType, &t.ClassificationSource, &suggestionDomain, pq.Array(&suggestionTags), &suggestionSource); err != nil {
+		if err = rows.Scan(&t.ID, &t.StatementID, &t.Date, &t.Label, &t.Display, &t.Merchant, &t.Kind, &amount, &t.DomainID, pq.Array(&t.Tags), &t.AccountID, &t.AccountName, &t.StatementFilename, &t.StatementValidated, &t.StatementPeriodStart, &t.StatementPeriodEnd, &t.FinancialType, &t.ClassificationSource, &suggestionDomain, pq.Array(&suggestionTags), &suggestionSource, &t.SourcePage, &t.SourceLine, &t.ValueDate); err != nil {
 			rows.Close()
 			writeErr(w, 500, fmt.Errorf("transactions indisponibles"))
 			return

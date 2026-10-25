@@ -30,10 +30,12 @@ var (
 // repère les colonnes Débit/Crédit dans l'en-tête, puis classe chaque montant
 // selon sa position X. Retourne une erreur si le résultat est inexploitable.
 func ParseLocal(rows []Row) (*models.ParseResult, error) {
-	res := &models.ParseResult{Parser: "local"}
+	res := &models.ParseResult{Parser: "local", Report: &models.ImportReport{Candidates: []models.ImportCandidate{}, Issues: []string{}}}
 
+	rows = normalizePageColumns(rows)
 	debitX, creditX, creditRight := findColumns(rows)
 	rows = sanitizeRows(rows, creditRight)
+	rows = stripMarginCodes(rows)
 	fullText := ""
 	for _, r := range rows {
 		fullText += r.Text() + "\n"
@@ -57,202 +59,164 @@ func ParseLocal(rows []Row) (*models.ParseResult, error) {
 	}
 
 	var current *models.Transaction
-	var openingAlt, closingAlt *float64
-	// chooseYear affecte l'année d'une opération sans année explicite :
-	// celle de la fin de période, sauf passage d'année (relevé déc.→janv.)
+	var hasAmount bool
+	candidateIndex := -1
 	startY, startM := yearMonth(res.PeriodStart)
 	endY, endM := yearMonth(res.PeriodEnd)
 	chooseYear := func(month int) int {
 		if endY == 0 {
-			return time.Now().Year()
+			return 0
 		}
 		if startY != 0 && startY != endY && (month == startM || month > endM) {
 			return startY
 		}
 		return endY
 	}
-
 	flush := func() {
-		if current != nil {
-			current.Label = cleanLabel(current.Label)
-			if current.Label != "" {
-				res.Transactions = append(res.Transactions, *current)
-			}
-			current = nil
+		if current == nil {
+			return
 		}
+		current.Label = cleanLabel(current.Label)
+		if hasAmount && current.Label != "" {
+			res.Transactions = append(res.Transactions, *current)
+		} else {
+			res.Report.Candidates[candidateIndex].Status = "uninterpretable"
+			res.Report.Candidates[candidateIndex].Reason = "missing_amount_or_label"
+		}
+		current = nil
+		hasAmount = false
 	}
-
+	setAmount := func(row Row) bool {
+		amount, alt, x, ok := trailingAmount(row)
+		if !ok {
+			return false
+		}
+		count := 0
+		for _, w := range row.Words {
+			if reAmount.MatchString(normalizeAmountStr(w.S)) {
+				count++
+			}
+		}
+		if count != 1 {
+			res.Report.Issues = appendUnique(res.Report.Issues, "multiple_amounts_on_operation")
+			return false
+		}
+		if debitX < 0 || creditX < 0 {
+			res.Report.Issues = appendUnique(res.Report.Issues, "unknown_debit_credit_columns")
+		}
+		sign := signFromColumns(x, debitX, creditX)
+		current.Amount = sign * amount
+		if alt != nil {
+			v := sign * (*alt)
+			current.AltAmount = &v
+		}
+		return true
+	}
+	pageLines := map[int]int{}
+	inTable := false
 	for _, row := range rows {
+		pageLines[row.Page]++
+		line := row.Line
+		if line == 0 {
+			line = pageLines[row.Page]
+		}
 		text := row.Text()
-
-		// Lignes de solde → balances
-		if reSoldeOld.MatchString(text) {
-			if a, alt, ok := lastAmount(row); ok {
-				res.OpeningBalance = &a
-				openingAlt = alt
-			}
+		if reSoldeOld.MatchString(text) || reSoldeNew.MatchString(text) {
 			flush()
+			if v, _, ok := lastAmount(row); ok {
+				if reSoldeOld.MatchString(text) {
+					res.OpeningBalance = &v
+				} else {
+					res.ClosingBalance = &v
+				}
+			}
+			inTable = reSoldeOld.MatchString(text)
 			continue
 		}
-		if reSoldeNew.MatchString(text) {
-			if a, alt, ok := lastAmount(row); ok {
-				res.ClosingBalance = &a
-				closingAlt = alt
-			}
+		if strings.Contains(strings.ToUpper(removeAccents(text)), "TOTAL DES OPERATIONS") {
 			flush()
+			inTable = false
 			continue
 		}
-
-		// La ligne commence-t-elle par une date ?
 		if len(row.Words) >= 2 {
 			if day, month, y, ok := parseDayMonth(row.Words[0].S); ok {
 				flush()
-				amount, alt, amtX, hasAmt := trailingAmount(row)
-				label := labelBetween(row, hasAmt)
-				if !hasAmt {
-					// date seule sans montant : ignorer (ligne d'info)
-					continue
-				}
+				inTable = true
+				candidateIndex = len(res.Report.Candidates)
+				res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: candidateIndex, Page: row.Page, Line: line, Status: "parsed"})
 				if y == 0 {
 					y = chooseYear(month)
 				}
-				sign := signFromColumns(amtX, debitX, creditX)
-				current = &models.Transaction{
-					Date:   fmt.Sprintf("%04d-%02d-%02d", y, month, day),
-					Label:  label,
-					Amount: sign * amount,
+				date := fmt.Sprintf("%04d-%02d-%02d", y, month, day)
+				if _, e := time.Parse("2006-01-02", date); e != nil {
+					res.Report.Candidates[candidateIndex].Status = "uninterpretable"
+					res.Report.Candidates[candidateIndex].Reason = "invalid_or_unknown_date"
+					continue
 				}
-				if alt != nil {
-					sa := sign * (*alt)
-					current.AltAmount = &sa
+				current = &models.Transaction{Date: date, SourcePage: row.Page, SourceLine: line}
+				if len(row.Words) > 1 {
+					if d, m, y, ok := parseDayMonth(row.Words[1].S); ok {
+						if y == 0 {
+							y = chooseYear(m)
+						}
+						value := fmt.Sprintf("%04d-%02d-%02d", y, m, d)
+						if _, e := time.Parse("2006-01-02", value); e != nil {
+							res.Report.Issues = appendUnique(res.Report.Issues, "invalid_value_date")
+						} else {
+							current.ValueDate = value
+						}
+					}
 				}
+				hasAmount = setAmount(row)
+				current.Label = labelBetween(row, hasAmount)
 				continue
 			}
 		}
-
-		// Ligne de continuation du libellé (pas de date, pas de montant, transaction en cours)
+		// Repeated headers, page furniture and totals do not terminate a pending
+		// operation: the amount/description may continue on the following page.
+		d, c, _ := findColumns([]Row{row})
+		if d >= 0 && c >= 0 {
+			inTable = true
+			continue
+		}
+		if looksLikeNoise(text) {
+			continue
+		}
 		if current != nil {
-			if _, _, ok := lastAmount(row); !ok && !looksLikeNoise(text) {
-				current.Label += " " + text
+			if _, _, ok := lastAmount(row); ok {
+				if !hasAmount {
+					hasAmount = setAmount(row)
+					for _, w := range row.Words {
+						if !reAmount.MatchString(normalizeAmountStr(w.S)) {
+							current.Label += " " + w.S
+						}
+					}
+				} else {
+					flush()
+					res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: len(res.Report.Candidates), Page: row.Page, Line: line, Status: "uninterpretable", Reason: "amount_without_operation_date"})
+				}
 			} else {
-				flush()
+				current.Label += " " + text
+			}
+		} else if inTable {
+			if _, _, ok := lastAmount(row); ok {
+				res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: len(res.Report.Candidates), Page: row.Page, Line: line, Status: "uninterpretable", Reason: "amount_without_operation_date"})
 			}
 		}
 	}
 	flush()
 
-	if len(res.Transactions) == 0 {
+	if len(res.Transactions) == 0 && len(res.Report.Candidates) == 0 {
 		return nil, fmt.Errorf("aucune transaction détectée par le parseur local")
 	}
 
-	res.Validated = Validate(res)
-	if !res.Validated {
-		// Certaines lectures OCR sont ambiguës : chercher la combinaison de
-		// lectures (montants et soldes) qui satisfait l'équation comptable.
-		reconcile(res, openingAlt, closingAlt)
-	}
+	reconcileImport(res, rows)
 
 	// Hash de déduplication (après réconciliation : les montants sont définitifs)
 	for i := range res.Transactions {
 		res.Transactions[i].Hash = TxHash(res.Transactions[i])
 	}
 	return res, nil
-}
-
-// reconcile essaie toutes les combinaisons de lectures alternatives (2^k,
-// k = nombre de valeurs ambiguës, plafonné à 16) et applique la première qui
-// équilibre le relevé : solde initial + Σ transactions = solde final.
-func reconcile(res *models.ParseResult, openingAlt, closingAlt *float64) {
-	if res.OpeningBalance == nil || res.ClosingBalance == nil {
-		return
-	}
-	type slot struct {
-		apply func(useAlt bool)
-		delta money.Cents // effet de l'alternative sur (open + Σ - close)
-	}
-	var slots []slot
-	for i := range res.Transactions {
-		t := &res.Transactions[i]
-		if t.AltAmount != nil {
-			primary, alt := t.Amount, *t.AltAmount
-			pc, e1 := money.FromLegacy(primary)
-			ac, e2 := money.FromLegacy(alt)
-			if e1 != nil || e2 != nil {
-				return
-			}
-			slots = append(slots, slot{
-				delta: ac - pc,
-				apply: func(useAlt bool) {
-					if useAlt {
-						t.Amount = alt
-					} else {
-						t.Amount = primary
-					}
-				},
-			})
-		}
-	}
-	if openingAlt != nil {
-		primary, alt := *res.OpeningBalance, *openingAlt
-		pc, e1 := money.FromLegacy(primary)
-		ac, e2 := money.FromLegacy(alt)
-		if e1 != nil || e2 != nil {
-			return
-		}
-		slots = append(slots, slot{delta: ac - pc, apply: func(useAlt bool) {
-			v := primary
-			if useAlt {
-				v = alt
-			}
-			res.OpeningBalance = &v
-		}})
-	}
-	if closingAlt != nil {
-		primary, alt := *res.ClosingBalance, *closingAlt
-		pc, e1 := money.FromLegacy(primary)
-		ac, e2 := money.FromLegacy(alt)
-		if e1 != nil || e2 != nil {
-			return
-		}
-		slots = append(slots, slot{delta: -(ac - pc), apply: func(useAlt bool) {
-			v := primary
-			if useAlt {
-				v = alt
-			}
-			res.ClosingBalance = &v
-		}})
-	}
-	if len(slots) == 0 || len(slots) > 16 {
-		return
-	}
-	opening, e1 := money.FromLegacy(*res.OpeningBalance)
-	closing, e2 := money.FromLegacy(*res.ClosingBalance)
-	if e1 != nil || e2 != nil {
-		return
-	}
-	base := opening - closing
-	for _, t := range res.Transactions {
-		amount, err := money.FromLegacy(t.Amount)
-		if err != nil {
-			return
-		}
-		base += amount
-	}
-	for mask := 0; mask < 1<<len(slots); mask++ {
-		diff := base
-		for i, s := range slots {
-			if mask&(1<<i) != 0 {
-				diff += s.delta
-			}
-		}
-		if diff == 0 {
-			for i, s := range slots {
-				s.apply(mask&(1<<i) != 0)
-			}
-			res.Validated = true
-			return
-		}
-	}
 }
 
 // Validate exige une égalité exacte au centime ; aucune tolérance implicite.
@@ -432,18 +396,15 @@ func parseAmount(s string) (float64, error) {
 	} else {
 		s = strings.ReplaceAll(s, " ", "")
 	}
-	v, err := strconv.ParseFloat(s, 64)
 	if neg {
-		v = -v
+		s = "-" + s
 	}
-	return v, err
+	c, err := money.Parse(s)
+	return float64(c) / 100, err
 }
 
 func cleanLabel(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
-	if len(s) > 200 {
-		s = s[:200]
-	}
 	return s
 }
 
@@ -480,7 +441,7 @@ func sanitizeRows(rows []Row, creditRight float64) []Row {
 			ws = append(ws, w)
 		}
 		if len(ws) > 0 {
-			out = append(out, Row{Words: ws, Y: r.Y, Page: r.Page})
+			out = append(out, Row{Words: ws, Y: r.Y, Page: r.Page, Line: r.Line})
 		}
 	}
 	return out
@@ -493,4 +454,57 @@ func hasAlnum(s string) bool {
 		}
 	}
 	return false
+}
+
+// PDF text layout can use a different character pitch on each page. Column
+// positions are therefore established per page, never borrowed from page one.
+func normalizePageColumns(rows []Row) []Row {
+	pages := map[int][]Row{}
+	for _, r := range rows {
+		pages[r.Page] = append(pages[r.Page], r)
+	}
+	out := make([]Row, 0, len(rows))
+	for _, r := range rows {
+		d, c, _ := findColumns(pages[r.Page])
+		if d >= 0 && c > d {
+			scale := 80 / (c - d)
+			ws := append([]Word(nil), r.Words...)
+			for i := range ws {
+				ws[i].X = 400 + (ws[i].X-d)*scale
+				ws[i].W *= scale
+				ws[i].FontSize *= scale
+			}
+			r.Words = ws
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// Some statements print a vertical numeric reference in the left margin.
+// OCR can attach it to a table row. Remove it only when two explicit date
+// columns follow it; neither dates nor amounts are inferred or rewritten.
+func stripMarginCodes(rows []Row) []Row {
+	for i := range rows {
+		ws := rows[i].Words
+		if len(ws) < 4 {
+			continue
+		}
+		if _, _, _, ok := parseDayMonth(ws[1].S); !ok {
+			continue
+		}
+		if _, _, _, ok := parseDayMonth(ws[2].S); !ok {
+			continue
+		}
+		margin := len(ws[0].S) >= 4 && ws[0].X+ws[0].W < ws[1].X
+		for _, c := range ws[0].S {
+			if c < '0' || c > '9' {
+				margin = false
+			}
+		}
+		if margin {
+			rows[i].Words = ws[1:]
+		}
+	}
+	return rows
 }

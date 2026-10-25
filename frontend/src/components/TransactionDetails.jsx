@@ -1,27 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useModal } from './useModal'
+import { useId, useRef, useState } from 'react'
 import { transactionCents, transactionDate, transactionMoney, transactionTags, transactionTypeLabel } from './transactionPageModel.mjs'
 
-function useModal(ref) {
-  useEffect(() => {
-    const opener = document.activeElement
-    const dialog = ref.current
-    dialog?.showModal()
-    const cycleFocus = event => {
-      if (event.key !== 'Tab') return
-      const controls = [...dialog.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')].filter(el => el.getClientRects().length)
-      const first = controls[0], last = controls.at(-1)
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }
-    dialog?.addEventListener('keydown', cycleFocus)
-    return () => {
-      dialog?.removeEventListener('keydown', cycleFocus); dialog?.close()
-      const target = opener?.isConnected ? opener : opener?.id ? document.getElementById(opener.id) : null
-      if (target) target.focus()
-      else { const heading = document.querySelector('.transactions-heading h1'); if (heading) { heading.tabIndex = -1; heading.focus() } }
-    }
-  }, [])
-}
 export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSave, onClose }) {
   const ref = useRef(null), title = useId()
   const [domain, setDomain] = useState(tx.domain_id ?? ''), [tags, setTags] = useState((tx.tags || []).join(', '))
@@ -45,12 +25,14 @@ export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSa
       <h3>{tx.display_label || tx.merchant || tx.label}</h3>
       <dl className="transaction-facts">
         <div><dt>Date de l’opération</dt><dd>{transactionDate(tx.date)}</dd></div>
+        {tx.value_date && <div><dt>Date de valeur</dt><dd>{transactionDate(tx.value_date)}</dd></div>}
+        {tx.source_page && <div><dt>Référence dans le document extrait</dt><dd>Page {tx.source_page}, ligne {tx.source_line || "non disponible"}</dd></div>}
         <div><dt>Compte</dt><dd>{tx.account_name || 'Compte non documenté'}</dd></div>
         <div><dt>Marchand normalisé</dt><dd>{tx.merchant || 'Non renseigné'}</dd></div>
         <div><dt>Libellé bancaire original</dt><dd className="transaction-raw-full">{tx.label}</dd></div>
         <div><dt>Type analytique</dt><dd>{transactionTypeLabel(tx.financial_type)}</dd></div>
         <div><dt>Relevé source</dt><dd>{tx.statement_filename || (tx.statement_id ? `Relevé #${tx.statement_id}` : 'Import non documenté')}</dd></div>
-        {tx.statement_id && <div><dt>Période déclarée du relevé</dt><dd>{transactionDate(tx.statement_period_start)} — {transactionDate(tx.statement_period_end)}<small>{tx.statement_validated ? 'Relevé validé ; la couverture du mois reste à vérifier.' : 'Validation du relevé non établie.'}</small></dd></div>}
+        {tx.statement_id && <div><dt>Période déclarée du relevé</dt><dd>{transactionDate(tx.statement_period_start)} — {transactionDate(tx.statement_period_end)}<small>{tx.statement_validated ? 'Équilibre du relevé confirmé ; la couverture et les autres contrôles restent à vérifier.' : 'Validation du relevé non établie.'}</small></dd></div>}
         <div><dt>Rapprochement</dt><dd>Aucun rapprochement confirmé documenté.</dd></div>
         <div><dt>Origine de la catégorisation</dt><dd>{({ manual: 'Validée manuellement', rule: 'Règle déterministe', ai: 'Attribution IA historique', unknown: 'Origine non documentée' })[tx.classification_source] || 'Origine non documentée'}</dd></div>
       </dl>

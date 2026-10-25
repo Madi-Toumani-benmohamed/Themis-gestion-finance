@@ -1,9 +1,10 @@
 package parser
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 	"log"
+	"os/exec"
 
 	"themis/internal/llm"
 	"themis/internal/models"
@@ -19,7 +20,7 @@ import (
 //  4. sinon, meilleur résultat local disponible (marqué non validé)
 func Parse(ctx context.Context, pdfData []byte, client llm.Client) (*models.ParseResult, error) {
 	report(ctx, "Extraction du texte du PDF", "", 4)
-	rows, err := ExtractRows(pdfData)
+	rows, err := ExtractRowsContext(ctx, pdfData)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +31,12 @@ func Parse(ctx context.Context, pdfData []byte, client llm.Client) (*models.Pars
 	// utile ne sert qu'à formuler la bonne erreur en l'absence d'OCR.
 	var best *models.ParseResult
 	if local, localErr := ParseLocal(rows); localErr == nil {
+		local.Report.Extraction = "native"
+		if _, e := exec.LookPath("pdftotext"); e == nil {
+			local.Report.Extraction = "poppler_layout"
+		}
 		if local.Validated {
+			documentIdentity(local, pdfData)
 			return local, nil
 		}
 		best = local
@@ -47,7 +53,12 @@ func Parse(ctx context.Context, pdfData []byte, client llm.Client) (*models.Pars
 		log.Printf("parseur natif insuffisant → extraction OCR")
 		if oRows, oErr := ExtractRowsOCR(ctx, pdfData); oErr == nil {
 			if oLocal, oLocalErr := ParseLocal(oRows); oLocalErr == nil {
+				oLocal.Report.RequiresReview = true
+				oLocal.Report.Extraction = "ocr"
+				oLocal.Report.Warnings = appendUnique(oLocal.Report.Warnings, "ocr_extraction_requires_review")
+				oLocal.Validated = false
 				if oLocal.Validated {
+					documentIdentity(oLocal, pdfData)
 					return oLocal, nil
 				}
 				// préférer le résultat OCR s'il a trouvé plus de transactions
@@ -66,12 +77,19 @@ func Parse(ctx context.Context, pdfData []byte, client llm.Client) (*models.Pars
 		log.Printf("parseur local: %d transactions mais validation comptable KO", len(best.Transactions))
 	}
 
+	if best != nil {
+		documentIdentity(best, pdfData)
+		return best, nil
+	}
 	if client != nil {
 		ai, aiErr := ParseWithLLM(ctx, client, PlainText(rows))
 		if aiErr == nil {
+			ai.Validated = false
+			ai.Report = &models.ImportReport{Parsed: len(ai.Transactions), CountControl: "unverifiable", TotalsControl: "unverifiable", BalanceControl: "unverifiable", Completeness: "failed", Issues: []string{"ai_extraction_requires_review"}}
+			documentIdentity(ai, pdfData)
 			return ai, nil
 		}
-		log.Printf("fallback IA (%s): %v", client.Name(), aiErr)
+		log.Print("fallback IA indisponible ; extraction non validée")
 	}
 
 	// Dernier recours : résultat local non validé plutôt que rien
