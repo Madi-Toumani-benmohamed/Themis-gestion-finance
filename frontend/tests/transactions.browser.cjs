@@ -7,7 +7,7 @@ const month = new Date().toISOString().slice(0, 7)
 const previous = new Date(`${month}-01T12:00:00Z`)
 previous.setUTCMonth(previous.getUTCMonth() - 1)
 const previousMonth = previous.toISOString().slice(0, 7)
-const categories = [{ id: 1, name: 'Courses TEST', parent_id: null }, { id: 2, name: 'Logement TEST', parent_id: null }, { id: 3, name: 'Transfert TEST', parent_id: null, is_transfer: true }]
+const categories = [{ id: 1, name: 'Courses TEST', color: '#9c99ff', parent_id: null }, { id: 2, name: 'Logement TEST', color: '#62b4a6', parent_id: null }, { id: 3, name: 'Transfert TEST', color: '#deab67', parent_id: null, is_transfer: true }]
 const accounts = [{ id: 11, name: 'COURANT TEST' }, { id: 12, name: 'LIVRET TEST' }]
 const row = (id, day, amount_cents, display_label, domain_id = 1, financial_type) => ({
   id, date: `${month}-${day}`, amount: amount_cents / 100, amount_cents, display_label, merchant: display_label,
@@ -82,10 +82,38 @@ async function main() {
   const search = page.getByRole('searchbox', { name: 'Recherche', exact: true })
   const reset = async () => { await page.getByRole('button', { name: 'Réinitialiser les filtres' }).click(); await count('107 opérations'); await settle() }
   const detail = () => page.getByRole('dialog', { name: 'Détail de la transaction' })
+  const transactionRow = id => page.getByRole('checkbox', {name: `Sélectionner l’opération ${id}`, exact: true}).locator('xpath=ancestor::tr')
+  const positiveColors = async () => {
+    for (const id of [2, 3]) {
+      const amount = transactionRow(id).locator('.num.amt')
+      assert.ok((await amount.getAttribute('class')).split(' ').includes('credit'))
+      assert.match(await amount.innerText(), /^\+/)
+      assert.notEqual(await amount.evaluate(el => getComputedStyle(el).color), await transactionRow(4).locator('.num.amt').evaluate(el => getComputedStyle(el).color))
+    }
+    for (const id of [4, 5]) assert.ok(!(await transactionRow(id).locator('.num.amt').getAttribute('class')).split(' ').includes('credit'))
+    assert.match(await transactionRow(4).locator('.num.amt').innerText(), /^-/)
+    assert.ok(!(await transactionRow(5).locator('.num.amt').innerText()).startsWith('+'))
+  }
+  const categoryColor = async (locator, color) => assert.equal(await locator.evaluate((el, color) => {
+    const probe = document.createElement('span'); probe.style.color = color; document.body.append(probe)
+    const actual = getComputedStyle(el).backgroundColor, expected = getComputedStyle(probe).color; probe.remove(); return actual === expected
+  }, color), true, `category dot uses configured color ${color}`)
   await page.goto(process.env.THEMIS_UI_URL || 'http://127.0.0.1:5176')
   await page.locator('.sidebar-nav button').filter({ hasText: 'Transactions' }).click()
   await count('107 opérations'); await settle()
   assert.equal(await page.locator('.transactions-table tbody tr:not(.tx-day)').count(), 100)
+  await positiveColors()
+  assert.notEqual(await transactionRow(3).locator('.transaction-category-picker select').evaluate(el => getComputedStyle(el).backgroundImage), 'none', 'Category editing keeps its dropdown arrow')
+  await categoryColor(transactionRow(3).locator('.transaction-category-picker .dom-dot'), '#9c99ff')
+  await categoryColor(transactionRow(2).locator('.transaction-category-picker .dom-dot'), '#deab67')
+  const salary = page.getByRole('button', {name:'Détail de SALAIRE TEST',exact:true})
+  await salary.click(); await detail().waitFor()
+  assert.match(await detail().locator('.transaction-detail-amount.credit').innerText(), /^\+/)
+  await categoryColor(detail().locator('.transaction-category-picker .dom-dot'), '#9c99ff')
+  await detail().getByRole('combobox',{name:'Catégorie',exact:true}).selectOption('2')
+  await categoryColor(detail().locator('.transaction-category-picker .dom-dot'), '#62b4a6')
+  await page.keyboard.press('Escape')
+
   assert.match(await page.locator('.transactions-summary').innerText(), /947,67/)
   assert.match(await page.locator('.transactions-summary').innerText(), /4.?197,14/)
   assert.match(await page.locator('.transactions-period').innerText(), /couverture inconnue/)
@@ -194,6 +222,7 @@ async function main() {
     await page.evaluate(() => scrollTo(0,0))
     await page.screenshot({ path: `${output}/transactions-${viewport.width}.png`, fullPage: false })
     if (viewport.width<=760) {
+      await categoryColor(transactionRow(3).locator('.transaction-mobile-meta .dom-dot'), '#9c99ff')
       const tableWidth=await page.locator('.transactions-table').evaluate(el=>el.clientWidth)
       const labelWidth=await page.locator('.transaction-description').first().evaluate(el=>el.clientWidth)
       assert.ok(labelWidth>=tableWidth*.4,`Unreadable mobile label column: ${labelWidth}/${tableWidth}`)
@@ -210,6 +239,8 @@ async function main() {
   }
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.locator('.sidebar-footer .theme-toggle').click(); await settle()
+  await positiveColors()
+  await categoryColor(transactionRow(3).locator('.transaction-category-picker .dom-dot'), '#9c99ff')
   const lightAxe = await new AxeBuilder({ page }).analyze(); assert.deepEqual(lightAxe.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})), [], 'light axe')
   const cdp = await context.newCDPSession(page)
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:960,height:540,deviceScaleFactor:2,mobile:false})
