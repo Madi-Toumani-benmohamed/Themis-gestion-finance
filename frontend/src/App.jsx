@@ -396,7 +396,7 @@ export default function App() {
       )}
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
-      <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : ''}`} key={tab + ':' + refreshKey}>
+      <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
         {tab === 'transactions' && <Transactions initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
@@ -405,7 +405,7 @@ export default function App() {
         {tab === 'simulate' && <Simulate />}
         {tab === 'accounts' && <Accounts />}
         {tab === 'statements' && <Statements initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
-        {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} />}
+        {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
         {tab === 'assistant' && <Assistant />}
       </main>

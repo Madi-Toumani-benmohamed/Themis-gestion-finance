@@ -3,11 +3,13 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
-	Port        string
-	DatabaseURL string
+	AITrustedEndpoints []string
+	Port               string
+	DatabaseURL        string
 
 	// IA — plusieurs fournisseurs possibles :
 	//  - "anthropic"    : API Claude (cloud)
@@ -69,19 +71,20 @@ func parseInt(s string) (int, error) {
 
 func Load() Config {
 	cfg := Config{
-		Port:           get("PORT", "8080"),
-		DatabaseURL:    get("DATABASE_URL", "postgres://themis:themis@localhost:5432/themis?sslmode=disable"),
-		OpenAIKey:      os.Getenv("OPENAI_API_KEY"),
-		OpenAIModel:    get("OPENAI_MODEL", "gpt-4.1-mini"),
-		AnthropicKey:   os.Getenv("ANTHROPIC_API_KEY"),
-		AnthropicModel: get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-		OllamaURL:      os.Getenv("OLLAMA_URL"),
-		OllamaModel:    get("OLLAMA_MODEL", "qwen2.5:14b"),
-		MistralKey:     os.Getenv("MISTRAL_API_KEY"),
-		MistralModel:   get("MISTRAL_MODEL", "mistral-small-latest"),
-		FreeLLMKey:     os.Getenv("FREELLM_API_KEY"),
-		FreeLLMURL:     get("FREELLM_URL", "http://freellm.local:3001/v1"),
-		FreeLLMModel:   get("FREELLM_MODEL", "auto:fast"),
+		Port:               get("PORT", "8080"),
+		AITrustedEndpoints: strings.Split(os.Getenv("AI_TRUSTED_ENDPOINTS"), ","),
+		DatabaseURL:        get("DATABASE_URL", "postgres://themis:themis@localhost:5432/themis?sslmode=disable"),
+		OpenAIKey:          os.Getenv("OPENAI_API_KEY"),
+		OpenAIModel:        get("OPENAI_MODEL", "gpt-4.1-mini"),
+		AnthropicKey:       os.Getenv("ANTHROPIC_API_KEY"),
+		AnthropicModel:     get("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+		OllamaURL:          os.Getenv("OLLAMA_URL"),
+		OllamaModel:        get("OLLAMA_MODEL", "qwen2.5:14b"),
+		MistralKey:         os.Getenv("MISTRAL_API_KEY"),
+		MistralModel:       get("MISTRAL_MODEL", "mistral-small-latest"),
+		FreeLLMKey:         os.Getenv("FREELLM_API_KEY"),
+		FreeLLMURL:         get("FREELLM_URL", "http://freellm.local:3001/v1"),
+		FreeLLMModel:       get("FREELLM_MODEL", "auto:fast"),
 	}
 	cfg.AIAutoCategorize = get("AI_AUTO_CATEGORIZE", "true") != "false"
 	cfg.CookieSecure = os.Getenv("COOKIE_SECURE") == "true"

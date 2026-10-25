@@ -16,7 +16,10 @@ import (
 )
 
 // Persistance en mémoire pour exercer save/reload sans service externe.
-type aiConfigStore struct{ raw []byte }
+type aiConfigStore struct {
+	raw      []byte
+	writeErr error
+}
 
 func (s *aiConfigStore) Connect(context.Context) (driver.Conn, error) { return &aiConfigConn{s}, nil }
 func (s *aiConfigStore) Driver() driver.Driver                        { return aiConfigDriver{s} }
@@ -31,6 +34,9 @@ func (c *aiConfigConn) Prepare(string) (driver.Stmt, error) { return nil, driver
 func (c *aiConfigConn) Close() error                        { return nil }
 func (c *aiConfigConn) Begin() (driver.Tx, error)           { return nil, driver.ErrSkip }
 func (c *aiConfigConn) ExecContext(_ context.Context, _ string, args []driver.NamedValue) (driver.Result, error) {
+	if c.s.writeErr != nil {
+		return nil, c.s.writeErr
+	}
 	c.s.raw = append([]byte(nil), args[0].Value.([]byte)...)
 	return driver.RowsAffected(1), nil
 }

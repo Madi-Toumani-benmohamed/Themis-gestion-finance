@@ -82,10 +82,11 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/recurring/review", s.listRecurringReview)
 	mux.HandleFunc("PUT /api/recurring/review/{key}", s.updateRecurringReview)
 	mux.HandleFunc("POST /api/enrich/ai", s.aiEnrich)
-	mux.HandleFunc("GET /api/admin/config", s.adminGetConfig)
-	mux.HandleFunc("PUT /api/admin/config", s.adminPutConfig)
-	mux.HandleFunc("POST /api/admin/ai/test", s.adminTestAI)
-	mux.HandleFunc("GET /api/admin/ollama/models", s.adminOllamaModels)
+	mux.HandleFunc("GET /api/admin/config", s.aiAdminOnly(s.adminGetConfig))
+	mux.HandleFunc("PUT /api/admin/config", s.aiAdminOnly(s.adminPutConfig))
+	mux.HandleFunc("POST /api/admin/ai/test", s.aiAdminOnly(s.adminTestAI))
+	mux.HandleFunc("GET /api/admin/ollama/models", s.aiAdminOnly(s.adminOllamaModels))
+	mux.HandleFunc("POST /api/admin/ai/memory/test", s.aiAdminOnly(s.adminTestMemory))
 	mux.HandleFunc("GET /api/admin/stats", s.adminStats)
 	mux.HandleFunc("POST /api/admin/reapply-rules", s.adminReapplyRules)
 	mux.HandleFunc("POST /api/admin/purge", s.adminPurge)
@@ -892,6 +893,10 @@ var reSettingKey = regexp.MustCompile(`^[a-z0-9_-]{1,64}$`)
 
 func (s *Server) getSetting(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
+	if key == "ai_config" {
+		writeErr(w, 403, fmt.Errorf("utiliser la configuration IA administrative"))
+		return
+	}
 	if !reSettingKey.MatchString(key) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("clé invalide"))
 		return
@@ -912,6 +917,10 @@ func (s *Server) getSetting(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putSetting(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
+	if key == "ai_config" {
+		writeErr(w, 403, fmt.Errorf("utiliser la configuration IA administrative"))
+		return
+	}
 	if !reSettingKey.MatchString(key) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("clé invalide"))
 		return

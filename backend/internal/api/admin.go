@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"themis/internal/config"
 	"themis/internal/llm"
@@ -52,9 +50,7 @@ func aiConfigFromEnv(cfg config.Config) AIConfig {
 		OllamaURL:      cfg.OllamaURL,
 		OllamaModel:    cfg.OllamaModel,
 		AnthropicModel: cfg.AnthropicModel,
-		MistralKey:     cfg.MistralKey,
 		MistralModel:   cfg.MistralModel,
-		FreeLLMKey:     cfg.FreeLLMKey,
 		FreeLLMURL:     cfg.FreeLLMURL,
 		FreeLLMModel:   cfg.FreeLLMModel,
 		AutoCategorize: cfg.AIAutoCategorize,
@@ -65,7 +61,7 @@ func aiConfigFromEnv(cfg config.Config) AIConfig {
 func (s *Server) buildClient(c AIConfig) llm.Client {
 	switch c.Provider {
 	case "openai":
-		c = s.withOpenAIDefaults(c)
+		c.OpenAIModel = s.withOpenAIDefaults(c).OpenAIModel
 		key := c.OpenAIKey
 		if key == "" {
 			key = s.Cfg.OpenAIKey
@@ -78,7 +74,11 @@ func (s *Server) buildClient(c AIConfig) llm.Client {
 		if c.OllamaURL == "" {
 			return nil
 		}
-		return &llm.Ollama{URL: c.OllamaURL, Model: c.OllamaModel}
+		client, err := s.aiEndpointPolicy().Client(c.OllamaURL)
+		if err != nil {
+			return nil
+		}
+		return &llm.Ollama{URL: c.OllamaURL, Model: c.OllamaModel, HTTPClient: client}
 	case "anthropic":
 		key := c.AnthropicKey
 		if key == "" {
@@ -109,7 +109,11 @@ func (s *Server) buildClient(c AIConfig) llm.Client {
 		if baseURL == "" {
 			baseURL = s.Cfg.FreeLLMURL
 		}
-		return &llm.FreeLLM{APIKey: key, BaseURL: baseURL, Model: c.FreeLLMModel}
+		client, err := s.aiEndpointPolicy().Client(baseURL)
+		if err != nil {
+			return nil
+		}
+		return &llm.FreeLLM{APIKey: key, BaseURL: baseURL, Model: c.FreeLLMModel, HTTPClient: client}
 	default:
 		return nil
 	}
@@ -134,9 +138,17 @@ func (s *Server) withOpenAIDefaults(c AIConfig) AIConfig {
 
 // aiState protège la config et le client actifs.
 type aiState struct {
-	mu     sync.RWMutex
-	config AIConfig
-	client llm.Client
+	saveMu      sync.Mutex
+	revision    string
+	source      string
+	configError string
+	testSeq     uint64
+	lastSaved   *aiTestRecord
+	lastDraft   *aiTestRecord
+	lastMemory  *aiDiagnostic
+	mu          sync.RWMutex
+	config      AIConfig
+	client      llm.Client
 }
 
 func (s *Server) getLLM() llm.Client {
@@ -168,200 +180,6 @@ func (s *Server) autoCategorizeEnabled() bool {
 	s.ai.mu.RLock()
 	defer s.ai.mu.RUnlock()
 	return s.ai.config.AutoCategorize
-}
-
-// ApplyAIConfig active une configuration (client reconstruit) sans la persister.
-func (s *Server) ApplyAIConfig(c AIConfig) {
-	if c.Provider == "openai" {
-		c = s.withOpenAIDefaults(c)
-	}
-	client := s.buildClient(c)
-	s.ai.mu.Lock()
-	s.ai.config = c
-	s.ai.client = client
-	s.ai.mu.Unlock()
-	if client != nil {
-		log.Printf("IA: %s", client.Name())
-	} else {
-		log.Printf("IA désactivée")
-	}
-}
-
-// InitAI charge la config IA : celle persistée en base si présente,
-// sinon celle de l'environnement.
-func (s *Server) InitAI() {
-	c := aiConfigFromEnv(s.Cfg)
-	var raw []byte
-	err := s.DB.QueryRow(`SELECT value FROM settings WHERE key = 'ai_config'`).Scan(&raw)
-	if err == nil {
-		var saved AIConfig
-		if json.Unmarshal(raw, &saved) == nil && saved.Provider != "" {
-			c = saved
-			log.Printf("configuration IA chargée depuis la base (admin)")
-		}
-	} else if err != sql.ErrNoRows {
-		log.Printf("lecture ai_config: %v", err)
-	}
-	s.ApplyAIConfig(c)
-}
-
-// ---------- Handlers admin ----------
-
-// masked retourne la config sans secret, avec un indicateur de présence de clé.
-func (s *Server) maskedConfig() map[string]any {
-	c := s.getAIConfig()
-	client := s.getLLM()
-	provider := "none"
-	if client != nil {
-		provider = client.Name()
-	}
-	return map[string]any{
-		"provider":          c.Provider,
-		"openai_model":      c.OpenAIModel,
-		"openai_key_set":    c.OpenAIKey != "" || s.Cfg.OpenAIKey != "",
-		"ollama_url":        c.OllamaURL,
-		"ollama_model":      c.OllamaModel,
-		"anthropic_model":   c.AnthropicModel,
-		"anthropic_key_set": c.AnthropicKey != "" || s.Cfg.AnthropicKey != "",
-		"mistral_key_set":   c.MistralKey != "" || s.Cfg.MistralKey != "",
-		"mistral_model":     c.MistralModel,
-		"freellm_key_set":   c.FreeLLMKey != "" || s.Cfg.FreeLLMKey != "",
-		"freellm_url":       c.FreeLLMURL,
-		"freellm_model":     c.FreeLLMModel,
-		"auto_categorize":   c.AutoCategorize,
-		"context":           c.Context,
-		"active":            provider,
-	}
-}
-
-func (s *Server) adminGetConfig(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.maskedConfig())
-}
-
-func (s *Server) adminPutConfig(w http.ResponseWriter, r *http.Request) {
-	var in AIConfig
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("corps JSON invalide"))
-		return
-	}
-	in = s.withOpenAIDefaults(in)
-	switch in.Provider {
-	case "none", "ollama", "anthropic", "mistral", "freellm", "openai":
-	default:
-		writeErr(w, http.StatusBadRequest, fmt.Errorf(`provider doit être "none", "ollama", "anthropic", "mistral", "freellm" ou "openai"`))
-		return
-	}
-	if in.Provider == "openai" && in.OpenAIKey == "" && s.Cfg.OpenAIKey == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("openai_key requis"))
-		return
-	}
-	if in.Provider == "ollama" && in.OllamaURL == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("ollama_url requis"))
-		return
-	}
-	if in.Provider == "mistral" && in.MistralKey == "" && s.Cfg.MistralKey == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("mistral_key requis"))
-		return
-	}
-	if in.Provider == "freellm" && in.FreeLLMKey == "" && s.Cfg.FreeLLMKey == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("freellm_key requis"))
-		return
-	}
-	// clé non fournie → conserver l'existante (le champ masqué n'est jamais renvoyé)
-	if in.AnthropicKey == "" {
-		in.AnthropicKey = s.getAIConfig().AnthropicKey
-	}
-	if in.MistralKey == "" {
-		in.MistralKey = s.getAIConfig().MistralKey
-	}
-	if in.FreeLLMKey == "" {
-		in.FreeLLMKey = s.getAIConfig().FreeLLMKey
-	}
-	if in.OllamaModel == "" {
-		in.OllamaModel = s.Cfg.OllamaModel
-	}
-	if in.AnthropicModel == "" {
-		in.AnthropicModel = s.Cfg.AnthropicModel
-	}
-	if in.MistralModel == "" {
-		in.MistralModel = s.Cfg.MistralModel
-	}
-	if in.FreeLLMModel == "" {
-		in.FreeLLMModel = s.Cfg.FreeLLMModel
-	}
-	if in.FreeLLMURL == "" {
-		in.FreeLLMURL = s.Cfg.FreeLLMURL
-	}
-
-	raw, _ := json.Marshal(in)
-	if _, err := s.DB.Exec(`
-		INSERT INTO settings (key, value, owner_id) VALUES ('ai_config', $1, NULL)
-		ON CONFLICT (COALESCE(owner_id, 0), key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, raw); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	s.ApplyAIConfig(in)
-	writeJSON(w, http.StatusOK, s.maskedConfig())
-}
-
-// adminTestAI vérifie la connexion au fournisseur configuré (ou à celui du
-// corps de requête, pour tester avant d'enregistrer).
-func (s *Server) adminTestAI(w http.ResponseWriter, r *http.Request) {
-	var in AIConfig
-	client := s.getLLM()
-	if err := json.NewDecoder(r.Body).Decode(&in); err == nil && in.Provider != "" {
-		if in.AnthropicKey == "" {
-			in.AnthropicKey = s.getAIConfig().AnthropicKey
-		}
-		in = s.withOpenAIDefaults(in)
-		client = s.buildClient(in)
-	}
-	if client == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "detail": "aucun fournisseur configuré"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), llm.TestTimeout())
-	defer cancel()
-
-	if o, ok := client.(*llm.Ollama); ok {
-		if err := o.Ping(ctx); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "provider": client.Name(), "detail": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": client.Name(), "detail": "instance joignable, modèle présent"})
-		return
-	}
-	// Test synthétique uniquement ; aucun flux bancaire envoyé.
-	maxTokens := 4
-	if _, ok := client.(*llm.OpenAI); ok {
-		maxTokens = 256
-	}
-	if _, err := client.Complete(ctx, "Réponds uniquement OK.", "ping", maxTokens, false); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "provider": client.Name(), "detail": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": client.Name(), "detail": "API joignable"})
-}
-
-// adminOllamaModels liste les modèles disponibles sur une instance Ollama
-// (?url= optionnel, sinon celle configurée) pour alimenter le sélecteur.
-func (s *Server) adminOllamaModels(w http.ResponseWriter, r *http.Request) {
-	url := r.URL.Query().Get("url")
-	if url == "" {
-		url = s.getAIConfig().OllamaURL
-	}
-	if url == "" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("aucune URL Ollama"))
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	models, err := llm.ListOllamaModels(ctx, url)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
 // ---------- Statistiques ----------
