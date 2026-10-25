@@ -6,6 +6,7 @@ test('un contrôle absent ne devient jamais une réussite', () => {
   assert.equal(importControlLabel('passed'), 'Conforme')
   assert.equal(importControlLabel('failed'), 'Échec')
   assert.equal(importControlLabel('unverifiable'), 'Non vérifiable automatiquement')
+  assert.equal(importControlLabel('not_applicable'), 'Non applicable (non déclaré)')
   assert.equal(importControlLabel(undefined), 'Non exécuté')
 })
 test('les lectures ambiguës et opérations perdues ont une justification visible', () => {

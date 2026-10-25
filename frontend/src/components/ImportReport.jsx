@@ -23,6 +23,7 @@ export default function ImportReport({ report }) {
       <li>Nombre d’opérations : {importControlLabel(report.count_control)}</li>
       <li>Totaux débits et crédits indépendants : {importControlLabel(report.totals_control)}</li>
       <li>Équilibre comptable : {importControlLabel(report.balance_control)}</li>
+      {report.traceability_control && <li>Traçabilité des opérations : {importControlLabel(report.traceability_control)}</li>}
     </ul>
     {report.completeness === 'unknown' && <p>Complétude non établie : les contrôles disponibles ne prouvent pas à eux seuls l’absence d’opérations manquantes.</p>}
     {report.completeness === 'failed' && <p role="alert">Import non validable : au moins un contrôle a échoué ou une lecture reste ambiguë.</p>}

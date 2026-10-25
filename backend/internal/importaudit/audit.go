@@ -38,11 +38,13 @@ func Run(ctx context.Context, d *sql.DB, owner int64) ([]Result, error) {
 	}
 	defer tx.Rollback()
 	rows, err := tx.QueryContext(ctx, `SELECT st.id,st.validated,(st.opening_balance*100)::bigint,(st.closing_balance*100)::bigint,
- x.n,x.debits,x.credits,x.outside,(to_jsonb(st)->'import_report')::text,COALESCE(to_jsonb(st)->>'source_sha256','')<>''
+ x.n,x.debits,x.credits,x.outside,(to_jsonb(st)->'import_report')::text,
+ (COALESCE(to_jsonb(st)->>'source_sha256','')<>'' AND x.traceable=x.n)
  FROM statements st CROSS JOIN LATERAL(SELECT count(*) n,
  COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0)*100,0)::bigint debits,
  COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0)*100,0)::bigint credits,
- count(*) FILTER(WHERE t.tx_date<st.period_start OR t.tx_date>st.period_end) outside
+ count(*) FILTER(WHERE t.tx_date<st.period_start OR t.tx_date>st.period_end) outside,
+ count(*) FILTER(WHERE t.source_index IS NOT NULL AND t.source_page IS NOT NULL AND t.source_line IS NOT NULL) traceable
  FROM transactions t WHERE t.statement_id=st.id AND t.owner_id=st.owner_id) x
  WHERE st.owner_id=$1 ORDER BY st.id`, owner)
 	if err != nil {
@@ -59,7 +61,7 @@ func Run(ctx context.Context, d *sql.DB, owner int64) ([]Result, error) {
 		}
 		r.BalanceControl = "unverifiable"
 		r.TotalsControl = "unverifiable"
-		r.CountControl = "unverifiable"
+		r.CountControl = "not_applicable"
 		r.Completeness = "unknown"
 		if opening.Valid {
 			v := opening.Int64

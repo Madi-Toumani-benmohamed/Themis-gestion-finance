@@ -673,7 +673,7 @@ export default function Statements({
                         </span>
                         <small>
                           {
-                            st.controls.filter((c) => c.status !== 'passed')
+                            st.controls.filter((c) => !['passed', 'informational', 'not_applicable'].includes(c.status))
                               .length
                           }{' '}
                           contrôle(s) non confirmé(s)

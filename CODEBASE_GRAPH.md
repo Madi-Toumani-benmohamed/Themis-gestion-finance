@@ -44,7 +44,8 @@ themis/
 | Fichier | Responsabilité | Endpoints principaux |
 |---------|---------------|---------------------|
 | `handlers.go` | Router + handlers core | `/api/health`, `/api/statements*`, `/api/transactions*`, `/api/summary`, `/api/upload/progress`, `/api/period`, `/api/period/compare` |
-| `statement_controls.go` | Réconciliation exacte, contrôles de périodes, revue tracée, suppression atomique et mode documentaire | `GET/DELETE /api/statements*`, `PATCH /api/statements/{id}/validation`, `PATCH /api/accounts/{id}` |
+| `statement_controls.go` | Réconciliation exacte, contrôles de périodes, similitudes documentaires informatives, revue tracée, suppression atomique et mode documentaire | `GET/DELETE /api/statements*`, `PATCH /api/statements/{id}/validation`, `PATCH /api/accounts/{id}` |
+| `import_preview.go`, `import_fidelity.go` | Aperçu privé, rejeu idempotent par empreinte source, traçabilité des occurrences, similitudes consultatives et rapprochement avant validation automatique | Aperçu/confirmation des imports |
 | `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
 | `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
 | `chat.go` | Assistant conversationnel | `POST /api/chat` (orchestration outils) |
@@ -72,6 +73,13 @@ Statement   { ID, Filename, PeriodStart/End, Balances, Parser, Validated }
 Category    { ID, Name, Color, IsTransfer }
 Rule        { ID, Pattern, DomainID }
 ```
+
+### Validation documentaire des relevés
+- Un comptage absent du document est `not_applicable` ; aucune référence n’est déduite du nombre extrait.
+- Les débits et crédits déclarés sont comparés séparément au solde rapproché. La traçabilité de chaque opération et l’absence de lecture rejetée/ambiguë sont également requises pour la validation automatique.
+- L’exhaustivité demeure `unknown` sans comptage indépendant, même quand les autres preuves concordent.
+- Les occurrences répétées dans un document sont conservées. Seule la réimportation byte-identique avec un résultat inchangé est reconnue comme doublon confirmé ; les similarités entre imports sont consultatives.
+- Le rapport d’audit historique est en lecture seule ; ces contrôles ne réécrivent pas les relevés déjà validés.
 
 ### Config (`backend/internal/config/config.go`)
 - `Load()` lit `.env` + defaults
@@ -470,9 +478,9 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 
 ### Prévisualisation des imports
 
-- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` expose le rapport de réconciliation et distingue document source identique, ressemblance non prouvée et période bancaire recouvrante. Aucun changement avant confirmation.
+- `POST /api/statements/previews` réutilise le parsing PDF/CSV, sans persister de relevé ou de transaction. `import_preview.go` expose le rapport de réconciliation et distingue document source identique, similarité informative et période bancaire recouvrante. Aucun changement avant confirmation.
 - Aperçus en mémoire du `Server`, liés au propriétaire et au compte : TTL 15 min, 3 par utilisateur, 32 au total et budget estimé de 32 Mio ; limite de 20 000 opérations par aperçu. Suppression sur expiration par timer, annulation ou confirmation.
-- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Nouveaux uploads PDF/CSV : `import_fidelity.go` établit les occurrences par fichier/compte/indice ; rejeu identique sans modification des métadonnées ; ambiguïté intersources suspendue ; insertions atomiques sans conflit ignoré.
+- Confirmation `POST /api/statements/previews/{token}/confirm` : consommation atomique du jeton, revérification du compte, puis `finishStatementImport`, commun à l’import direct historique. Nouveaux uploads PDF/CSV : `import_fidelity.go` établit les occurrences par fichier/compte/indice ; rejeu identique sans modification des métadonnées ; similarité intersource consultative ; insertions atomiques sans conflit ignoré.
 - Annulation `DELETE /api/statements/previews/{token}` : aucune écriture financière. Réponses de prévisualisation/confirmation non mises en cache. Pas de nouvelle table ni de dépendance.
 - `ImportPreview.jsx` (dialog natif) : compte, période, validation, doublons, tableau filtrable/paginé et confirmation explicite. `reviewedImport.mjs` isole le passage de la décision utilisateur à la confirmation ; les imports multiples restent séquentiels.
 - Tests `import_preview*_test.go` (dont PostgreSQL optionnel via `THEMIS_TEST_DATABASE_URL`, schéma de test isolé), `importPreviewModel.test.mjs` : annulation, absence d’écriture avant confirmation, isolation, expiration, rejeu, concurrence et déduplication à l’enregistrement.
@@ -585,11 +593,11 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 
 - `parser/poppler.go` : extraction Unicode et colonnes `pdftotext -layout`, plafonnée/contextualisée, temporaire privé ; colonnes normalisées par page dans `local.go`. Le décodeur Go reste un secours en l’absence de Poppler.
 - `parser/local.go` : références numériques de marge devant deux dates, opérations multiligne, date de valeur distincte, registre des candidats et absence de correction OCR choisie pour équilibrer les soldes.
-- `parser/import_report.go`, `models.ImportReport` : sommes exactes, contrôles indépendants des débits/crédits, soldes, compteur explicitement déclaré ou non vérifiable. OCR en revue ; résultat IA non confirmé non persistable. Complétude inconnue conservée séparément du rapprochement.
-- Des compteurs ou totaux déclarés contradictoires bloquent l’import, y compris après recalcul du rapport avant persistance. Les répétitions identiques restent acceptées ; le rapport partagé entre aperçu et Relevés expose le motif précis.
+- `parser/import_report.go`, `models.ImportReport` : sommes exactes, contrôles indépendants des débits/crédits, soldes, compteur explicitement déclaré ou `not_applicable`, et traçabilité des lignes. OCR en revue ; résultat IA non confirmé non persistable. Complétude inconnue conservée sans comptage indépendant.
+- Des compteurs ou totaux déclarés contradictoires bloquent l’import, y compris après recalcul du rapport avant persistance. Les opérations similaires restent des occurrences distinctes et les ressemblances intersources sont informatives ; le rejeu identique inchangé reste idempotent.
 - `api/import_fidelity.go`, migration additive `026_import_fidelity.sql` : identité fichier/compte/occurrence, preuve du parsing, rapport atomique, provenance des transactions ; aucune mutation/backfill de l’historique. Rollback gardé après utilisation.
 - `api/statement_controls.go`, `transactions.go` : rapports et références source accessibles au propriétaire ; un total indépendant divergent bloque la validation, même si le net équilibre les soldes. Validation historique explicitement nommée.
-- `ImportReport.jsx`, `ImportPreview.jsx`, `Statements.jsx`, `TransactionDetails.jsx` : rapport consultable, contrôle non exécuté explicite, import suspendu si anomalie confirmée ou source ambiguë ; date de valeur et références de document. Aucun déploiement automatique.
+- `ImportReport.jsx`, `ImportPreview.jsx`, `Statements.jsx`, `TransactionDetails.jsx` : rapport consultable, contrôles non applicables et similarités informatives visibles, import suspendu si une preuve échoue ou si la période recouvre un relevé existant ; date de valeur et références de document. Aucun déploiement automatique.
 - `cmd/importaudit`, `internal/importaudit` : audit historique READ ONLY, propriétaire obligatoire ; totaux/écarts, limites des preuves, aucune réparation.
 - `internal/testfixture/statement.go` : PDF synthétique Type 3/ToUnicode, trois pages et occurrences légitimes identiques. Tests réels extraction→parsing→PostgreSQL isolé→API ; PDF bancaire réel optionnel via `THEMIS_REFERENCE_PDF`, jamais en Git. CI exige Poppler (`THEMIS_REQUIRE_PDF_TESTS=1`) et exécute `import-fidelity.browser.cjs`.
 - Diagnostic et restrictions de réparation : `docs/IMPORT_FIDELITY_AUDIT.md`. Validations : `docs/IMPORT_FIDELITY_TESTS.md`.
