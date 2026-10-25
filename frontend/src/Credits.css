@@ -1,0 +1,311 @@
+/* Consolidation de la présentation OpenCode ; tous les styles sont locaux. */
+.credits-page {
+  width: 100%;
+  min-width: 0;
+  padding-bottom: var(--sp-6);
+}
+.credits-page .credits-context h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.credits-page .obligations-banner {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin: var(--sp-5) 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.credits-page .obligation-card {
+  padding: var(--sp-5);
+  min-width: 0;
+}
+.credits-page .obligation-label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: var(--sp-2);
+}
+.credits-page .obligation-value {
+  display: block;
+  font-size: clamp(20px, 2vw, 28px);
+  color: var(--ink);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.credits-page .obligation-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: var(--sp-2);
+}
+.credits-page .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: var(--sp-6) 0 var(--sp-3);
+  flex-wrap: wrap;
+}
+.credits-page .section-title {
+  font-size: 20px;
+  margin: 0;
+}
+.credits-page .credits-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.credits-page .credits-tools label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  font-size: 13px;
+}
+.credits-page select {
+  max-width: 100%;
+}
+.credits-page .credits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: var(--sp-4);
+}
+.credits-page .credit-card {
+  min-width: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+}
+.credits-page .credit-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.credits-page .credit-name {
+  margin: 0 0 var(--sp-2);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.credits-page .credit-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.credits-page .credit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.credits-page .credit-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+  padding: var(--sp-4) 0;
+  margin: var(--sp-3) 0;
+  border-block: 1px solid var(--line);
+}
+.credits-page dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+.credits-page dd {
+  margin: var(--sp-1) 0 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.credits-page progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+.credits-page .progress-info {
+  color: var(--muted);
+  font-size: 12px;
+}
+.credits-page .due-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper-2);
+}
+.credits-page .due-chip.late_confirmed,
+.credits-page .due-chip.invalid {
+  color: var(--neg);
+  background: var(--neg-soft);
+}
+.credits-page .taxes-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+.credits-page .taxes-table th,
+.credits-page .taxes-table td {
+  height: auto;
+  text-align: left;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.credits-page .taxes-table thead th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.credits-page .taxes-table .tax-name {
+  background: transparent;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.credits-page .tax-amount {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.credits-page .taxes-table small {
+  display: block;
+  color: var(--muted);
+  margin-top: var(--sp-1);
+}
+.credits-page .tax-due .due-chip {
+  display: block;
+  width: fit-content;
+  margin-top: var(--sp-2);
+}
+.credits-page .empty-state {
+  padding: var(--sp-6);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+  color: var(--muted);
+}
+.credit-dialog.credits-page {
+  width: min(680px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: var(--sp-6);
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  overflow: auto;
+}
+.credit-dialog::backdrop {
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.credits-page .form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+}
+.credits-page .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  font-size: 13px;
+  min-width: 0;
+}
+.credits-page .form-input {
+  width: 100%;
+  min-width: 0;
+}
+.credits-page .form-help {
+  grid-column: 1/-1;
+  font-size: 12px;
+}
+.credits-page .form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.credits-page .engagement-history {
+  list-style: none;
+  padding: 0;
+}
+.credits-page .engagement-history li {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.credits-page .engagement-history dl {
+  display: grid;
+  gap: var(--sp-3);
+}
+.credits-page button,
+.credits-page summary {
+  min-height: 36px;
+}
+.credits-page summary {
+  cursor: pointer;
+  display: list-item;
+  padding-top: var(--sp-2);
+}
+@media (max-width: 1100px) {
+  .credits-page .taxes-table {
+    font-size: 13px;
+  }
+  .credits-page .taxes-table td,
+  .credits-page .taxes-table th {
+    padding: var(--sp-3);
+  }
+}
+@media (max-width: 760px) {
+  .credits-page .obligations-banner,
+  .credits-page .form-row {
+    grid-template-columns: 1fr;
+  }
+  .credits-page .obligation-card {
+    padding: var(--sp-4);
+  }
+  .credits-page .taxes-table,
+  .credits-page .taxes-table tbody,
+  .credits-page .taxes-table tr,
+  .credits-page .taxes-table td,
+  .credits-page .taxes-table th {
+    display: block;
+  }
+  .credits-page .taxes-table thead {
+    display: none;
+  }
+  .credits-page .taxes-table tbody tr {
+    padding: var(--sp-3);
+    border-bottom: 1px solid var(--line);
+  }
+  .credits-page .taxes-table td,
+  .credits-page .taxes-table tbody th {
+    border: 0;
+    padding: var(--sp-2);
+  }
+  .credits-page .tax-amount {
+    white-space: normal;
+  }
+  .credits-page button {
+    min-height: 44px;
+  }
+}
+
+.credits-page .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

@@ -119,14 +119,19 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /api/accounts/{id}/snapshots", s.addSnapshot)
 
 	// Crédits, taxes, dettes
-	mux.HandleFunc("GET /api/credits", s.listCredits)
-	mux.HandleFunc("POST /api/credits", s.createCredit)
-	mux.HandleFunc("DELETE /api/credits/{id}", s.deleteCredit)
-	mux.HandleFunc("GET /api/taxes", s.listTaxes)
-	mux.HandleFunc("POST /api/taxes", s.createTax)
-	mux.HandleFunc("PATCH /api/taxes/{id}", s.patchTax)
-	mux.HandleFunc("DELETE /api/taxes/{id}", s.deleteTax)
-	mux.HandleFunc("GET /api/obligations", s.obligations)
+	mux.HandleFunc("GET /api/credits", s.engagementAuthenticated(s.listCredits))
+	mux.HandleFunc("POST /api/credits", s.engagementAuthenticated(s.createCredit))
+	mux.HandleFunc("PATCH /api/credits/{id}", s.engagementAuthenticated(s.updateCredit))
+	mux.HandleFunc("DELETE /api/credits/{id}", s.engagementAuthenticated(s.deleteCredit))
+	mux.HandleFunc("GET /api/taxes", s.engagementAuthenticated(s.listTaxes))
+	mux.HandleFunc("POST /api/taxes", s.engagementAuthenticated(s.createTax))
+	mux.HandleFunc("PATCH /api/taxes/{id}", s.engagementAuthenticated(s.patchTax))
+	mux.HandleFunc("DELETE /api/taxes/{id}", s.engagementAuthenticated(s.deleteTax))
+	mux.HandleFunc("GET /api/obligations", s.engagementAuthenticated(s.obligations))
+	mux.HandleFunc("POST /api/credits/{id}/payments", s.engagementAuthenticated(s.recordCreditPayment))
+	mux.HandleFunc("DELETE /api/credits/{id}/payments/{payment_id}", s.engagementAuthenticated(s.voidCreditPayment))
+	mux.HandleFunc("GET /api/credits/{id}/history", s.engagementAuthenticated(s.creditHistory))
+	mux.HandleFunc("GET /api/taxes/{id}/history", s.engagementAuthenticated(s.taxHistory))
 	mux.HandleFunc("GET /api/insights", s.listInsights)
 
 	// Domaines & tags

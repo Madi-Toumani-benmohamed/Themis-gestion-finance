@@ -54,7 +54,9 @@ themis/
 | `journal.go` | Fil chronologique unifié | `GET /api/journal?month=YYYY-MM` |
 | `remaining.go` | Reste-à-vivre (proj. ou hist.) | `GET /api/remaining?month=YYYY-MM` |
 | `features.go` | Budgets, catégories, règles | `/api/budgets*`, `/api/rules*`, `/api/categories` |
-| `features2.go` | Tags, récurrences, exports | `/api/tags*`, `/api/recurring`, `/api/export` |
+| `features2.go` | Comptes, domaines et tags | `/api/accounts*`, `/api/domains*`, `/api/tags*` |
+| `engagement_*.go` | Crédits/taxes : centimes exacts, paiements déclarés, propriétaire, historique atomique et synthèse cohérente | `/api/credits*`, `/api/taxes*`, `/api/obligations` |
+| `export.go` | Export propriétaire, y compris paiements/historiques d’engagements retirés | `/api/export` |
 | `features3.go` | Analytics avancées | `/api/analytics/*`, `/api/intel/*` |
 | `narrative.go` | Synthèse narrative IA | `GET /api/intel/narrative` |
 | `coherence.go` | Vérif cohérence données | `GET /api/coherence` |
@@ -546,3 +548,15 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `pages/TagAnalysis.jsx` : durées 6/12/24/36/60/120 mois, ou deux mois personnalisés à valider ; sélection des tags conservée. La durée est propre à l’historique, distincte du croisement catégorie/tag mensuel.
 - `api/analytics.go` : fenêtre `months` jusqu’à 600, dates strictes et calendrier complet pour les séries bornées, trous `null` sans ajout de zéros. Agrégations SQL et propriété inchangées ; aucun nouvel endpoint ou schéma.
 - `tagHistoryModel.mjs` et tests, `api/tag_history_test.go`, parcours navigateur Analyse étendu : précision, bornes, données absentes, noms spéciaux, dix ans d’historique, zoom clavier et accessibilité.
+
+
+## Consolidation Crédits & taxes — octobre 2026
+
+- `frontend/src/pages/Credits.jsx` conserve bandeau/cartes/tableau, avec rapport unique, statut déclaré/inconnu, formulaires contextuels et archives à la demande.
+- `frontend/src/components/CreditDialogs.jsx` : édition, paiement partiel, clôture/réouverture, retrait conservateur, historique paginé et archives ; fenêtres natives et focus clavier.
+- `frontend/src/components/creditsPageModel.mjs` : validation et formatage exacts, tris, statuts backend. Aucun agrégat financier de remplacement en frontend.
+- `backend/internal/api/engagement_money.go`, `engagement_models.go` : invariants et vue financière partagés. Échéancier calendaire distinct des paiements déclarés ; historique manquant = solde inconnu.
+- `engagement_report.go` : instantané PostgreSQL REPEATABLE READ. `engagement_credits.go`, `engagement_payments.go`, `engagement_taxes.go`, `engagement_history.go` : propriétaire, verrou, mutation/historique atomiques, idempotence et pagination.
+- Migrations 022/023 reprises sans altération ; 024 additive avec contraintes de propriétaire et conservation des preuves. Rollback 024 gardé contre toute perte de déclarations.
+- Tests : `features2_test.go`, `engagement_migrations_test.go`, `creditsPageModel.test.mjs`, `frontend/tests/credits.browser.cjs` (ajouté à la CI), `backend/tests/credits_http_smoke.py` pour une instance synthétique vide isolée.
+- Diagnostic, contrats, formules, validations et limites : `docs/CREDITS_TAXES_CODEX_{AUDIT,CHANGES,TESTS}.md`.
