@@ -34,7 +34,7 @@ func parseFingerprint(res *models.ParseResult) string {
 
 // persistDocument is all-or-nothing. Only a byte-identical source with an
 // unchanged parsed fingerprint is an established duplicate. Business similarity
-// across sources blocks import for review; it never silently removes an entry.
+// across different sources is advisory and never suppresses an occurrence.
 func (s *Server) persistDocument(filename string, res *models.ParseResult, accountID, owner int64) (inserted, skipped int, statementID int64, err error) {
 	if len(res.DocumentHash) != 64 || res.Report == nil {
 		return 0, 0, 0, fmt.Errorf("provenance d'import absente")
@@ -115,12 +115,9 @@ func (s *Server) persistDocument(filename string, res *models.ParseResult, accou
 	for _, t := range res.Transactions {
 		hashes = append(hashes, parser.TxHash(t))
 	}
-	var similar bool
-	if e = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM transactions t JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id WHERE t.owner_id=$1 AND st.account_id=$2 AND (t.hash=ANY($3) OR t.source_business_hash=ANY($3)))`, owner, accountID, pq.Array(hashes)).Scan(&similar); e != nil {
+	var similar int
+	if e = tx.QueryRow(`SELECT count(*) FROM transactions t JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id WHERE t.owner_id=$1 AND st.account_id=$2 AND (t.hash=ANY($3) OR t.source_business_hash=ANY($3))`, owner, accountID, pq.Array(hashes)).Scan(&similar); e != nil {
 		return 0, 0, 0, e
-	}
-	if similar {
-		return 0, 0, 0, fmt.Errorf("opération similaire dans un autre import : doublon non prouvé, import suspendu pour comparaison ; aucune donnée existante modifiée")
 	}
 	// Keep a separate report snapshot until commit; a failed insert must not claim
 	// that the candidates were imported.
@@ -130,6 +127,9 @@ func (s *Server) persistDocument(filename string, res *models.ParseResult, accou
 		return 0, 0, 0, e
 	}
 	report.Inserted = len(res.Transactions)
+	if similar > 0 {
+		report.Warnings = appendUniqueReportWarning(report.Warnings, "similar_operations_in_other_import")
+	}
 	for i := range report.Candidates {
 		if report.Candidates[i].Status == "parsed" {
 			report.Candidates[i].Status = "imported"
@@ -163,4 +163,13 @@ func (s *Server) persistDocument(filename string, res *models.ParseResult, accou
 	}
 	res.Report = &report
 	return len(res.Transactions), 0, statementID, nil
+}
+
+func appendUniqueReportWarning(warnings []string, value string) []string {
+	for _, warning := range warnings {
+		if warning == value {
+			return warnings
+		}
+	}
+	return append(warnings, value)
 }
