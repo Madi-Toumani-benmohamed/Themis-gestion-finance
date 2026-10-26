@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: themis_e2e
+      POSTGRES_PASSWORD: e2e_only_password
+      POSTGRES_DB: themis_e2e
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U themis_e2e -d themis_e2e"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
