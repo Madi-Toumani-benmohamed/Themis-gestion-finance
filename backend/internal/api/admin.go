@@ -191,10 +191,12 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		"statements":   `SELECT count(*) FROM statements WHERE owner_id = $1`,
 		"transactions": `SELECT count(*) FROM transactions WHERE owner_id = $1`,
 		"categorized":  `SELECT count(*) FROM transactions WHERE domain_id IS NOT NULL AND owner_id = $1`,
-		"domains":      `SELECT count(*) FROM domains WHERE parent_id IS NULL AND owner_id = $1`,
-		"rules":        `SELECT count(*) FROM rules WHERE owner_id = $1`,
-		"analyses":     `SELECT count(*) FROM analyses WHERE owner_id = $1`,
-		"budgets":      `SELECT count(*) FROM budgets WHERE owner_id = $1`,
+		// Keep the established frontend/API field name. Domains replaced the
+		// legacy category table, but the admin panel still consumes categories.
+		"categories": `SELECT count(*) FROM domains WHERE parent_id IS NULL AND owner_id = $1`,
+		"rules":      `SELECT count(*) FROM rules WHERE owner_id = $1`,
+		"analyses":   `SELECT count(*) FROM analyses WHERE owner_id = $1`,
+		"budgets":    `SELECT count(*) FROM budgets WHERE owner_id = $1`,
 	}
 	for k, q := range queries {
 		var n int64

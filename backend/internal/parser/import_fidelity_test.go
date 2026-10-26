@@ -2,8 +2,10 @@ package parser
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"themis/internal/money"
 	"themis/internal/testfixture"
@@ -120,6 +122,132 @@ func TestRepeatedTwentyTwoEuroTransfersAndCreditReversalRemainDistinct(t *testin
 		t.Fatalf("les écritures distinctes ne se rapprochent pas : %+v", res.Report)
 	}
 }
+
+func TestFXContinuationsDoNotBecomeOperationsAndPreserveExactReport(t *testing.T) {
+	rows := []Row{
+		{Page: 1, Words: []Word{w("Date", 50, 30), w("Libellé", 110, 50), w("Débit", 400, 40), w("Crédit", 480, 45)}},
+		{Page: 1, Words: []Word{w("Ancien", 50, 45), w("solde", 100, 38), w("au", 142, 15), w("01.02.2026", 160, 70), w("611,81", 490, 40)}},
+	}
+	addOperation := func(page, line int, date, label, amount string, credit bool) {
+		x := 405.0
+		if credit {
+			x = 488
+		}
+		rows = append(rows, Row{Page: page, Line: line, Words: []Word{w(date, 50, 35), w(label, 130, 220), w(amount, x, 42)}})
+	}
+	addOperation(2, 74, "03.02", "Carte Royal Hotel Monrovia", "46,49", false)
+	fxRow := func(line int, amount, rate string) Row {
+		words := []string{"Mt", "initial", ":", amount, "USD", "-", "taux", "de", "change", ":", "1", "USD", "=", rate, "Eur"}
+		fragments := make([]Word, 0, len(words))
+		for i, word := range words {
+			fragments = append(fragments, w(word, float64(130+i*25), 20))
+		}
+		return Row{Page: 2, Line: line, Words: fragments}
+	}
+	rows = append(rows, fxRow(75, "55,00", "0,84527"))
+	addOperation(2, 78, "05.02", "Carte Royal Hotel Monrovia", "27,70", false)
+	rows = append(rows, fxRow(79, "32,48", "0,85283"))
+	for i := 0; i < 65; i++ {
+		addOperation(2, 80+i, "06.02", fmt.Sprintf("Carte Synthetic Shop %02d", i), "195,57", false)
+	}
+	addOperation(2, 145, "18.02", "Carte Synthetic Final", "195,61", false)
+	addOperation(2, 146, "19.02", "Virement salaire synthétique", "12 482,50", true)
+	rows = append(rows,
+		Row{Page: 2, Line: 147, Words: []Word{w("Total des opérations", 50, 160), w("12 981,85", 405, 42), w("12 482,50", 488, 42)}},
+		Row{Page: 2, Line: 148, Words: []Word{w("Nouveau", 50, 55), w("solde", 108, 38), w("au", 150, 15), w("20.02.2026", 168, 70), w("112,46", 490, 40)}},
+	)
+	res, err := ParseLocal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Transactions) != 69 || res.Report.Parsed != 69 || res.Report.Detected != 69 || res.Report.Rejected != 0 {
+		t.Fatalf("les métadonnées FX ont modifié le registre des opérations: tx=%d report=%+v", len(res.Transactions), res.Report)
+	}
+	if res.Report.Debits != 1_298_185 || res.Report.Credits != 1_248_250 || res.Report.BalanceDifference == nil || *res.Report.BalanceDifference != 0 || !res.Validated {
+		t.Fatalf("rapprochement synthétique attendu débits=12981.85 crédits=12482.50 écart=0 validation=true; report=%+v", res.Report)
+	}
+	if res.OpeningBalance == nil || *res.OpeningBalance != 611.81 || res.ClosingBalance == nil || *res.ClosingBalance != 112.46 {
+		t.Fatalf("soldes synthétiques incorrects: opening=%v closing=%v", res.OpeningBalance, res.ClosingBalance)
+	}
+	if len(res.Report.Continuations) != 2 {
+		t.Fatalf("2 conversions doivent rester attachées et traçables: %+v", res.Report.Continuations)
+	}
+	want := []struct {
+		line  int
+		cents int64
+		rate  string
+	}{{75, 5500, "0.84527"}, {79, 3248, "0.85283"}}
+	for i, expected := range want {
+		got := res.Report.Continuations[i]
+		if got.Kind != "currency_conversion" || got.Page != 2 || got.Line != expected.line || got.AmountCents != expected.cents || got.Rate != expected.rate || got.ParentIndex != i {
+			t.Fatalf("provenance/conversion incorrecte: %+v", got)
+		}
+	}
+}
+
+func TestSEPAReferenceAndAmountContinuationStayWithParent(t *testing.T) {
+	rows := sampleRows()
+	ref := row(89, w("Référence", 130, 65), w("SEPA", 200, 35), w("123456", 240, 40), w("8,00", 285, 38))
+	ref.Page, ref.Line = 2, 17
+	rows = append(rows[:3], append([]Row{ref}, rows[3:]...)...)
+	res, err := ParseLocal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Transactions) != 2 || res.Report.Rejected != 0 || !strings.Contains(res.Transactions[0].Label, "8,00") {
+		t.Fatalf("référence SEPA contenant un montant séparée à tort: %+v", res)
+	}
+	found := false
+	for _, continuation := range res.Report.Continuations {
+		if continuation.Kind == "sepa_reference" && continuation.Page == 2 && continuation.Line == 17 && continuation.ParentIndex == 0 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("la ligne SEPA de continuation n'est pas traçable")
+	}
+}
+
+func TestUnattachedOrMismatchedFXLineRemainsBlocking(t *testing.T) {
+	rows := sampleRows()
+	bad := row(89, w("Mt initial : 55,00 USD-taux de change : 1 USD=0,84527 Eur", 130, 400))
+	bad.Page, bad.Line = 2, 9
+	rows = append(rows[:3], append([]Row{bad}, rows[3:]...)...)
+	res, err := ParseLocal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unattached := false
+	for _, candidate := range res.Report.Candidates {
+		if candidate.Reason == "unattached_currency_conversion" {
+			unattached = true
+		}
+	}
+	if res.Validated || res.Report.Rejected != 1 || !unattached {
+		t.Fatalf("conversion non rapprochée absorbée silencieusement: rejected=%d unattached=%v validated=%v", res.Report.Rejected, unattached, res.Validated)
+	}
+}
+
+func TestSEPALabeledAmountInFinancialColumnRemainsBlocking(t *testing.T) {
+	rows := sampleRows()
+	operation := row(89, w("Reference", 130, 65), w("SEPA", 200, 35), w("8,00", 405, 38))
+	operation.Page, operation.Line = 2, 18
+	header := rows[0]
+	header.Page, header.Line = 2, 17
+	d, c, _ := findColumns(sampleRows())
+	if !amountInFinancialColumn(operation, d, c) {
+		t.Fatalf("la fixture de contrôle doit aligner son montant sur une colonne bancaire: debit=%v credit=%v", d, c)
+	}
+	rows = append(rows[:3], append([]Row{header, operation}, rows[3:]...)...)
+	res, err := ParseLocal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Validated || res.Report.Rejected != 1 {
+		t.Fatalf("un montant aligné sur une colonne bancaire ne doit pas être absorbé comme référence SEPA: rejected=%d detected=%d parsed=%d continuations=%+v candidates=%+v", res.Report.Rejected, res.Report.Detected, res.Report.Parsed, res.Report.Continuations, res.Report.Candidates)
+	}
+}
+
 func TestMarginReferenceNeverHidesAnOperation(t *testing.T) {
 	rows := sampleRows()
 	rows[2].Words = append([]Word{w("099410", 0, 25)}, rows[2].Words...)

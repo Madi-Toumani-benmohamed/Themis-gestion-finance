@@ -63,27 +63,28 @@ type ParseResult struct {
 // ImportReport stores controls and source references, never a second copy of
 // bank labels. All numeric fields suffixed _cents are exact integer cents.
 type ImportReport struct {
-	RequiresReview      bool              `json:"requires_review"`
-	Warnings            []string          `json:"warnings"`
-	Extraction          string            `json:"extraction,omitempty"`
-	Detected            int               `json:"detected"`
-	Parsed              int               `json:"parsed"`
-	Inserted            int               `json:"inserted"`
-	Duplicates          int               `json:"duplicates"`
-	Rejected            int               `json:"rejected"`
-	ExpectedCount       *int              `json:"expected_count"`
-	DeclaredDebits      *int64            `json:"declared_debits_cents"`
-	DeclaredCredits     *int64            `json:"declared_credits_cents"`
-	Debits              int64             `json:"debits_cents"`
-	Credits             int64             `json:"credits_cents"`
-	BalanceDifference   *int64            `json:"balance_difference_cents"`
-	CountControl        string            `json:"count_control"`
-	TraceabilityControl string            `json:"traceability_control,omitempty"`
-	TotalsControl       string            `json:"totals_control"`
-	BalanceControl      string            `json:"balance_control"`
-	Completeness        string            `json:"completeness"`
-	Issues              []string          `json:"issues"`
-	Candidates          []ImportCandidate `json:"candidates"`
+	RequiresReview      bool                 `json:"requires_review"`
+	Warnings            []string             `json:"warnings"`
+	Extraction          string               `json:"extraction,omitempty"`
+	Detected            int                  `json:"detected"`
+	Parsed              int                  `json:"parsed"`
+	Inserted            int                  `json:"inserted"`
+	Duplicates          int                  `json:"duplicates"`
+	Rejected            int                  `json:"rejected"`
+	ExpectedCount       *int                 `json:"expected_count"`
+	DeclaredDebits      *int64               `json:"declared_debits_cents"`
+	DeclaredCredits     *int64               `json:"declared_credits_cents"`
+	Debits              int64                `json:"debits_cents"`
+	Credits             int64                `json:"credits_cents"`
+	BalanceDifference   *int64               `json:"balance_difference_cents"`
+	CountControl        string               `json:"count_control"`
+	TraceabilityControl string               `json:"traceability_control,omitempty"`
+	TotalsControl       string               `json:"totals_control"`
+	BalanceControl      string               `json:"balance_control"`
+	Completeness        string               `json:"completeness"`
+	Issues              []string             `json:"issues"`
+	Candidates          []ImportCandidate    `json:"candidates"`
+	Continuations       []ImportContinuation `json:"continuations,omitempty"`
 }
 type ImportCandidate struct {
 	Index  int    `json:"index"`
@@ -91,4 +92,18 @@ type ImportCandidate struct {
 	Line   int    `json:"line"`
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
+}
+
+// ImportContinuation retains the PDF location of non-operation lines attached
+// to a parsed transaction. FX fields are populated only for a strict, verified
+// currency conversion line; source text is intentionally not copied here.
+type ImportContinuation struct {
+	ParentIndex int    `json:"parent_index"`
+	Page        int    `json:"page"`
+	Line        int    `json:"line"`
+	Kind        string `json:"kind"`
+	AmountCents int64  `json:"amount_cents,omitempty"`
+	Currency    string `json:"currency,omitempty"`
+	Rate        string `json:"rate,omitempty"`
+	Target      string `json:"target_currency,omitempty"`
 }
