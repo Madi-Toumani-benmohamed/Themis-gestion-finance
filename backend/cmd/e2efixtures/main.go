@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	_ "github.com/lib/pq"
 	"themis/internal/testfixture"
@@ -18,6 +19,9 @@ func main() {
 	}
 	switch os.Args[1] {
 	case "statement":
+		if err := os.MkdirAll(filepath.Dir(os.Args[2]), 0o755); err != nil {
+			fatal("répertoire du relevé synthétique impossible à créer")
+		}
 		if err := os.WriteFile(os.Args[2], testfixture.Statement009PDF(), 0o600); err != nil {
 			fatal("écriture du relevé synthétique impossible")
 		}
