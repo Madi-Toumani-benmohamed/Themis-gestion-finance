@@ -4,3 +4,6 @@ equipe/
 *.json
 *.log
 .env
+frontend/test-results/
+frontend/playwright-report/
+frontend/tests/fixtures/statement-009.pdf
