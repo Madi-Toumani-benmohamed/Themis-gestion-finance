@@ -459,6 +459,9 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 ### CI — consommation GitHub Actions
 
 - `.github/workflows/ci.yml` exécute les tests Node `src/components/*.test.mjs` avant le build frontend.
+- Le job `E2E - Playwright` utilise une base PostgreSQL 16 dédiée `themis_e2e`, démarre le vrai serveur Go et Vite via `frontend/playwright.config.ts`, puis lance les tests Playwright authentifiés de `frontend/tests/e2e/`. Les tests navigateur `frontend/tests/*.browser.cjs` restent séparés et conservent leurs API simulées et vérifications d’accessibilité.
+- `frontend/tests/e2e/global-setup.ts` crée deux propriétaires fictifs et importe le PDF anonyme de `backend/internal/testfixture`; les totaux, soldes et opérations sont vérifiés au niveau API avant les tests UI. `backend/cmd/e2efixtures` fournit le PDF et l'expiration de sessions uniquement pour la base nommée `themis_e2e`.
+- `docs/PLAYWRIGHT_E2E.md` documente l'exécution locale reproductible et les garde-fous de confidentialité.
 
 ### Relevés — contrôle documentaire (2026-10-25)
 

@@ -94,31 +94,65 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-  budgets-ui:
-    name: Financial pages and AI configuration browser checks
+  e2e:
+    name: E2E - Playwright
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: frontend
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: themis_e2e
+          POSTGRES_PASSWORD: e2e_only_password
+          POSTGRES_DB: themis_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U themis_e2e -d themis_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      THEMIS_E2E_DATABASE_URL: postgres://themis_e2e:e2e_only_password@127.0.0.1:5432/themis_e2e?sslmode=disable
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install frontend dependencies
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Install dependencies
+        working-directory: frontend
         run: npm ci
-      - name: Install isolated browser tooling
+
+      - name: Install Chromium and system dependencies
         run: |
-          npm install --prefix "$RUNNER_TEMP/themis-ui" --no-audit --no-fund playwright@1.64.1 @axe-core/playwright@4.14.0
-          "$RUNNER_TEMP/themis-ui/node_modules/.bin/playwright" install --with-deps chromium
-      - name: Check financial pages and AI settings, responsive layout and accessibility
+          cd frontend
+          npx playwright install --with-deps chromium
+      - name: Install deterministic PDF parser dependency
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Download backend dependencies
+        working-directory: backend
+        run: go mod download
+
+      - name: Preserve mocked UI, responsive and accessibility checks
+        working-directory: frontend
         env:
-          NODE_PATH: ${{ runner.temp }}/themis-ui/node_modules
           THEMIS_UI_ARTIFACTS: ${{ runner.temp }}/themis-budgets-ui
           THEMIS_AI_ARTIFACTS: ${{ runner.temp }}/themis-ai-ui
           THEMIS_STATEMENTS_ARTIFACTS: ${{ runner.temp }}/themis-statements-ui
@@ -133,14 +167,24 @@ jobs:
             echo "Waiting for UI server ($attempt/30)..."
             sleep 1
           done
-          node tests/transactions.browser.cjs
-          node tests/budgets.browser.cjs
-          node tests/simulation.browser.cjs
-          node tests/analysis.browser.cjs
-          node tests/credits.browser.cjs
-          node tests/ai-configuration.browser.cjs
-          node tests/statements.browser.cjs
-          node tests/import-fidelity.browser.cjs
+          npm run test:browser
+
+      - name: Run real application E2E tests
+        working-directory: frontend
+        env:
+          CI: 'true'
+        run: npm run test:e2e
+
+      - name: Publish Playwright reports, screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-${{ github.run_id }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   memory:
     name: Knowledge Graph Python
@@ -164,7 +208,7 @@ jobs:
 
   docker:
     name: Build and publish Docker image
-    needs: [backend, frontend, budgets-ui, memory, compose]
+    needs: [backend, frontend, e2e, memory, compose]
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
