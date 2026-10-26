@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,12 +19,14 @@ var (
 	reDate = regexp.MustCompile(`^(\d{2})[./](\d{2})(?:[./](\d{2,4}))?$`)
 	// Décimales à virgule uniquement (format FR) : indispensable pour ne pas
 	// confondre une date « 22.05 » avec un montant.
-	reAmount       = regexp.MustCompile(`^[+-]?\d{1,3}(?:[ \x{00A0}.]\d{3})*,\d{2}$|^[+-]?\d+,\d{2}$`)
-	reSoldeOld     = regexp.MustCompile(`(?i)(ancien\s*solde|solde\s*pr[ée]c[ée]dent|solde\s*au\s*d[ée]but|solde\s*initial)`)
-	reSoldeNew     = regexp.MustCompile(`(?i)(nouveau\s*solde|solde\s*final|solde\s*cr[ée]diteur|solde\s*en\s*fin|solde\s*au\s*\d{2})`)
-	rePeriod       = regexp.MustCompile(`(\d{2}/\d{2}/\d{4})\s*(?:au|-|à)\s*(\d{2}/\d{2}/\d{4})`)
-	reSoldeOldDate = regexp.MustCompile(`(?i)(?:ancien\s*solde|solde\s*pr[ée]c[ée]dent)[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
-	reSoldeNewDate = regexp.MustCompile(`(?i)nouveau\s*solde[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
+	reAmount        = regexp.MustCompile(`^[+-]?\d{1,3}(?:[ \x{00A0}.]\d{3})*,\d{2}$|^[+-]?\d+,\d{2}$`)
+	reSoldeOld      = regexp.MustCompile(`(?i)(ancien\s*solde|solde\s*pr[ée]c[ée]dent|solde\s*au\s*d[ée]but|solde\s*initial)`)
+	reSoldeNew      = regexp.MustCompile(`(?i)(nouveau\s*solde|solde\s*final|solde\s*cr[ée]diteur|solde\s*en\s*fin|solde\s*au\s*\d{2})`)
+	rePeriod        = regexp.MustCompile(`(\d{2}/\d{2}/\d{4})\s*(?:au|-|à)\s*(\d{2}/\d{2}/\d{4})`)
+	reSoldeOldDate  = regexp.MustCompile(`(?i)(?:ancien\s*solde|solde\s*pr[ée]c[ée]dent)[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
+	reSoldeNewDate  = regexp.MustCompile(`(?i)nouveau\s*solde[^\d]*(\d{2})[./](\d{2})[./](\d{4})`)
+	reFXConversion  = regexp.MustCompile(`(?i)^mt\s+initial\s*:?\s*([0-9][0-9 .,\x{00A0}]*)\s*usd\s*[-–—]?\s*taux\s+de\s+change\s*:?\s*1\s*usd\s*=?\s*([0-9]+(?:[,.][0-9]+)?)\s*eur$`)
+	reSEPAReference = regexp.MustCompile(`(?i)\b(?:ref(?:erence)?|reference)\b.*\bsepa\b|\bsepa\b.*\b(?:ref(?:erence)?|reference)\b`)
 )
 
 // ParseLocal tente d'extraire les transactions par analyse positionnelle :
@@ -121,6 +124,14 @@ func ParseLocal(rows []Row) (*models.ParseResult, error) {
 			line = pageLines[row.Page]
 		}
 		text := row.Text()
+		if fx, ok := parseFXConversion(text); ok {
+			if current != nil && hasAmount && candidateIndex >= 0 && isCardOperation(current.Label) && convertedAmountMatches(fx.amountCents, fx.rate, current.Amount) {
+				res.Report.Continuations = append(res.Report.Continuations, models.ImportContinuation{ParentIndex: candidateIndex, Page: row.Page, Line: line, Kind: "currency_conversion", AmountCents: int64(fx.amountCents), Currency: "USD", Rate: fx.rate, Target: "EUR"})
+				continue
+			}
+			res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: len(res.Report.Candidates), Page: row.Page, Line: line, Status: "uninterpretable", Reason: "unattached_currency_conversion"})
+			continue
+		}
 		if reSoldeOld.MatchString(text) || reSoldeNew.MatchString(text) {
 			flush()
 			if v, _, ok := lastAmount(row); ok {
@@ -191,12 +202,17 @@ func ParseLocal(rows []Row) (*models.ParseResult, error) {
 							current.Label += " " + w.S
 						}
 					}
+					res.Report.Continuations = append(res.Report.Continuations, models.ImportContinuation{ParentIndex: candidateIndex, Page: row.Page, Line: line, Kind: "multiline_amount"})
+				} else if reSEPAReference.MatchString(removeAccents(text)) && !amountInFinancialColumn(row, debitX, creditX) {
+					current.Label += " " + text
+					res.Report.Continuations = append(res.Report.Continuations, models.ImportContinuation{ParentIndex: candidateIndex, Page: row.Page, Line: line, Kind: "sepa_reference"})
 				} else {
 					flush()
 					res.Report.Candidates = append(res.Report.Candidates, models.ImportCandidate{Index: len(res.Report.Candidates), Page: row.Page, Line: line, Status: "uninterpretable", Reason: "amount_without_operation_date"})
 				}
 			} else {
 				current.Label += " " + text
+				res.Report.Continuations = append(res.Report.Continuations, models.ImportContinuation{ParentIndex: candidateIndex, Page: row.Page, Line: line, Kind: "multiline_description"})
 			}
 		} else if inTable {
 			if _, _, ok := lastAmount(row); ok {
@@ -307,6 +323,18 @@ func trailingAmount(row Row) (float64, *float64, float64, bool) {
 	return 0, nil, 0, false
 }
 
+func amountInFinancialColumn(row Row, debitX, creditX float64) bool {
+	if debitX < 0 || creditX < 0 {
+		return true // sans géométrie fiable, garder le contrôle bloquant
+	}
+	_, _, x, ok := trailingAmount(row)
+	if !ok {
+		return false
+	}
+	threshold := math.Min(24, math.Abs(creditX-debitX)*0.25)
+	return math.Abs(x-debitX) <= threshold || math.Abs(x-creditX) <= threshold
+}
+
 func lastAmount(row Row) (float64, *float64, bool) {
 	v, alt, _, ok := trailingAmount(row)
 	return v, alt, ok
@@ -401,6 +429,57 @@ func parseAmount(s string) (float64, error) {
 	}
 	c, err := money.Parse(s)
 	return float64(c) / 100, err
+}
+
+type fxConversion struct {
+	amountCents money.Cents
+	rate        string
+}
+
+func parseFXConversion(text string) (fxConversion, bool) {
+	normalized := strings.Join(strings.Fields(strings.ReplaceAll(removeAccents(text), "\u00a0", " ")), " ")
+	m := reFXConversion.FindStringSubmatch(normalized)
+	if m == nil {
+		return fxConversion{}, false
+	}
+	amount := strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(m[1]), " ", ""), ".", ""), ",", ".")
+	cents, err := money.Parse(amount)
+	if err != nil || cents <= 0 {
+		return fxConversion{}, false
+	}
+	rate := strings.ReplaceAll(m[2], ",", ".")
+	if _, ok := new(big.Rat).SetString(rate); !ok {
+		return fxConversion{}, false
+	}
+	return fxConversion{amountCents: cents, rate: rate}, true
+}
+
+func isCardOperation(label string) bool {
+	u := strings.ToUpper(removeAccents(label))
+	return strings.Contains(u, "CARTE") || strings.Contains(u, "CARD")
+}
+
+// convertedAmountMatches uses exact rational arithmetic and rounds to the
+// nearest cent, matching the EUR amount reported by the bank.
+func convertedAmountMatches(foreignCents money.Cents, rate string, transactionAmount float64) bool {
+	rateRat, ok := new(big.Rat).SetString(rate)
+	if !ok {
+		return false
+	}
+	value := new(big.Rat).Mul(new(big.Rat).SetInt64(int64(foreignCents)), rateRat)
+	numerator, denominator := value.Num(), value.Denom()
+	quotient, remainder := new(big.Int).QuoRem(numerator, denominator, new(big.Int))
+	if new(big.Int).Mul(remainder, big.NewInt(2)).Cmp(denominator) >= 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	transactionCents, err := money.FromLegacy(transactionAmount)
+	if err != nil {
+		return false
+	}
+	if transactionCents < 0 {
+		transactionCents = -transactionCents
+	}
+	return quotient.IsInt64() && quotient.Int64() == int64(transactionCents)
 }
 
 func cleanLabel(s string) string {
