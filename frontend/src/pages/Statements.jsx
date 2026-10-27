@@ -1,4 +1,5 @@
 import ImportReport from '../components/ImportReport'
+import { AnimatedRegion } from '../motion'
 import { useEffect, useRef, useState } from 'react'
 import { useModal } from '../components/useModal'
 import { api } from '../api'
@@ -33,7 +34,8 @@ function StatementDialog({
     [note, setNote] = useState(''),
     [checkMode, setCheckMode] = useState('deterministic'),
     [checkResult, setCheckResult] = useState(null)
-  useModal(ref, '.statements-table-header h2')
+  const dismiss = useModal(ref, '.statements-table-header h2')
+  const requestClose = () => { if (!busy) dismiss(close) }
   const act = async (callback) => {
     setBusy(true)
     setError('')
@@ -51,8 +53,8 @@ function StatementDialog({
       className="statement-dialog"
       aria-labelledby="statement-dialog-title"
       onCancel={(e) => {
-        if (busy) e.preventDefault()
-        else close()
+        e.preventDefault()
+        requestClose()
       }}
     >
       <header>
@@ -63,7 +65,7 @@ function StatementDialog({
         </h2>
         <button
           className="btn-secondary"
-          onClick={close}
+          onClick={requestClose}
           disabled={busy}
           aria-label="Fermer le détail"
         >
@@ -94,7 +96,7 @@ function StatementDialog({
             irréversible.
           </p>
           <div className="statement-actions">
-            <button className="btn-secondary" onClick={close} disabled={busy}>
+            <button className="btn-secondary" onClick={requestClose} disabled={busy}>
               Annuler la suppression
             </button>
             <button
@@ -609,7 +611,7 @@ export default function Statements({
                 : 'Aucun relevé importé. Les comptes suivis par pointage restent gérés dans Comptes.'}
             </p>
           ) : (
-            <div
+            <AnimatedRegion revision={filters}
               className="statements-table-scroll"
               tabIndex={0}
               role="region"
@@ -705,7 +707,7 @@ export default function Statements({
                   ))}
                 </tbody>
               </table>
-            </div>
+            </AnimatedRegion>
           )}
         </>
       )}

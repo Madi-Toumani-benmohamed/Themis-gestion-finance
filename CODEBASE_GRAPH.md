@@ -106,6 +106,15 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 
 ## Frontend — Structure
 
+### Mouvement et interactions (`frontend/src/motion/`)
+- `index.jsx` centralise le provider Motion, les transitions de navigation (View Transitions avec repli), les révélations au scroll, cartes, onglets, panneaux et jauges. `PresencePanel` rend les éléments sortants inertes.
+- `tokens.js` définit les rythmes et springs ; `preference.js` suit le mouvement réduit dès le premier rendu et à chaud ; `motion.css` harmonise les interactions après les feuilles existantes.
+- `AnimatedNumber.jsx` anime les caractères déjà formatés, en gardant le montant exact dans le texte accessible/copiable. Les valeurs absentes restent absentes.
+- `AnimatedChart.jsx` révèle la géométrie Recharts avec Web Animations, sans changer les séries ni remonter le graphique lors du zoom. `HeroFlow.jsx` présente les flux disponibles sur douze mois calendaires, avec ruptures pour les mois absents et tableau accessible.
+- `FinancialSummary` et les KPI identifient la période des valeurs conservées pendant le chargement et ignorent les réponses obsolètes. Un mois absent ne reprend pas les KPI du mois précédent.
+- `useModal.js` conserve le dialogue natif et la restauration du focus ; une copie décorative inerte termine la sortie après fermeture immédiate de l’état React, pour préserver les réouvertures rapides des transactions/relevés.
+- Référence : `docs/MOTION_DESIGN.md`. Validation : `tests/motion.browser.cjs` (API synthétique, montants, périodes, navigation rapide, mouvement réduit, accessibilité, performances) et scénarios navigateur/E2E existants.
+
 ### Pages (`frontend/src/pages/`)
 | Page | Description |
 |------|-------------|
