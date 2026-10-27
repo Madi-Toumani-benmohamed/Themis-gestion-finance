@@ -1,5 +1,6 @@
 // Anonymous API fixtures only. The test never reads a real PDF or database.
 const { chromium } = require('playwright')
+const { expect } = require('@playwright/test')
 const { AxeBuilder } = require('@axe-core/playwright')
 const assert = require('node:assert/strict')
 const month = new Date().toISOString().slice(0, 7)
@@ -47,18 +48,25 @@ async function main() {
    else if (path === '/api/journal') data = { events: [] }
    else if (path === '/api/statements/previews') data = preview()
    else if (/\/previews\/[^/]+\/confirm$/.test(path)) { confirmations++; data = { statement_id: 100, inserted: mode === 'duplicate' ? 0 : 81, duplicates: mode === 'duplicate' ? 81 : 0, parser: 'local', validated: true, import_report: { ...sourceReport(), inserted: 81 } } }
-   else if (/\/previews\/[^/]+$/.test(path) && req.method() === 'DELETE') { cancellations++ }
+   else if (/\/previews\/[^/]+$/.test(path) && req.method() === 'DELETE') {
+    cancellations++
+    // Closing the dialog precedes completion of the upload queue. Exercise
+    // that interval explicitly instead of relying on local network speed.
+    await new Promise(resolve => setTimeout(resolve, 500))
+   }
    else if (path === '/api/domains' || path === '/api/categories' || path === '/api/tags' || path === '/api/statements') data = []
    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) }).catch(() => {})
   })
   await page.goto(process.env.THEMIS_UI_URL || 'http://127.0.0.1:5176')
   await page.locator(".sidebar-nav").getByRole("tab", {name:"Relevés",exact:true}).click()
-  // Let initial dashboard-only asynchronous requests settle before exercising
-  // the upload queue, so an unrelated widget render cannot race the preview.
-  await page.waitForTimeout(300)
+  await page.getByRole('heading', { name: 'Contrôle des relevés', exact: true }).waitFor()
   const open = async value => {
+   const input = page.locator('input[type=file]')
+   // setInputFiles does not wait for enabled state. The previous dialog can
+   // disappear while cancellation/confirmation still keeps this input disabled.
+   await expect(input).toBeEnabled()
    mode = value
-   await page.locator('input[type=file]').setInputFiles({ name: 'ANONYME TEST.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nTEST') })
+   await input.setInputFiles({ name: 'ANONYME TEST.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nTEST') })
    await page.getByRole('dialog', { name: 'Vérifier avant d’importer' }).waitFor().catch(async e=>{console.log({requests,errors,body:await page.locator('body').innerText()});throw e})
   }
   await open('failed')
@@ -68,7 +76,7 @@ async function main() {
   assert.equal(confirmations, 0)
   await page.keyboard.press('Escape')
   await dialog.waitFor({ state: 'detached' })
-  assert.equal(cancellations, 1)
+  await expect.poll(() => cancellations).toBe(1)
   await open('similar')
   assert.equal(await dialog.getByRole('button', { name: 'Import suspendu — vérification nécessaire' }).isDisabled(), true)
   assert.match(await dialog.innerText(), /doublon non prouvé/)
