@@ -1,3 +1,4 @@
+import { AnimatedChart, ChartFocusDot } from '../motion/AnimatedChart'
 import { useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
@@ -219,7 +220,7 @@ export default function CategoryChart({
           role="img"
           aria-label="Dépenses observées par catégorie ; données accessibles dans le tableau ci-dessous"
         >
-          <ResponsiveContainer width="100%" height={300}>
+          <AnimatedChart revision={data} dense={data.series.length > 240}><ResponsiveContainer width="100%" height={300}>
             <Chart
               data={data.series}
               margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
@@ -277,7 +278,7 @@ export default function CategoryChart({
               />
               {seriesNames.map((name) =>
                 mode === 'bar' ? (
-                  <Bar
+                  <Bar isAnimationActive={false}
                     key={name}
                     dataKey={name}
                     stackId="a"
@@ -286,19 +287,19 @@ export default function CategoryChart({
                     radius={[4, 4, 0, 0]}
                   />
                 ) : (
-                  <Line
+                  <Line isAnimationActive={false}
                     key={name}
                     type="monotone"
                     dataKey={name}
                     stroke={colorOf(name)}
                     strokeWidth={2.5}
                     dot={false}
-                    activeDot={{ r: 4, strokeWidth: 0 }}
+                    activeDot={<ChartFocusDot />}
                   />
                 ),
               )}
             </Chart>
-          </ResponsiveContainer>
+          </ResponsiveContainer></AnimatedChart>
         </div>
       )}
       <p className="muted" style={{ fontSize: 13, marginTop: 12 }}>

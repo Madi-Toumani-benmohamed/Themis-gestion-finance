@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, eur, kindIcon, monthLabel } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
-import { Reveal } from '../Reveal'
+import { Reveal, MotionCard, PresencePanel, m, AnimatePresence, ease, useMotionReduced } from '../motion'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { FinancialSummary } from '../components/FinancialSummary'
 
 let uid = 100
@@ -112,11 +113,18 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
 // Indicateurs clés : les quatre chiffres essentiels du mois de référence.
 function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
+  const [loadedMonth, setLoadedMonth] = useState('')
+  const [error, setError] = useState(null)
   useEffect(() => {
+    let active = true
+    setError(null)
     Promise.all([api.summary(24, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
-      const m = s2.monthly?.at(-1)
+      if (!active) return
+      setLoadedMonth(selectedMonth)
+      const monthIndex = s2.monthly?.findIndex(item => item.month === selectedMonth) ?? -1
+      const m = s2.monthly?.[monthIndex]
       if (!m) return setKpi(null)
-      const prev = s2.monthly?.at(-2)
+      const prev = s2.monthly?.[monthIndex - 1]
 
       // Ne pas calculer de delta si le mois courant est incomplet
       // ou si le mois précédent est incomplet.
@@ -138,9 +146,11 @@ function KpiRow({ selectedMonth }) {
         spentDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.expenses, prev.expenses) : null,
         incomeDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.income, prev.income) : null,
       })
-    }).catch(() => setKpi(null))
+    }).catch(e => { if (active) { setKpi(null); setError(e.message); setLoadedMonth(selectedMonth) } })
+    return () => { active = false }
   }, [selectedMonth])
-  if (!kpi) return null
+  if (error) return <p className="notice err" role="alert">Indicateurs indisponibles : {error}</p>
+  if (!kpi) return <p className="motion-period-state" role="status">{loadedMonth === selectedMonth ? 'Aucun indicateur observé pour cette période.' : 'Chargement des indicateurs…'}</p>
 
   const delta = (d) => d == null ? null : (
     <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
@@ -149,7 +159,7 @@ function KpiRow({ selectedMonth }) {
   const cell = (label, value, tone, deltaEl, subLabel) => (
     <div className={`kpi ${tone || ''}`}>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{eur(value)}</div>
+      <div className="kpi-value"><AnimatedNumber value={value} /></div>
       {deltaEl}
       {subLabel}
     </div>
@@ -162,18 +172,23 @@ function KpiRow({ selectedMonth }) {
   ) : null
 
   return (
-    <div className="kpi-row">
+    <>{loadedMonth !== selectedMonth && <p className="motion-period-state" role="status">Actualisation des indicateurs ; données affichées : {monthLabel(loadedMonth)}.</p>}<div className="kpi-row" data-period={loadedMonth} data-pending={loadedMonth !== selectedMonth} aria-busy={loadedMonth !== selectedMonth}>
       {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
       {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
       {cell('Résultat des flux enregistrés', kpi.net, '')}
       {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
-    </div>
+    </div></>
   )
 }
 
 function Journal({ onNavigate, selectedMonth }) {
   const [events, setEvents] = useState(null)
-  useEffect(() => { api.journal(selectedMonth).then((d) => setEvents(d.events || [])).catch(() => setEvents([])) }, [selectedMonth])
+  useEffect(() => {
+    let active = true
+    setEvents(null)
+    api.journal(selectedMonth).then(d => { if (active) setEvents(d.events || []) }).catch(() => { if (active) setEvents([]) })
+    return () => { active = false }
+  }, [selectedMonth])
   if (!events || events.length === 0) return null
 
   const icon = { positive: '✓', attention: '⚠', neutral: '·' }
@@ -230,6 +245,7 @@ function Journal({ onNavigate, selectedMonth }) {
 }
 
 export default function Dashboard({ onGoUpload, onNavigate }) {
+  const reduced = useMotionReduced()
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
   const [layout, setLayout] = useState(null)
@@ -293,12 +309,12 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
       <header className="dashboard-heading">
         <div>
           <p className="eyebrow"><span aria-hidden="true">◈</span> Ton espace de pilotage</p>
-          <h1>La vue <em>d’ensemble.</em></h1>
+          <h1><span className="motion-title-line"><m.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : .72, ease }}>La vue <em>d’ensemble.</em></m.span></span></h1>
           <p className="dashboard-intro">Les chiffres essentiels. Le recul pour décider.</p>
         </div>
         <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
       </header>
-      <FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} />
+      <FinancialSummary history={data.monthly} selectedMonth={selectedMonth} onInspectCoverage={month => onNavigate?.('statements', { month })} />
       <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
       <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
 
@@ -309,15 +325,15 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
         </button>
       </div>
 
-      {editing && (
-        <div className="widget-palette">
+      <AnimatePresence>{editing && (
+        <PresencePanel className="widget-palette" initial={reduced ? false : { opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: reduced ? 0 : .2, ease }} style={{ overflow: 'hidden' }}>
           <span className="muted">Ajouter un widget :</span>
           {available.map(([type, def]) => (
             <button key={type} className="btn-secondary" onClick={() => add(type)}>＋ {def.title}</button>
           ))}
           <button className="link" onClick={reset}>réinitialiser</button>
-        </div>
-      )}
+        </PresencePanel>
+      )}</AnimatePresence>
 
       <div className="widget-grid">
         {layout.map((w, i) => {
@@ -325,7 +341,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
           if (!def) return null
           const C = def.component
           return (
-            <div key={w.id} className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
+            <MotionCard key={w.id} index={i} layout="position" className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
               <div className="widget-head">
                 <h3>{def.title}</h3>
                 {editing && (
@@ -340,7 +356,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
                 )}
               </div>
               <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} onNavigate={onNavigate} selectedMonth={selectedMonth} />
-            </div>
+            </MotionCard>
           )
         })}
       </div>
