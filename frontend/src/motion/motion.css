@@ -1,0 +1,148 @@
+/* Thémis motion grammar: finite gestures, exact data, native scrolling. */
+:root {
+  --motion-ease: cubic-bezier(.22, 1, .36, 1);
+  --motion-press: 120ms;
+  --motion-feedback: 180ms;
+  --motion-scene: 360ms;
+}
+.motion-page { view-transition-name: themis-content; animation: motion-page-in var(--motion-scene) var(--motion-ease) both; }
+html[data-motion-navigation] .motion-page { animation: none; }
+::view-transition { pointer-events: none; }
+@keyframes motion-page-in { from { opacity: .3; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+::view-transition-group(themis-content) { animation-duration: 320ms; animation-timing-function: var(--motion-ease); }
+::view-transition-old(themis-content) { animation: motion-scene-out 180ms var(--motion-ease) both; }
+::view-transition-new(themis-content) { animation: motion-scene-in 320ms var(--motion-ease) both; }
+@keyframes motion-scene-out { to { opacity: 0; transform: translateY(-8px) scale(.995); } }
+@keyframes motion-scene-in { from { opacity: 0; transform: translateY(18px) scale(.995); } }
+.motion-page .section, .motion-page .widget, .motion-page .kpi-card, .motion-page .journal, .motion-page .section-head { animation: none; }
+.motion-reveal { min-width: 0; }
+.motion-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.motion-page .motion-reveal { animation: none; }
+.motion-title-line { display: block; overflow: hidden; padding-block: .08em; margin-block: -.08em; }
+.motion-title-line > span { display: inline-block; }
+
+.app .sidebar-nav button, .app .sidebar-footer > button[role="tab"] { position: relative; isolation: isolate; animation: none; }
+.app .sidebar-nav button.active, .app .sidebar-footer > button[role="tab"].active { background: transparent; box-shadow: none; }
+.app .sidebar-nav button.active::before { display: none; }
+.motion-nav-indicator { position: absolute; inset: 0; z-index: -1; pointer-events: none; border-radius: inherit; background: linear-gradient(110deg, #41405f, #2d2c47); box-shadow: inset 0 0 0 1px rgba(199,195,255,.17), 0 6px 18px -10px #070719; }
+.motion-nav-indicator i { position: absolute; width: 3px; height: 17px; left: 0; top: calc(50% - 8.5px); background: #c1baff; border-radius: 3px; box-shadow: 0 0 13px rgba(184,176,255,.4); }
+.app .sidebar-nav .nav-icon { transition: transform 240ms var(--motion-ease), opacity 180ms; }
+.app .sidebar-nav button:hover .nav-icon { transform: translateY(-1px) rotate(-5deg); opacity: 1; }
+.app .sidebar-nav button.active .nav-icon { transform: scale(1.08); }
+.motion-tabs { isolation: isolate; }
+.motion-tabs > button { position: relative; isolation: isolate; transition: color var(--motion-feedback); }
+.motion-tab-indicator { position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: var(--paper); box-shadow: 0 2px 8px #14142a0d, inset 0 0 0 1px var(--line); }
+.motion-tabs > button:is(.active,[aria-selected="true"]) { background: transparent !important; box-shadow: none !important; }
+.motion-tabs > button[aria-selected="true"] .motion-tab-indicator { background: var(--accent-soft); }
+
+.animated-number { display: inline-block; position: relative; font-variant-numeric: tabular-nums; vertical-align: baseline; }
+.motion-number-value { color: transparent; }
+.motion-number-reel { position: absolute; inset: 0; display: flex; white-space: pre; pointer-events: none; }
+.motion-digit-slot { display: inline-block; overflow: clip; }
+.motion-digit { display: block; }
+.motion-digit::after { content: attr(data-character); }
+.motion-progress-fill { display: block; transition: none !important; }
+.motion-chart { min-width: 0; }
+.donut-wrap > .motion-chart { width: 100%; }
+.motion-chart .recharts-wrapper { animation: none !important; }
+.motion-chart .recharts-tooltip-wrapper { transition: transform 100ms var(--motion-ease); }
+.motion-chart-halo { animation: motion-point-focus 260ms var(--motion-ease) both; transform-box: fill-box; transform-origin: center; }
+@keyframes motion-point-focus { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.motion-chart-tooltip { border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); box-shadow: 0 12px 35px #11112520; padding: 11px 14px; font-size: 12.5px; font-family: var(--font); }
+
+/* The first scene has its own orchestration, independent of financial data. */
+.dashboard-heading { position: relative; }
+.dashboard-heading h1 { letter-spacing: -.065em; }
+.dashboard-heading .eyebrow::before { content: ''; display: inline-block; width: 21px; height: 1px; background: currentColor; margin: 0 9px 3px 0; transform-origin: left; animation: motion-rule-in 700ms var(--motion-ease) both; }
+@keyframes motion-rule-in { from { transform: scaleX(0); } }
+.dashboard .financial-summary { position: relative; box-shadow: 0 10px 35px -26px #30235f45, 0 0 0 1px var(--line); }
+.dashboard .financial-summary-result { background: radial-gradient(ellipse at 95% -20%, #8e80ff45, transparent 60%), linear-gradient(135deg,#19192e,#2c294c 70%,#36315a); }
+.financial-summary-result .motion-hero-light { position: absolute; inset: -60%; z-index: -1; pointer-events: none; background: linear-gradient(105deg, transparent 35%, #c4baff12 49%, transparent 62%); transform: translateX(-35%) rotate(-15deg); animation: motion-light-pass 1500ms var(--motion-ease) 150ms both; }
+@keyframes motion-light-pass { from { opacity: 0; transform: translateX(-35%) rotate(-15deg); } 35% { opacity: 1; } to { opacity: 0; transform: translateX(35%) rotate(-15deg); } }
+.motion-hero-orbit { position: absolute; width: 280px; height: 280px; right: -135px; top: -135px; z-index: -1; pointer-events: none; opacity: .55; }
+.motion-hero-orbit circle { fill: none; stroke: #d4caff; stroke-opacity: .2; stroke-width: .65; }
+.dashboard .financial-summary-result::before { display: none; }
+.dashboard .financial-summary-amount { font-size: clamp(38px,4.1vw,64px); font-weight: 480; margin-top: 14px; }
+.motion-hero-flow { margin-top: 18px; }
+.motion-hero-flow-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: #c4c1dc; font-size: 9px; }
+.motion-hero-flow-key { display: flex; gap: 10px; }
+.motion-hero-flow-key i { display: inline-block; height: 5px; width: 5px; border-radius: 50%; margin-right: 4px; }
+.motion-hero-flow .motion-chart { height: 80px; margin: 5px -6px -8px; }
+.motion-hero-flow .recharts-tooltip-wrapper { z-index: 2; }
+.motion-hero-flow .recharts-surface { overflow: visible; }
+.motion-hero-flow-period { color: #c4c1dc; font-size: 9px; margin-top: 5px; }
+.motion-period-state { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); padding: 10px 20px; background: var(--paper-2); border-bottom: 1px solid var(--line); }
+.motion-period-inline { padding: 0; background: none; border: 0; font-size: 12px; }
+.financial-summary[data-pending="true"] .financial-summary-body { opacity: .65; transition: opacity 160ms; }
+.motion-skeleton { display: block; border-radius: 8px; background: linear-gradient(100deg, var(--sunken) 25%, var(--paper-2) 45%, var(--sunken) 65%); background-size: 250% 100%; animation: motion-loading 1400ms ease-out 2; }
+@keyframes motion-loading { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.financial-summary-loading { min-height: 330px; padding: 26px !important; }
+.financial-summary-loading .motion-skeleton { height: 18px; width: 55%; margin: 20px 0; }
+.financial-summary-loading .motion-skeleton:nth-of-type(2) { width: 76%; height: 112px; }
+.dashboard .kpi-row[data-pending="true"] { opacity: .6; }
+.dashboard .widget { position: relative; transition: box-shadow 240ms var(--motion-ease), border-color 240ms; }
+.dashboard .widget-flux { border-top-color: var(--accent); }
+.dashboard .flux-hint { color: var(--muted); opacity: 1; }
+.dashboard .kpi-delta > span { color: var(--body); }
+
+/* Shared tactile response; no perpetual ambient animations. */
+.app :is(.btn,.btn-secondary,.month-nav-btn,.slot,.topbar-search) { transition: background 180ms, box-shadow 220ms, transform 180ms var(--motion-ease); }
+.app :is(.btn,.btn-secondary,.month-nav-btn,.slot,.topbar-search):active:not(:disabled) { transform: scale(.975); transition-duration: 90ms; }
+.app input[type="checkbox"], .app input[type="range"] { accent-color: var(--accent); }
+.app input[type="checkbox"] { transition: transform 180ms var(--motion-ease); }
+.app input[type="checkbox"]:active { transform: scale(.88); }
+.transactions-table tbody tr { transition: background 180ms; }
+.transactions-table tbody tr:has(input[type="checkbox"]:checked) { box-shadow: inset 3px 0 var(--accent); }
+.statements-table tbody tr, .taxes-table tbody tr { transition: background 180ms; }
+.credits-page .engagement-history { position: relative; border-left: 1px solid var(--line); margin-left: 5px; }
+.credits-page .engagement-history li { position: relative; padding-left: 18px; animation: motion-feedback-in 280ms var(--motion-ease) both; }
+.credits-page .engagement-history li::before { content: ''; position: absolute; left: -4px; top: 20px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px var(--paper); }
+.transaction-selection, .transaction-success, .statement-check-result { animation: motion-feedback-in 240ms var(--motion-ease); }
+@keyframes motion-feedback-in { from { opacity: 0; transform: translateY(5px); } }
+.budget-envelope { transition: box-shadow 220ms, border-color 220ms; }
+.budget-envelope-over { box-shadow: inset 3px 0 var(--neg); }
+.scenario-verdict { position: relative; overflow: hidden; }
+.scenario-verdict .animated-number { min-height: 1.15em; }
+.app .toast { animation: none; }
+dialog[data-motion-dialog] { animation: none !important; }
+dialog[data-motion-dialog]::backdrop { animation: motion-backdrop-in 200ms ease-out both; }
+@keyframes motion-backdrop-in { from { opacity: 0; } }
+.upload-track > div { transition: width 380ms var(--motion-ease); }
+.topbar-profile[open] .topbar-profile-panel { animation: motion-feedback-in 160ms var(--motion-ease); transform-origin: top right; }
+.motion-page[data-page="admin"] { --motion-scene: 180ms; }
+@media (hover:hover) and (pointer:fine) {
+  .budget-envelope:hover { box-shadow: var(--sh-md); }
+  .transactions-table .transaction-open { transition: color 180ms, transform 180ms var(--motion-ease); }
+  .transactions-table .transaction-open:hover { transform: translateX(3px); }
+}
+@media (max-width: 640px) {
+  .dashboard .financial-summary-amount { font-size: clamp(30px,7.2vw,44px); }
+  .motion-hero-flow-head { flex-wrap: wrap; }
+  .motion-period-state { padding-inline: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-page, .motion-hero-light, .motion-chart-halo, .motion-skeleton, .dashboard-heading .eyebrow::before { animation: none !important; }
+  .motion-number-reel { display: none; }
+  .motion-number-value { color: inherit; }
+  .motion-reveal { opacity: 1 !important; transform: none !important; }
+  .app .sidebar-nav .nav-icon, .app :is(button, .transaction-open) { transition: none !important; }
+  .app .sidebar-nav button .nav-icon, .app :is(button, .transaction-open):active, .app .transaction-open:hover { transform: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+
+.motion-tabs > button[aria-current="page"] { background: transparent; box-shadow: none; }
+.scenario-comparison td { position: relative; }
+.motion-comparison-cell { position: absolute; height: 3px; left: 8px; right: 0; bottom: 1px; overflow: hidden; border-radius: 4px; }
+.motion-comparison-cell > span { height: 100%; background: var(--muted); opacity: .35; }
+.motion-comparison-cell.simulated > span { background: var(--accent); opacity: .65; }
+.motion-credit-progress { display: block; height: 7px; background: var(--sunken); border-radius: 8px; overflow: hidden; }
+.motion-credit-progress > .motion-progress-fill { height: 100%; background: var(--accent); border-radius: inherit; }
+dialog[open]:not([data-motion-dialog]) { animation: motion-dialog-enter 260ms var(--motion-ease) both; }
+@keyframes motion-dialog-enter { from { opacity: 0; transform: translateY(14px) scale(.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { dialog[open], dialog::backdrop { animation: none !important; } }
+@media print, (forced-colors: active) {
+  .motion-number-reel { display: none; }
+  .motion-number-value { color: inherit; }
+  .motion-reveal { opacity: 1 !important; transform: none !important; }
+}

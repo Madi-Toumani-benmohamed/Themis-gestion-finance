@@ -20,6 +20,7 @@ import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
 import ScrollProgress from './ScrollProgress'
+import { ActiveNavigation, NavigationMotion, PageTransition, usePageNavigation, useMotionReduced, ProgressFill, m, AnimatePresence, ease } from './motion'
 
 // Familles de navigation. `admin` est rendu séparément, dans le pied.
 const NAV_BASE = [
@@ -37,6 +38,7 @@ const TABS_BASE = [
 // Bouton « remonter en haut » : apparaît après un défilement, ramène en haut
 // en douceur. Évite de scroller longtemps pour atteindre les filtres/menu.
 function ScrollTop() {
+  const reduced = useMotionReduced()
   const [show, setShow] = useState(false)
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > 500)
@@ -48,7 +50,7 @@ function ScrollTop() {
   return (
     <button
       className="scroll-top"
-      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      onClick={() => window.scrollTo({ top: 0, behavior: reduced ? 'auto' : 'smooth' })}
       title="Remonter en haut"
       aria-label="Remonter en haut de la page"
     >
@@ -59,7 +61,9 @@ function ScrollTop() {
 
 export default function App() {
   const toast = useToast()
+  const reduced = useMotionReduced()
   const [tab, setTab] = useState('dashboard')
+  const navigateScene = usePageNavigation()
   const [cmdOpen, setCmdOpen] = useState(false)
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem('themis-theme') || 'light' } catch { return 'light' }
@@ -80,7 +84,7 @@ export default function App() {
   const [txTo, setTxTo] = useState('')
   const [txStatement, setTxStatement] = useState('')
   const [statementMonth, setStatementMonth] = useState('')
-  const navigateTo = (id, opts) => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.statement_id || opts?.budget_id || opts?.ids || opts?.domain || opts?.tag || opts?.type || opts?.merchant || opts?.month || opts?.from)) setTxSearch(''); setTxStatement(opts?.statement_id || ''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxTag(opts?.tag || ''); setTxType(opts?.type || ''); setTxMerchant(opts?.merchant || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) }
+  const navigateTo = (id, opts) => navigateScene(() => { if (opts?.q != null) setTxSearch(opts.q); else if (id === 'transactions' && (opts?.statement_id || opts?.budget_id || opts?.ids || opts?.domain || opts?.tag || opts?.type || opts?.merchant || opts?.month || opts?.from)) setTxSearch(''); setTxStatement(opts?.statement_id || ''); setTxMonth(opts?.month || ''); setTxDomain(opts?.domain || ''); setTxTag(opts?.tag || ''); setTxType(opts?.type || ''); setTxMerchant(opts?.merchant || ''); setTxBudget(opts?.budget_id || ''); setTxIds(opts?.ids || []); setTxFrom(opts?.from || ''); setTxTo(opts?.to || ''); if (id === 'statements') setStatementMonth(opts?.month || ''); setTab(id); setRefreshKey((k) => k + 1) })
   const [drag, setDrag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [importPreview, setImportPreview] = useState(null)
@@ -278,7 +282,7 @@ export default function App() {
     >
       <div className="app-shell">
       <ScrollProgress />
-      <aside className="sidebar">
+      <NavigationMotion><aside className="sidebar">
         <div className="sidebar-brand brand">
           <Logo size={24} className="brand-logo" animate />
           <div className="sidebar-wordmark"><h1>thémis<span className="tick">.</span></h1><span className="sidebar-tagline">Finances personnelles</span></div>
@@ -295,8 +299,9 @@ export default function App() {
                   title={label}
                   aria-selected={tab === id}
                   className={tab === id ? 'active' : ''}
-                  onClick={() => setTab(id)}
+                  onClick={() => navigateScene(() => setTab(id))}
                 >
+                  {tab === id && <ActiveNavigation />}
                   <span className="nav-icon" aria-hidden="true">{ICONS[id]}</span>
                   <span className="nav-label">{label}</span>{' '}
                   {id === 'transactions' && unsorted > 0 && (
@@ -315,8 +320,9 @@ export default function App() {
               title="Admin"
               aria-selected={tab === 'admin'}
               className={tab === 'admin' ? 'active' : ''}
-              onClick={() => setTab('admin')}
+              onClick={() => navigateScene(() => setTab('admin'))}
             >
+              {tab === 'admin' && <ActiveNavigation />}
               <span className="nav-icon" aria-hidden="true">{ICONS.admin}</span>
               <span className="nav-label">Admin</span>
             </button>
@@ -339,7 +345,7 @@ export default function App() {
             <button className="link" onClick={logout}>déconnexion</button>
           </div>
         </div>
-      </aside>
+      </aside></NavigationMotion>
 
       <div className="app-main">
       <header className="topbar">
@@ -400,7 +406,7 @@ export default function App() {
       )}
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
-      <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
+      <PageTransition page={tab} className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
         {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
@@ -412,7 +418,7 @@ export default function App() {
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
         {tab === 'assistant' && <Assistant />}
-      </main>
+      </PageTransition>
 
       <footer className="colophon">
         <span>thémis — comptes personnels</span>
@@ -435,8 +441,8 @@ export default function App() {
 
       {importPreview && <ImportPreview key={importPreview.token} preview={importPreview} onDecision={decideImport} />}
 
-      {uploadProg && (
-        <div className="upcard" role="status" aria-live="polite">
+      <AnimatePresence>{uploadProg && (
+        <m.div initial={reduced ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduced ? 0 : 10 }} transition={{ duration: reduced ? 0 : .2, ease }} className="upcard" role="status" aria-live="polite">
           <div className="upcard-head">
             <span className="spinner" aria-hidden="true" />
             <div className="upcard-text">
@@ -446,10 +452,10 @@ export default function App() {
             <span className="upcard-pct">{Math.max(1, uploadProg.pct || 0)} %</span>
           </div>
           <div className="upcard-track">
-            <div className="upcard-bar" style={{ width: `${Math.max(2, uploadProg.pct || 0)}%` }} />
+            <ProgressFill className="upcard-bar" percent={Math.max(2, uploadProg.pct || 0)} />
           </div>
-        </div>
-      )}
+        </m.div>
+      )}</AnimatePresence>
     </div>
   )
 }

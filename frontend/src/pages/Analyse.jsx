@@ -1,3 +1,4 @@
+import { AnimatedTabs, TabIndicator, AnimatedRegion } from '../motion'
 import { useState } from 'react'
 import { api } from '../api'
 import {
@@ -358,38 +359,38 @@ export default function Analyse({ onNavigate, initialMonth }) {
           </button>
         </div>
       </header>
-      <nav className="analysis-families" aria-label="Familles d’analyse">
+      <AnimatedTabs as="nav" className="analysis-families" aria-label="Familles d’analyse">
         {FAMILIES.map(([id, label]) => (
           <button
             key={id}
             aria-current={family === id ? 'page' : undefined}
             onClick={() => explore(id)}
           >
-            {label}
+            {family === id && <TabIndicator />}{label}
           </button>
         ))}
-      </nav>
+      </AnimatedTabs>
       {DETAILS[family] && (
-        <nav className="analysis-details-nav" aria-label="Analyses détaillées">
+        <AnimatedTabs as="nav" className="analysis-details-nav" aria-label="Analyses détaillées">
           {DETAILS[family].map(([id, label]) => (
             <button
               key={id}
               aria-current={section === id ? 'page' : undefined}
               onClick={() => setSection(id)}
             >
-              {label}
+              {section === id && <TabIndicator />}{label}
             </button>
           ))}
-        </nav>
+        </AnimatedTabs>
       )}
-      <MonthContent
+      <AnimatedRegion revision={`${month}-${family}-${section}`}><MonthContent
         key={month}
         month={month}
         family={family}
         section={section}
         onNavigate={onNavigate}
         onExplore={explore}
-      />
+      /></AnimatedRegion>
     </div>
   )
 }

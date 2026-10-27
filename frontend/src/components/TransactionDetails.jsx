@@ -8,11 +8,11 @@ export function TransactionDrawer({ transaction: tx, domains, allTags = [], onSa
   const [domain, setDomain] = useState(tx.domain_id ?? ''), [tags, setTags] = useState((tx.tags || []).join(', '))
   const [categoryDirty, setCategoryDirty] = useState(false)
   const [busy, setBusy] = useState(false), [error, setError] = useState(null), [saved, setSaved] = useState(false)
-  useModal(ref)
+  const dismiss = useModal(ref)
   const currentTag = tags.split(',').at(-1).trim().toLowerCase()
   const tagSuggestions = currentTag ? allTags.map(tag => tag.name).filter(name => name.includes(currentTag) && !transactionTags(tags).includes(name)).slice(0, 6) : []
   const categoryChanged = String(domain) !== String(tx.domain_id ?? '')
-  const close = () => { if (!busy) onClose() }
+  const close = () => { if (!busy) dismiss(onClose) }
   const save = async event => {
     event.preventDefault(); setBusy(true); setError(null); setSaved(false)
     try { const patch = { tags: transactionTags(tags) }; if (categoryDirty || categoryChanged) patch.domain_id = domain === '' ? null : Number(domain); await onSave(tx, patch); setCategoryDirty(false); setSaved(true) }
@@ -57,8 +57,8 @@ export function TransactionBulkDialog({ rows, domains, onApply, onClose }) {
   const ref = useRef(null), title = useId()
   const [action, setAction] = useState('category'), [domain, setDomain] = useState(''), [tags, setTags] = useState('')
   const [busy, setBusy] = useState(false), [result, setResult] = useState(null), [error, setError] = useState(null)
-  useModal(ref)
-  const close = () => { if (!busy) onClose() }
+  const dismiss = useModal(ref)
+  const close = () => { if (!busy) dismiss(onClose) }
   const apply = async event => {
     event.preventDefault(); setError(null)
     if (action !== 'category' && !transactionTags(tags).length) { setError('Renseigne au moins un tag.'); return }

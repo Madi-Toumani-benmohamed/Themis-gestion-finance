@@ -67,6 +67,12 @@ export default async function globalSetup(_config: FullConfig) {
   await checkedJSON(await otherContext.post('/api/auth/login', { data: other }))
   const otherAccounts = await checkedJSON(await otherContext.get('/api/accounts'))
   const otherStatement = await importSyntheticStatement(otherContext, otherAccounts[0].id)
+  // Keep visual references independent of the wall-clock upload date while
+  // retaining real API responses and all imported financial values.
+  for (const statementID of [adminStatement.statementID, otherStatement.statementID]) {
+    const dated = spawnSync('go', ['run', './cmd/e2efixtures', 'visual-import-time', String(statementID)], { cwd: backendDir, encoding: 'utf8' })
+    if (dated.status !== 0) throw new Error(`Date d’import E2E non stabilisée : ${dated.stderr}`)
+  }
   const domains = await checkedJSON(await otherContext.get('/api/categories'))
   const ordinaryDomain = domains.find((domain: { is_transfer?: boolean }) => !domain.is_transfer)
   if (!ordinaryDomain) throw new Error('Aucun domaine ordinaire disponible pour tester l’isolation des budgets.')

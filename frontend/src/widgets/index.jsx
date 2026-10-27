@@ -3,6 +3,9 @@ import {
   ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine,
   ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
 } from 'recharts'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
+import { AnimatedChart, ChartFocusDot } from '../motion/AnimatedChart'
+import { ProgressFill } from '../motion'
 import { api, eur, monthLabel } from '../api'
 import { budgetWidgetModel } from '../components/budgetWidgetModel.mjs'
 import { cents, euroCents } from '../components/money.mjs'
@@ -15,32 +18,6 @@ const RED = '#D6455D'
 const MUTED = '#8A8A99'
 const LINE = '#ECECF1'
 const ACCENT = '#5B5BD6'
-
-/* Compteur déroulant : les montants "montent" à l'affichage.
-   Respecte prefers-reduced-motion. */
-function useCountUp(target, duration = 750) {
-  const [v, setV] = useState(0)
-  useEffect(() => {
-    if (typeof target !== 'number' || !isFinite(target)) { setV(target); return }
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setV(target); return }
-    let raf
-    const t0 = performance.now()
-    const tick = (t) => {
-      const p = Math.min((t - t0) / duration, 1)
-      const eased = 1 - Math.pow(1 - p, 3)
-      setV(target * eased)
-      if (p < 1) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [target, duration])
-  return v
-}
-
-function Roll({ value, fmt }) {
-  const v = useCountUp(value)
-  return <>{fmt(v)}</>
-}
 
 /* ------------------------------------------------------------------ */
 /* Widget : flux — revenus vs dépenses (aires interactives)            */
@@ -55,7 +32,7 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
   // Ligne verticale pour le mois sélectionné (si différent)
   const selectedMonthLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? all[selectedMonthIdx]?.label : null
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <AnimatedChart revision={all}><ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={all} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>
           {softGradient('grad-income', c.GREEN)}
@@ -72,9 +49,9 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
         {selectedMonthLabel && (
           <ReferenceLine x={selectedMonthLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
         )}
-        <Area animationDuration={0} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill="url(#grad-income)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-        <Area animationDuration={0} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill="url(#grad-expenses)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
-        <Line animationDuration={0} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+        <Area isAnimationActive={false} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill="url(#grad-income)" strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Area isAnimationActive={false} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill="url(#grad-expenses)" strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Line isAnimationActive={false} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
         <Brush
           dataKey="label" height={28} stroke={c.ACCENT} fill={c.PAPER}
           travellerWidth={9} gap={1}
@@ -82,7 +59,7 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
           onChange={onBrush}
         />
       </ComposedChart>
-    </ResponsiveContainer>
+    </ResponsiveContainer></AnimatedChart>
   )
 }, (prev, next) =>
   prev.all === next.all &&
@@ -176,7 +153,7 @@ export function SoldeWidget({ data, config, selectedMonth }) {
   const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
   const selectedLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? series[selectedMonthIdx]?.label : null
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <AnimatedChart revision={series}><ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>{softGradient('grad-cumul', c.ACCENT, 0.22, 0.01)}</defs>
         <CartesianGrid {...gridProps(c)} />
@@ -190,9 +167,9 @@ export function SoldeWidget({ data, config, selectedMonth }) {
         {selectedLabel && (
           <ReferenceLine x={selectedLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
         )}
-        <Area animationDuration={700} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill="url(#grad-cumul)" strokeWidth={2.5} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+        <Area isAnimationActive={false} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill="url(#grad-cumul)" strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
       </ComposedChart>
-    </ResponsiveContainer>
+    </ResponsiveContainer></AnimatedChart>
   )
 }
 
@@ -206,22 +183,22 @@ export function CategoriesWidget({ data, selectedMonth }) {
   const cur = month ? data.monthly?.find((m) => m.month === month) : data.monthly?.at(-1)
   const isCurrent = cur?.is_current || cur?.status === 'current'
   const curStatus = cur?.status === 'incomplete'
-  const slices = (data.by_category ?? []).filter((c) => c.month === month && c.total > 0)
+  const slices = useMemo(() => (data.by_category ?? []).filter((c) => c.month === month && c.total > 0), [data.by_category, month])
   const total = slices.reduce((s, c) => s + c.total, 0)
   if (slices.length === 0) return <Empty />
   const cc = readColors()
   return (
     <div className="category-overview">
     <div className="donut-wrap">
-      <ResponsiveContainer width="100%" height={220}>
+      <AnimatedChart revision={slices}><ResponsiveContainer width="100%" height={220}>
         <PieChart>
-          <Pie animationDuration={650}
+          <Pie isAnimationActive={false}
             data={slices} dataKey="total" nameKey="category"
             innerRadius="64%" outerRadius="88%" paddingAngle={3} stroke="none" cornerRadius={6}
             onMouseEnter={(_, i) => setActive(i)} onMouseLeave={() => setActive(null)}
           >
             {slices.map((c, i) => (
-              <Cell key={i} fill={c.color || cc.VIZ[i % cc.VIZ.length]} opacity={active === null || active === i ? 1 : 0.3}
+              <Cell key={i} aria-label={`${c.category} : ${eur(c.total)}`} fill={c.color || cc.VIZ[i % cc.VIZ.length]} opacity={active === null || active === i ? 1 : 0.3}
                 style={{ transition: 'opacity .2s ease' }} />
             ))}
           </Pie>
@@ -240,9 +217,9 @@ export function CategoriesWidget({ data, selectedMonth }) {
             )
           }} />
         </PieChart>
-      </ResponsiveContainer>
+      </ResponsiveContainer></AnimatedChart>
       <div className="donut-center">
-        <div className="donut-total">{eur(active !== null ? slices[active].total : total)}</div>
+        <div className="donut-total"><AnimatedNumber value={active !== null ? slices[active].total : total} /></div>
         <div className="donut-label">
           {active !== null ? slices[active].category : monthLabel(month)}
           {isCurrent && <span className="donut-period-badge">Mois en cours</span>}
@@ -275,10 +252,10 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
   const months = (data.monthly ?? []).slice(-(config.months || 12))
   const currentMonthIdx = months.findIndex(m => m.is_current || m.status === 'current')
   const selectedMonthIdx = selectedMonth ? months.findIndex(m => m.month === selectedMonth) : -1
-  const series = months.map((m) => ({
+  const series = useMemo(() => months.map((m) => ({
     label: monthLabel(m.month),
     total: +((data.by_category ?? []).find((c) => c.month === m.month && c.category === cat)?.total ?? 0).toFixed(2),
-  }))
+  })), [data.monthly, data.by_category, config.months, cat])
   const color = (data.by_category ?? []).find((c) => c.category === cat)?.color || GREEN
   const cc = readColors()
   const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
@@ -291,7 +268,7 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
         </select>
       </div>
       {series.every((s) => s.total === 0) ? <Empty /> : (
-        <ResponsiveContainer width="100%" height={190}>
+        <AnimatedChart revision={series} growBars><ResponsiveContainer width="100%" height={190}>
           <BarChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>{softGradient('grad-bar', color, 0.95, 0.55)}</defs>
             <CartesianGrid {...gridProps(cc)} />
@@ -304,9 +281,9 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
             {selectedLabel && (
               <ReferenceLine x={selectedLabel} stroke={cc.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: cc.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
             )}
-            <Bar animationDuration={600} dataKey="total" name={cat} fill="url(#grad-bar)" maxBarSize={34} radius={[6, 6, 0, 0]} />
+            <Bar isAnimationActive={false} dataKey="total" name={cat} fill="url(#grad-bar)" maxBarSize={34} radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer></AnimatedChart>
       )}
     </div>
   )
@@ -352,7 +329,7 @@ export function KpiWidget({ data, selectedMonth }) {
         <div className="kpi-card" key={k.label}>
           <div className="label">{k.label}</div>
           <div className={'value ' + (k.cls || '')}>
-            {k.num === null ? '—' : <Roll value={k.num} fmt={k.fmt} />}
+            {k.num === null ? '—' : <AnimatedNumber value={k.num} format={k.fmt} />}
           </div>
           {k.d !== null && k.d !== undefined && (
             <div className={'delta ' + ((k.d >= 0) === k.goodUp ? 'credit' : 'debit')}>
@@ -413,7 +390,7 @@ export function TopWidget({ config, selectedMonth, data }) {
       )}
       {rows.map((t) => (
         <div className="top-row" key={t.id}>
-          <div className="top-bar" style={{ width: `${(-t.amount / max) * 100}%` }} />
+          <ProgressFill className="top-bar" percent={(-t.amount / max) * 100} />
           <span className="top-label">{(t.display_label || t.label).slice(0, 46)}</span>
           <span className="top-amount">{eur(-t.amount)}</span>
         </div>

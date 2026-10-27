@@ -1,3 +1,4 @@
+import { AnimatedChart, ChartFocusDot } from '../motion/AnimatedChart'
 import { memo, useCallback, useId, useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
@@ -29,7 +30,7 @@ const Curves = memo(function Curves({ model, colors, onRange }) {
   const gradientId = useId().replaceAll(':', '')
   const hasBrush = model.points.length > 14
   return (
-    <div
+    <AnimatedChart revision={model} dense={model.points.length > 240}
       className="analysis-tag-history-chart"
       role="group"
       aria-label="Courbes des dépenses mensuelles par tag ; montants accessibles dans le tableau ci-dessous"
@@ -82,12 +83,13 @@ const Curves = memo(function Curves({ model, colors, onRange }) {
               fillOpacity={1}
               connectNulls={false}
               isAnimationActive={false}
-              activeDot={{ r: 4, strokeWidth: 0 }}
+              activeDot={<ChartFocusDot />}
               dot={({ cx, cy, payload }) =>
                 payload?.[`${s.key}_isolated`] &&
                 Number.isFinite(cx) &&
                 Number.isFinite(cy) ? (
                   <circle
+                    key={`${s.key}-${payload.period}`}
                     cx={cx}
                     cy={cy}
                     r={3.5}
@@ -116,7 +118,7 @@ const Curves = memo(function Curves({ model, colors, onRange }) {
           )}
         </ComposedChart>
       </ResponsiveContainer>
-    </div>
+    </AnimatedChart>
   )
 })
 
