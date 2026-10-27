@@ -1,3 +1,4 @@
+import { m, useMotionReduced } from '../motion'
 import { eur } from '../api'
 
 // Couleurs : lues depuis les variables CSS pour suivre le thème clair/sombre.
@@ -45,9 +46,10 @@ export function ChartTooltip({
   formatter = eur,
   labelFormatter = (value) => value,
 }) {
+  const reduced = useMotionReduced()
   if (!active || !payload || !payload.length) return null
   return (
-    <div
+    <m.div className="motion-chart-tooltip" initial={reduced ? false : { opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduced ? 0 : .16 }}
       style={{
         background: colors.PAPER,
         borderRadius: 14,
@@ -89,7 +91,7 @@ export function ChartTooltip({
           </span>
         </div>
       ))}
-    </div>
+    </m.div>
   )
 }
 

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test'
 
 test.describe('références visuelles déterministes', () => {
+  // Static references are separate from motion.browser.cjs, which checks real animations.
+  test.use({ reducedMotion: 'reduce' })
   test.beforeEach(async ({ page }) => {
     await page.clock.install({ time: new Date('2026-10-26T12:00:00+02:00') })
     await page.goto('/')
@@ -8,6 +10,10 @@ test.describe('références visuelles déterministes', () => {
   })
 
   test('dashboard', async ({ page }) => {
+    // A historical period stays historical when the server's calendar advances.
+    await page.getByLabel('Sélectionner un mois').selectOption('2026-09')
+    await expect(page.locator('.financial-summary h2')).toHaveText('septembre 2026')
+    await expect(page.locator('.kpi-row')).toHaveAttribute('aria-busy', 'false')
     await expect(page.locator('main')).toHaveScreenshot('dashboard.png', { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.001 })
   })
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	_ "github.com/lib/pq"
 	"themis/internal/testfixture"
@@ -15,7 +16,7 @@ import (
 
 func main() {
 	if len(os.Args) != 3 {
-		fatal("usage: e2efixtures statement <path> | expire-session <stdin>")
+		fatal("usage: e2efixtures statement <path> | visual-import-time <statement-id> | expire-session <stdin>")
 	}
 	switch os.Args[1] {
 	case "statement":
@@ -24,6 +25,31 @@ func main() {
 		}
 		if err := os.WriteFile(os.Args[2], testfixture.Statement009PDF(), 0o600); err != nil {
 			fatal("écriture du relevé synthétique impossible")
+		}
+	case "visual-import-time":
+		id, err := strconv.ParseInt(os.Args[2], 10, 64)
+		if err != nil || id <= 0 {
+			fatal("identifiant de relevé E2E invalide")
+		}
+		url := os.Getenv("THEMIS_E2E_DATABASE_URL")
+		if url == "" {
+			fatal("THEMIS_E2E_DATABASE_URL est requis")
+		}
+		db, err := sql.Open("postgres", url)
+		if err != nil {
+			fatal("connexion à la base E2E impossible")
+		}
+		defer db.Close()
+		var name string
+		if err = db.QueryRow(`SELECT current_database()`).Scan(&name); err != nil || name != "themis_e2e" {
+			fatal("opération refusée hors de la base themis_e2e")
+		}
+		result, err := db.Exec(`UPDATE statements SET uploaded_at=$1::timestamptz WHERE id=$2`, "2026-10-26T10:00:00Z", id)
+		if err != nil {
+			fatal("stabilisation de la date d’import E2E impossible")
+		}
+		if count, err := result.RowsAffected(); err != nil || count != 1 {
+			fatal("relevé E2E introuvable")
 		}
 	case "expire-session":
 		if os.Args[2] != "-" {

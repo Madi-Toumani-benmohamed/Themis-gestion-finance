@@ -1,3 +1,5 @@
+import { ProgressFill, Reveal } from '../motion'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import {
@@ -14,7 +16,7 @@ function Metric({ label, value, hint, accent }) {
     <div className={`scenario-metric${accent ? ' scenario-highlight' : ''}`}>
       <dt>{label}</dt>
       <dd>
-        {value == null ? '—' : eur(value)}
+        <AnimatedNumber value={value} format={eur} />
         <small>{hint}</small>
       </dd>
     </div>
@@ -232,7 +234,7 @@ export default function Simulate() {
             <div className="scenario-metric scenario-variation">
               <dt>Variation estimée</dt>
               <dd>
-                {model ? signedEuroCents(model.delta) : '—'}
+                <AnimatedNumber value={model?.delta} format={signedEuroCents} />
                 <small>
                   {!model
                     ? 'Saisie à vérifier'
@@ -247,7 +249,7 @@ export default function Simulate() {
           </dl>
           <div className="scenario-layout">
             <div className="scenario-settings">
-              <section
+              <Reveal as="section"
                 className="scenario-card"
                 aria-labelledby="scenario-categories-title"
               >
@@ -388,8 +390,8 @@ export default function Simulate() {
                     </p>
                   )}
                 </div>
-              </section>
-              <section
+              </Reveal>
+              <Reveal as="section"
                 className="scenario-card scenario-options"
                 aria-labelledby="scenario-options-title"
               >
@@ -543,7 +545,7 @@ export default function Simulate() {
                     </button>
                   </div>
                 </details>
-              </section>
+              </Reveal>
             </div>
             <aside
               className="scenario-results scenario-card"
@@ -558,7 +560,7 @@ export default function Simulate() {
                 aria-atomic="true"
               >
                 <span>Reste à vivre simulé</span>
-                <strong>{model ? eur(model.simulatedNet) : '—'}</strong>
+                <strong><AnimatedNumber value={model?.simulatedNet} format={eur} /></strong>
                 <span>
                   {model
                     ? `${signedEuroCents(model.delta)} / mois par rapport à la référence`
@@ -584,8 +586,8 @@ export default function Simulate() {
                   ].map(([label, a, b]) => (
                     <tr key={label}>
                       <th scope="row">{label}</th>
-                      <td>{a == null ? '—' : eur(a)}</td>
-                      <td>{b == null ? '—' : eur(b)}</td>
+                      <td><AnimatedNumber value={a} format={eur} />{label === 'Dépenses' && model && <span className="motion-comparison-cell" aria-hidden="true"><ProgressFill percent={a / Math.max(a, b, 1) * 100} /></span>}</td>
+                      <td><AnimatedNumber value={b} format={eur} />{label === 'Dépenses' && model && <span className="motion-comparison-cell simulated" aria-hidden="true"><ProgressFill percent={b / Math.max(a, b, 1) * 100} /></span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -638,11 +640,11 @@ export default function Simulate() {
           <div className="scenario-mobile-result" aria-hidden="true">
             <span>
               Reste à vivre estimé
-              <strong>{model ? eur(model.simulatedNet) : '—'}</strong>
+              <strong><AnimatedNumber value={model?.simulatedNet} format={eur} /></strong>
             </span>
             <span>
               Variation / mois
-              <strong>{model ? signedEuroCents(model.delta) : '—'}</strong>
+              <strong><AnimatedNumber value={model?.delta} format={signedEuroCents} /></strong>
             </span>
           </div>
         </>
