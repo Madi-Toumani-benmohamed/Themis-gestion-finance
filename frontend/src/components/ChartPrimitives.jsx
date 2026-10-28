@@ -48,6 +48,8 @@ export function ChartTooltip({
   if (!active || !payload || !payload.length) return null
   return (
     <div
+      className="chart-tooltip"
+      role="tooltip"
       style={{
         background: colors.PAPER,
         borderRadius: 14,

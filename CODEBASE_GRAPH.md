@@ -106,6 +106,20 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 
 ## Frontend — Structure
 
+### Prototype cinématique du Dashboard
+
+- `motion/Motion.jsx` : préférences centralisées (`auto/full/reduced/off`), priorité
+  de `prefers-reduced-motion`, surfaces CSS 3D réutilisables et transition du `main`.
+- `motion/CinematicDashboard.jsx`, `motion/cinematic.css` : scène décorative SVG
+  originale, entrée unique par ouverture, parallaxe limité et mode statique.
+- `widgets/index.jsx::ChartStage`, `widgets/cinematicCharts.css` : tracés exacts
+  révélés une fois, aucun compteur de montants interpolés, donut plan avec relief
+  décoratif désactivable et légende clavier ; aucun calcul financier modifié.
+- `tests/cinematic.browser.cjs` : mocks synthétiques, mois hors ordre, montants,
+  focus/navigation, préférences live, tactile, Axe et captures avant/après.
+- Architecture, audit et suites proposées : `docs/CINEMATIC_DASHBOARD.md` ;
+  résultats et limites : `docs/CINEMATIC_VALIDATION.md`.
+
 ### Pages (`frontend/src/pages/`)
 | Page | Description |
 |------|-------------|

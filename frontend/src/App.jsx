@@ -20,6 +20,7 @@ import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
 import ScrollProgress from './ScrollProgress'
+import { PageTransition, useMotion } from './motion/Motion'
 
 // Familles de navigation. `admin` est rendu séparément, dans le pied.
 const NAV_BASE = [
@@ -37,6 +38,7 @@ const TABS_BASE = [
 // Bouton « remonter en haut » : apparaît après un défilement, ramène en haut
 // en douceur. Évite de scroller longtemps pour atteindre les filtres/menu.
 function ScrollTop() {
+  const { full } = useMotion()
   const [show, setShow] = useState(false)
   useEffect(() => {
     const onScroll = () => setShow(window.scrollY > 500)
@@ -48,7 +50,7 @@ function ScrollTop() {
   return (
     <button
       className="scroll-top"
-      onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+      onClick={() => window.scrollTo({ top: 0, behavior: full ? 'smooth' : 'instant' })}
       title="Remonter en haut"
       aria-label="Remonter en haut de la page"
     >
@@ -400,7 +402,7 @@ export default function App() {
       )}
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
-      <main className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
+      <PageTransition pageKey={tab} className={tab === 'transactions' ? 'transactions-main' : tab === 'analyse' ? 'analysis-main' : tab === 'admin' ? 'admin-main' : ''} key={tab + ':' + refreshKey}>
         {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
         {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
         {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
@@ -412,7 +414,7 @@ export default function App() {
         {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
         {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
         {tab === 'assistant' && <Assistant />}
-      </main>
+      </PageTransition>
 
       <footer className="colophon">
         <span>thémis — comptes personnels</span>

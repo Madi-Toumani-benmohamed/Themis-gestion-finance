@@ -1,0 +1,26 @@
+/* The chart itself stays orthographic. Light and depth live on its surroundings. */
+.dashboard .chart-stage { position: relative; width: 100%; min-width: 0; }
+.dashboard .chart-stage .recharts-wrapper { animation: none; clip-path: none; }
+.dashboard .chart-stage .recharts-bar-rectangle path { transform-box: fill-box; transform-origin: center bottom; }
+.dashboard .chart-stage .recharts-active-dot { filter: drop-shadow(0 0 5px var(--accent)); }
+.dashboard .chart-stage .recharts-bar-rectangle:hover { filter: brightness(1.16); }
+.dashboard .chart-tooltip { position: relative; border-top-color: var(--accent) !important; }
+.dashboard .chart-tooltip::before { content: ''; position: absolute; width: 20px; height: 1px; top: -1px; left: 14px; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+[data-motion="full"] .dashboard .chart-tooltip { animation: chart-tooltip-arrive 180ms cubic-bezier(.22,1,.36,1); }
+@keyframes chart-tooltip-arrive { from { transform: perspective(800px) translateY(5px) rotateX(-4deg); opacity: .7; } to { transform: perspective(800px) translateY(0) rotateX(0deg); opacity: 1; } }
+.dashboard .chart-exact-value { display: inline-block; font-variant-numeric: tabular-nums; }
+.dashboard .category-view-control { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; color: var(--muted); font-size: 10px; }
+.dashboard .chart-depth-toggle { display: inline-flex; align-items: center; gap: 6px; background: var(--sunken); border: 1px solid var(--line-strong); border-radius: 7px; color: var(--ink); font: inherit; font-size: 10px; padding: 6px 10px; cursor: pointer; }
+.dashboard .chart-depth-toggle[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.dashboard .chart-depth-toggle:focus-visible, .dashboard .cinematic-legend button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.dashboard .cinematic-donut { position: relative; isolation: isolate; }
+.dashboard .donut-orbit { position: absolute; left: 50%; top: 50%; width: 204px; height: 204px; max-width: 96%; border-radius: 50%; border: 1px solid transparent; transform: translate(-50%, -50%); pointer-events: none; z-index: -1; }
+.dashboard .has-depth .donut-orbit { border-color: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: 0 9px 0 -3px color-mix(in srgb, var(--accent) 9%, transparent), 0 18px 0 -7px color-mix(in srgb, var(--accent) 6%, transparent), 0 20px 24px -12px color-mix(in srgb, var(--accent) 28%, transparent); }
+.dashboard .has-depth .donut-orbit::after { content: ''; position: absolute; inset: -8px; border-radius: inherit; border: 1px dashed color-mix(in srgb, var(--accent) 18%, transparent); }
+.dashboard .cinematic-legend li { display: block; padding: 0; }
+.dashboard .cinematic-legend button { width: 100%; display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 11px 5px; color: var(--body); background: none; border: 0; font: inherit; font-size: 11px; text-align: left; border-radius: 6px; cursor: pointer; }
+.dashboard .cinematic-legend button:hover, .dashboard .cinematic-legend button.is-highlighted { background: var(--accent-soft); color: var(--ink); }
+.dashboard .cinematic-legend button > span:nth-child(2) { overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) {
+  .dashboard .chart-stage *, .dashboard .chart-exact-value { animation: none !important; transition: none !important; }
+}

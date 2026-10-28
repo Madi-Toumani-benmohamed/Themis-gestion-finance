@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, eur, kindIcon, monthLabel } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
-import { Reveal } from '../Reveal'
 import { FinancialSummary } from '../components/FinancialSummary'
+import { MotionSurface } from '../motion/Motion'
+import { CinematicDashboard } from '../motion/CinematicDashboard'
 
 let uid = 100
 const newId = () => `w${uid++}_${Date.now() % 10000}`
@@ -113,7 +114,10 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
 function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
   useEffect(() => {
+    let active = true
+    setKpi(null)
     Promise.all([api.summary(24, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
+      if (!active) return
       const m = s2.monthly?.at(-1)
       if (!m) return setKpi(null)
       const prev = s2.monthly?.at(-2)
@@ -138,7 +142,8 @@ function KpiRow({ selectedMonth }) {
         spentDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.expenses, prev.expenses) : null,
         incomeDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.income, prev.income) : null,
       })
-    }).catch(() => setKpi(null))
+    }).catch(() => { if (active) setKpi(null) })
+    return () => { active = false }
   }, [selectedMonth])
   if (!kpi) return null
 
@@ -146,13 +151,13 @@ function KpiRow({ selectedMonth }) {
     <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
   )
 
-  const cell = (label, value, tone, deltaEl, subLabel) => (
-    <div className={`kpi ${tone || ''}`}>
+  const cell = (label, value, tone, deltaEl, subLabel, delay) => (
+    <MotionSurface className={`kpi ${tone || ''}`} delay={delay} revealKey={`kpi-${label}`}>
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{eur(value)}</div>
       {deltaEl}
       {subLabel}
-    </div>
+    </MotionSurface>
   )
 
   const periodBadge = kpi.isCurrent ? (
@@ -163,17 +168,22 @@ function KpiRow({ selectedMonth }) {
 
   return (
     <div className="kpi-row">
-      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
-      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
-      {cell('Résultat des flux enregistrés', kpi.net, '')}
-      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
+      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge, 80)}
+      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta), null, 160)}
+      {cell('Résultat des flux enregistrés', kpi.net, '', null, null, 240)}
+      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '', null, null, 320)}
     </div>
   )
 }
 
 function Journal({ onNavigate, selectedMonth }) {
   const [events, setEvents] = useState(null)
-  useEffect(() => { api.journal(selectedMonth).then((d) => setEvents(d.events || [])).catch(() => setEvents([])) }, [selectedMonth])
+  useEffect(() => {
+    let active = true
+    setEvents(null)
+    api.journal(selectedMonth).then(d => { if (active) setEvents(d.events || []) }).catch(() => { if (active) setEvents([]) })
+    return () => { active = false }
+  }, [selectedMonth])
   if (!events || events.length === 0) return null
 
   const icon = { positive: '✓', attention: '⚠', neutral: '·' }
@@ -276,18 +286,23 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
 
   if ((data.monthly ?? []).length === 0) {
     return (
+      <CinematicDashboard>
+      <header className="dashboard-heading">
+        <div><p className="eyebrow">Ton espace de pilotage</p><h1>Une nouvelle <em>perspective.</em></h1><p className="dashboard-intro">Tes finances prennent une autre dimension.</p></div>
+      </header>
       <div className="empty" style={{ marginTop: 24 }}>
         <p><b>Aucune donnée pour l'instant.</b></p>
         <p>Dépose ton premier relevé PDF dans la fente ci-dessus, ou{' '}
           <button className="link" onClick={onGoUpload}>choisis un fichier</button>.</p>
       </div>
+      </CinematicDashboard>
     )
   }
 
   const available = Object.entries(WIDGETS)
 
   return (
-    <div className="section dashboard">
+    <CinematicDashboard>
       {err && <div className="notice err">{err}</div>}
 
       <header className="dashboard-heading">
@@ -298,9 +313,9 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
         </div>
         <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
       </header>
-      <FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} />
-      <Reveal delay={80}><KpiRow selectedMonth={selectedMonth} /></Reveal>
-      <Reveal delay={160}><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></Reveal>
+      <MotionSurface className="cinematic-summary" revealKey="summary"><FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} /></MotionSurface>
+      <KpiRow selectedMonth={selectedMonth} />
+      <MotionSurface delay={120} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
 
       <div className="dash-toolbar">
         <div className="dashboard-section-title"><span className="eyebrow">Explorer tes finances</span><h2>Les détails font la différence.</h2><span className="dashboard-save-state" role="status">{saveState === 'saving' ? 'Enregistrement…' : saveState === 'saved' ? 'Disposition enregistrée ✓' : ''}</span></div>
@@ -325,7 +340,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
           if (!def) return null
           const C = def.component
           return (
-            <div key={w.id} className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
+            <MotionSurface key={w.id} revealKey={`widget-${w.id}`} className={`widget ${w.size} widget-${w.type}`} delay={Math.min(i, 4) * 70} style={{ '--i': i }}>
               <div className="widget-head">
                 <h3>{def.title}</h3>
                 {editing && (
@@ -340,10 +355,10 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
                 )}
               </div>
               <C data={data} config={w.config} editing={editing} onConfig={(c) => setConfig(i, c)} onNavigate={onNavigate} selectedMonth={selectedMonth} />
-            </div>
+            </MotionSurface>
           )
         })}
       </div>
-    </div>
+    </CinematicDashboard>
   )
 }
