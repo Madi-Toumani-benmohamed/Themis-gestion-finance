@@ -8,13 +8,13 @@
 .scene-orbits { stroke-width: .75; opacity: .5; }
 .scene-crystal { stroke-width: 1; opacity: .75; }
 .scene-stars { opacity: .7; }
-.cinematic-masthead { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.cinematic-masthead { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
 .cinematic-edition { display: inline-flex; align-items: center; gap: 9px; color: #cac5e4; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
 .cinematic-edition i { width: 6px; height: 6px; border: 1px solid #c8bfff; transform: rotate(45deg); }
 .motion-control { display: inline-flex; align-items: center; gap: 8px; color: #d2cce9; font-size: 11px; }
 .motion-control select { background: #292641; color: #f2efff; border: 1px solid #aaa0d755; border-radius: 7px; font: inherit; min-height: 34px; padding: 5px 8px; max-width: 145px; cursor: pointer; color-scheme: dark; }
 .motion-control select:focus-visible { outline: 2px solid #d4c9ff; outline-offset: 3px; }
-.cinematic-header .dashboard-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 32px; margin: 0; min-width: 0; }
+.cinematic-header .dashboard-heading { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 32px; margin: 0; min-width: 0; }
 .cinematic-header .dashboard-heading > div:not(.month-selector) { flex: 1 1 360px; min-width: 0; }
 .cinematic-header .dashboard-heading .eyebrow { color: #cbc6e5; font-size: 10px; margin-bottom: 14px; letter-spacing: .12em; }
 .cinematic-header .dashboard-heading .eyebrow::before { display: none; }
