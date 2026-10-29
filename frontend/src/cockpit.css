@@ -41,6 +41,7 @@ body::before, [data-theme="dark"] body::before {
   background: radial-gradient(ellipse at 85% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 52%);
 }
 .app { isolation: isolate; }
+.app-shell { position: relative; z-index: 1; }
 .app-main .page { width: 100%; max-width: 1340px; padding: 38px 40px 64px; }
 .app .sidebar, [data-theme="dark"] .app .sidebar {
   width: 228px;

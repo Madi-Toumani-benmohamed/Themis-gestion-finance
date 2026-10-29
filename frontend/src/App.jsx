@@ -16,6 +16,8 @@ import Analyse from './pages/Analyse'
 import Simulate from './pages/Simulate'
 import Assistant from './pages/Assistant'
 import AssistantFloating from './components/AssistantFloating'
+import HalftoneWordmarkFooter from './components/ui/halftone-wordmark-footer'
+import { BackgroundPaths } from './components/ui/background-paths'
 import CommandPalette from './CommandPalette'
 import { ICONS } from './navIcons'
 import { Logo } from './Logo'
@@ -280,6 +282,7 @@ export default function App() {
       onDragLeave={(e) => { if (e.target === e.currentTarget) setDrag(false) }}
       onDrop={onDrop}
     >
+      <BackgroundPaths key={tab} ambient className="site-background" />
       <div className="app-shell">
       <ScrollProgress />
       <NavigationMotion><aside className="sidebar">
@@ -420,11 +423,20 @@ export default function App() {
         {tab === 'assistant' && <Assistant />}
       </PageTransition>
 
-      <footer className="colophon">
-        <span>thémis — comptes personnels</span>
-        <span className="colophon-rule" aria-hidden="true" />
-        <span>Un regard clair sur tes finances.</span>
-      </footer>
+      <HalftoneWordmarkFooter
+        className="themis-halftone-footer"
+        wordmark="thémis"
+        label="Thémis — comptes personnels"
+        meta="Un regard clair sur tes finances."
+        columns={[]}
+        fontFamily="'Inter Variable', Inter, system-ui, sans-serif"
+        monoFamily="var(--font)"
+        height="clamp(340px, 36vw, 480px)"
+        grain={0.2}
+        palette={theme === 'dark'
+          ? { background: '#10111B', ink: '#F0F0FA', warm: '#A2A2FF' }
+          : { background: '#F4F4F9', ink: '#202037', warm: '#5B5BD6' }}
+      />
       </div>{/* /app-main */}
       </div>{/* /app-shell */}
 

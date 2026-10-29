@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"themis/internal/intelligence"
 	"themis/internal/money"
 )
 
@@ -24,7 +25,7 @@ func analysisRecurringSignals(report recurringReviewReport) []map[string]any {
 		if item.Status == "ignored" || item.Direction != "debit" {
 			continue
 		}
-		source := map[string]any{"ids": item.TransactionIDs, "from": report.ObservationStart, "to": report.ObservationEnd}
+		source := map[string]any{"ids": item.TransactionIDs, "from": report.ObservationStart, "to": report.ObservationEnd, "key": item.Key, "periods": item.Months, "coverage_complete": item.CoverageComplete}
 		out = append(out, map[string]any{"kind": "recurring", "title": item.Label, "detail": fmt.Sprintf("%d occurrences observées ; médiane par opération : %s €. %s", item.OccurrenceCount, item.TypicalAmount, item.ConfidenceReason), "status": item.Status, "nature": item.Nature, "confidence": item.Confidence, "source": source})
 		if item.Nature != "subscription" {
 			continue
@@ -40,7 +41,8 @@ func analysisRecurringSignals(report recurringReviewReport) []map[string]any {
 				median = recurringReviewRound(previous[len(previous)/2-1]+median, 2)
 			}
 			if median > 0 && last-median >= 150 && (last-median)*100 > median*15 {
-				out = append(out, map[string]any{"kind": "price_creep", "title": "Montant à vérifier : " + item.Label, "detail": fmt.Sprintf("Dernier débit observé : %s € ; médiane des %d occurrences précédentes : %s €. Cet écart ne prouve pas un changement de tarif.", simulationNumber(last), len(previous), simulationNumber(median)), "source": source})
+				metrics := []intelligence.Metric{{Name: "latest_amount_cents", Kind: intelligence.MetricMoneyCents, Value: int64(last)}, {Name: "previous_median_cents", Kind: intelligence.MetricMoneyCents, Value: int64(median)}, {Name: "observed_difference_cents", Kind: intelligence.MetricMoneyCents, Value: int64(last - median)}}
+				out = append(out, map[string]any{"kind": "price_creep", "title": "Montant à vérifier : " + item.Label, "detail": fmt.Sprintf("Dernier débit observé : %s € ; médiane des %d occurrences précédentes : %s €. Cet écart ne prouve pas un changement de tarif.", simulationNumber(last), len(previous), simulationNumber(median)), "metrics": metrics, "source": source})
 			}
 		}
 		for segment, members := range serviceSegments {
@@ -60,9 +62,15 @@ func analysisRecurringSignals(report recurringReviewReport) []map[string]any {
 	for _, key := range keys {
 		names := map[string]bool{}
 		ids := []int64{}
+		periodSet := map[string]bool{}
+		coverageComplete := true
 		for _, item := range segments[key] {
 			names[strings.ToLower(item.Merchant)] = true
 			ids = append(ids, item.TransactionIDs...)
+			coverageComplete = coverageComplete && item.CoverageComplete
+			for _, period := range item.Months {
+				periodSet[period] = true
+			}
 		}
 		if len(names) < 2 {
 			continue
@@ -72,7 +80,14 @@ func analysisRecurringSignals(report recurringReviewReport) []map[string]any {
 			labels = append(labels, name)
 		}
 		sort.Strings(labels)
-		out = append(out, map[string]any{"kind": "duplicate_subs", "title": "Services potentiellement redondants : " + key, "detail": "Plusieurs services observés : " + strings.Join(labels, ", ") + ". Cela ne prouve ni des contrats actifs ni des écritures en doublon ; vérifier leur utilité et les dernières occurrences.", "source": map[string]any{"ids": ids, "from": report.ObservationStart, "to": report.ObservationEnd}})
+		periods := []string{}
+		for period := range periodSet {
+			periods = append(periods, period)
+		}
+		sort.Strings(periods)
+		metrics := []intelligence.Metric{{Name: "services_observed", Kind: intelligence.MetricCount, Value: int64(len(names))}}
+		source := map[string]any{"ids": ids, "from": report.ObservationStart, "to": report.ObservationEnd, "segment": key, "periods": periods, "coverage_complete": coverageComplete}
+		out = append(out, map[string]any{"kind": "duplicate_subs", "title": "Services potentiellement redondants : " + key, "detail": "Plusieurs services observés : " + strings.Join(labels, ", ") + ". Cela ne prouve ni des contrats actifs ni des écritures en doublon ; vérifier leur utilité et les dernières occurrences.", "metrics": metrics, "source": source})
 	}
 	return out
 }
@@ -153,13 +168,15 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 			g := groups[key]
 			a, b, c, d := g.values[months[0]], g.values[months[1]], g.values[months[2]], g.values[months[3]]
 			if g.kind == "merchant" && a > 0 && a < b && b < c && c < d && (d-a)*100 >= a*40 {
-				out = append(out, map[string]any{"kind": "merchant_drift", "title": "Dépenses en hausse chez " + g.name, "detail": fmt.Sprintf("Quatre mois documentés %s à %s : %s €, %s €, %s €, %s €. Comparaison des débits ordinaires, sans déduire la cause de la hausse.", months[0], months[3], simulationNumber(a), simulationNumber(b), simulationNumber(c), simulationNumber(d)), "source": map[string]any{"merchant": g.name, "from": first.AddDate(0, -3, 0).Format("2006-01-02"), "to": last.Format("2006-01-02"), "type": "debit"}})
+				metrics := []intelligence.Metric{{Name: "spend_month_1_cents", Kind: intelligence.MetricMoneyCents, Value: int64(a)}, {Name: "spend_month_2_cents", Kind: intelligence.MetricMoneyCents, Value: int64(b)}, {Name: "spend_month_3_cents", Kind: intelligence.MetricMoneyCents, Value: int64(c)}, {Name: "spend_month_4_cents", Kind: intelligence.MetricMoneyCents, Value: int64(d)}, {Name: "observed_increase_cents", Kind: intelligence.MetricMoneyCents, Value: int64(d - a)}}
+				out = append(out, map[string]any{"kind": "merchant_drift", "title": "Dépenses en hausse chez " + g.name, "detail": fmt.Sprintf("Quatre mois documentés %s à %s : %s €, %s €, %s €, %s €. Comparaison des débits ordinaires, sans déduire la cause de la hausse.", months[0], months[3], simulationNumber(a), simulationNumber(b), simulationNumber(c), simulationNumber(d)), "metrics": metrics, "source": map[string]any{"merchant": g.name, "from": first.AddDate(0, -3, 0).Format("2006-01-02"), "to": last.Format("2006-01-02"), "periods": months, "type": "debit"}})
 			}
 			if g.kind == "tag" {
 				sum := a + b + c
 				avg := recurringReviewRound(sum, 3)
 				if sum > 0 && d-avg >= 5000 && d*15 > sum*8 {
-					out = append(out, map[string]any{"kind": "tag_surge", "title": "Dépenses taguées à examiner : " + g.name, "detail": fmt.Sprintf("%s € en %s, contre %s € par mois sur %s à %s (trois mois documentés, mois vides inclus). Les tags peuvent se chevaucher.", simulationNumber(d), month, simulationNumber(avg), months[0], months[2]), "source": map[string]any{"tag": g.name, "month": month, "type": "debit"}})
+					metrics := []intelligence.Metric{{Name: "spend_current_cents", Kind: intelligence.MetricMoneyCents, Value: int64(d)}, {Name: "baseline_monthly_average_cents", Kind: intelligence.MetricMoneyCents, Value: int64(avg)}, {Name: "observed_increase_cents", Kind: intelligence.MetricMoneyCents, Value: int64(d - avg)}}
+					out = append(out, map[string]any{"kind": "tag_surge", "title": "Dépenses taguées à examiner : " + g.name, "detail": fmt.Sprintf("%s € en %s, contre %s € par mois sur %s à %s (trois mois documentés, mois vides inclus). Les tags peuvent se chevaucher.", simulationNumber(d), month, simulationNumber(avg), months[0], months[2]), "metrics": metrics, "source": map[string]any{"tag": g.name, "month": month, "periods": months, "type": "debit"}})
 				}
 			}
 		}
@@ -203,7 +220,8 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 			}
 		}
 		if len(years) >= 2 && len(calendar) <= 2 {
-			out = append(out, map[string]any{"kind": "seasonal", "title": "Motif annuel possible : " + name, "detail": fmt.Sprintf("Au moins un débit d’au moins 80 € a été observé au mois %s sur %d années dans les trois dernières années. Une prochaine occurrence reste une hypothèse, sans montant ni échéance certains.", next, len(years)), "source": map[string]any{"merchant": name, "from": first.AddDate(0, -35, 0).Format("2006-01-02"), "to": last.Format("2006-01-02"), "type": "debit"}})
+			metrics := []intelligence.Metric{{Name: "matching_years", Kind: intelligence.MetricCount, Value: int64(len(years))}, {Name: "observed_months", Kind: intelligence.MetricCount, Value: int64(len(patterns[name]))}}
+			out = append(out, map[string]any{"kind": "seasonal", "title": "Motif annuel possible : " + name, "detail": fmt.Sprintf("Au moins un débit d’au moins 80 € a été observé au mois %s sur %d années dans les trois dernières années. Une prochaine occurrence reste une hypothèse, sans montant ni échéance certains.", next, len(years)), "metrics": metrics, "source": map[string]any{"merchant": name, "from": first.AddDate(0, -35, 0).Format("2006-01-02"), "to": last.Format("2006-01-02"), "periods": patterns[name], "type": "debit"}})
 		}
 	}
 	if err = tx.Commit(); err != nil {
