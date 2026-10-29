@@ -15,7 +15,10 @@ const hero = month => {
 const simulation = { available: true, income: 3249.47, observed_income: 3249.47, base_spend: 2367.18, current_net: 882.29, reference_complete: false, reference_periods: [{ month: '2026-09', completeness: 'unknown' }], categories: [{ category: 'Logement', before: 1100 }, { category: 'Autres dépenses', before: 1267.18 }] }
 async function settle(page) {
   await page.bringToFront()
-  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise(requestAnimationFrame)
+  })
   try {
     await expect.poll(() => page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming().endTime)).length), { timeout: 10000 }).toBe(0)
   } catch (error) {
@@ -219,6 +222,8 @@ async function main() {
       await page.evaluate(() => window.scrollTo(0, 0))
       await settle(page)
       await page.screenshot({ path: `${output}/dashboard-mobile.png`, fullPage: true })
+      // Full-page capture can reveal more cards and start their finite entrances.
+      await settle(page)
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no mobile page overflow')
       metrics.idle_running_animations = await page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length)
       assert.equal(metrics.idle_running_animations, 0, 'no perpetual motion after settling')
