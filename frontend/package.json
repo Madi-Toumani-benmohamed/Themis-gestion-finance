@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:browser": "node tests/transactions.browser.cjs && node tests/budgets.browser.cjs && node tests/simulation.browser.cjs && node tests/analysis.browser.cjs && node tests/credits.browser.cjs && node tests/ai-configuration.browser.cjs && node tests/statements.browser.cjs && node tests/import-fidelity.browser.cjs && npm run test:motion && npm run test:cinematic",
+    "test:browser": "node tests/transactions.browser.cjs && node tests/budgets.browser.cjs && node tests/simulation.browser.cjs && node tests/analysis.browser.cjs && node tests/credits.browser.cjs && node tests/ai-configuration.browser.cjs && node tests/statements.browser.cjs && node tests/import-fidelity.browser.cjs && npm run test:motion && npm run test:cinematic && node tests/intelligence.browser.cjs",
     "test:cinematic": "node tests/cinematic.browser.cjs",
     "test:motion": "node tests/motion.browser.cjs",
     "test:e2e": "playwright test",

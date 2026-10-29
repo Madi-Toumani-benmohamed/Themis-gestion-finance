@@ -225,7 +225,7 @@ export function IntelligenceHighlights({ onNavigate, month }) {
                 <div className="intel-card-actions" aria-label="Votre retour sur cette découverte">
                   {feedback.map(([action, label]) => <button key={action} type="button" className="intel-feedback" disabled={busy} onClick={() => respond(item, action)}>{label}</button>)}
                   <button type="button" className="intel-feedback intel-feedback-hide" disabled={busy} onClick={() => respond(item, 'hide')}>Masquer</button>
-                  {ids.length > 0 && <button type="button" className="link intel-source-link" onClick={() => onNavigate?.('transactions', { ids, month: item.period || month })}>Voir les opérations sources →</button>}
+                  {ids.length > 0 && <button type="button" className="link intel-source-link" onClick={() => onNavigate?.('transactions', { ids })}>Voir les opérations sources →</button>}
                 </div>
               </article>
             )
