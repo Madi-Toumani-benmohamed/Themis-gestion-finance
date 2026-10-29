@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 
 test.describe('références visuelles déterministes', () => {
@@ -23,7 +24,15 @@ test.describe('références visuelles déterministes', () => {
     await expect(page.locator('.kpi-row')).toHaveAttribute('aria-busy', 'false')
     await expect(page.getByRole('heading', { name: 'Ce que Thémis a remarqué', exact: true })).toBeVisible()
     await expect(page.locator('.intel-highlights').getByRole('status').filter({ hasText: 'Chargement des découvertes' })).toHaveCount(0)
-    await expect(page.locator('main')).toHaveScreenshot('dashboard.png', { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.001 })
+    try {
+      await expect(page.locator('main')).toHaveScreenshot('dashboard.png', { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.001 })
+    } catch (error) {
+      const png = await readFile(test.info().outputPath('dashboard-actual.png'))
+      console.log('PR42_VISUAL_REFERENCE_BEGIN')
+      for (const chunk of png.toString('base64').match(/.{1,3000}/g) || []) console.log(chunk)
+      console.log('PR42_VISUAL_REFERENCE_END')
+      throw error
+    }
   })
 
   test('transactions', async ({ page }) => {
