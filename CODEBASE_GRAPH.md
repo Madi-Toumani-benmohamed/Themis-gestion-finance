@@ -123,6 +123,13 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - `Dashboard.jsx` sérialise les sauvegardes de disposition. `widgets/index.jsx` garde les gradients propres à chaque instance et la légende des catégories accessible.
 - Validation : `dashboardModel.test.mjs`, `cinematic.browser.cjs`, `motion.browser.cjs`, parcours métier et E2E. Voir `docs/CINEMATIC_DASHBOARD.md` et `docs/CINEMATIC_VALIDATION.md`.
 
+### Cinematic Experience 2.0
+- `Dashboard.jsx` présente des KPI non redondants (variations comparables, taux d’épargne existant et reste à vivre) et différencie panneaux Hero/Focus/Standard/Quiet sans toucher aux calculs métier ou aux préférences personnalisées.
+- `widgets/chartCalendar.mjs` complète uniquement la géométrie des courbes par des mois `null` pour ne pas relier deux observations séparées par une absence. `widgets/index.jsx` expose la légende de flux au clavier, un tableau de valeurs accessible et des moyennes qui gardent le dénominateur des périodes observées ; le cumul interrompt sa courbe au même endroit et marque sa dernière valeur.
+- `motion/AnimatedChart.jsx` chorégraphie grille/axes, courbes décalées, aires et légende à l’entrée ; une nouvelle révision utilise un fondu bref de sa géométrie exacte, sans morphing de valeurs ni répétition du dessin au zoom.
+- `motion/CinematicDashboard.jsx` et `motion/cinematic.css` ajoutent la parallaxe discrète de l’orbite au pointeur souris et une grille desktop asymétrique. Le mobile garde les décorations et les tables SR hors du défilement horizontal (`motion.css`).
+- Audits/décisions : `docs/CINEMATIC_DESIGN_AUDIT.md` et `docs/CINEMATIC_DESIGN_SYSTEM.md`. Vérification ciblée : `npm run test:cinematic`, `npm run test:motion` et `node --test src/widgets/chartCalendar.test.mjs src/components/dashboardModel.test.mjs`.
+
 ### Pages (`frontend/src/pages/`)
 | Page | Description |
 |------|-------------|

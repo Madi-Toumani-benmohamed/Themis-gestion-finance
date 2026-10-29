@@ -37,6 +37,7 @@ function AstralScene({ opening }) {
 
 export function CinematicDashboard({ header, children }) {
   const { session, full } = useMotion()
+  const headerRef = useRef(null), pointerFrame = useRef(0)
   const [opening, setOpening] = useState(() => !session?.dashboardSeen && full)
   useEffect(() => {
     if (session) session.dashboardSeen = true
@@ -44,8 +45,36 @@ export function CinematicDashboard({ header, children }) {
     const timer = setTimeout(() => setOpening(false), 1900)
     return () => clearTimeout(timer)
   }, [session, full])
+  useEffect(() => {
+    const header = headerRef.current
+    if (!header || !full) return
+    const move = event => {
+      if (event.pointerType !== 'mouse') return
+      cancelAnimationFrame(pointerFrame.current)
+      pointerFrame.current = requestAnimationFrame(() => {
+        const bounds = header.getBoundingClientRect()
+        const x = ((event.clientX - bounds.left) / bounds.width - .5) * 10
+        const y = ((event.clientY - bounds.top) / bounds.height - .5) * 8
+        header.style.setProperty('--scene-shift-x', `${x.toFixed(1)}px`)
+        header.style.setProperty('--scene-shift-y', `${y.toFixed(1)}px`)
+      })
+    }
+    const reset = () => {
+      cancelAnimationFrame(pointerFrame.current)
+      header.style.setProperty('--scene-shift-x', '0px')
+      header.style.setProperty('--scene-shift-y', '0px')
+    }
+    header.addEventListener('pointermove', move, { passive: true })
+    header.addEventListener('pointerleave', reset, { passive: true })
+    return () => {
+      cancelAnimationFrame(pointerFrame.current)
+      header.removeEventListener('pointermove', move)
+      header.removeEventListener('pointerleave', reset)
+      reset()
+    }
+  }, [full])
   return <div className="section dashboard cinematic-dashboard" data-entrance={opening ? 'first' : 'settled'}>
-    <div className="cinematic-header">
+    <div ref={headerRef} className="cinematic-header">
       <AstralScene opening={opening} />
       <div className="cinematic-masthead"><span className="cinematic-edition"><i aria-hidden="true" /> Finances personnelles</span><MotionControl /></div>
       {header}
