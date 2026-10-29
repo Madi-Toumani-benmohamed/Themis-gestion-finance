@@ -65,9 +65,12 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/intel/comparison", s.categoryComparison)
 	mux.HandleFunc("GET /api/intel/discoveries", s.discoveries)
 	mux.HandleFunc("GET /api/intel/feed", s.intelligenceFeed)
+	mux.HandleFunc("GET /api/intel/preferences", s.intelligencePreferences)
+	mux.HandleFunc("PATCH /api/intel/preferences", s.updateIntelligencePreferences)
 	mux.HandleFunc("GET /api/intel/discoveries/{id}", s.intelligenceDiscovery)
 	mux.HandleFunc("POST /api/intel/discoveries/{id}/feedback", s.intelligenceFeedback)
 	mux.HandleFunc("POST /api/intel/recompute", s.recomputeIntelligence)
+	mux.HandleFunc("GET /api/intel/jobs/status", s.IntelligenceJobStatus)
 	mux.HandleFunc("GET /api/intel/narrative", s.intelNarrative)
 	mux.HandleFunc("GET /api/hero", s.hero)
 	mux.HandleFunc("GET /api/coherence", s.coherence)
@@ -166,7 +169,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/category-series", s.categorySeries)
 	mux.HandleFunc("POST /api/simulate", s.simulate)
 
-	return securityHeaders(logMiddleware(s.authMiddleware(mux)))
+	return securityHeaders(logMiddleware(s.authMiddleware(s.intelligenceEnqueueMiddleware(mux))))
 }
 
 func logMiddleware(next http.Handler) http.Handler {

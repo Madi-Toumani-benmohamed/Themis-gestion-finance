@@ -325,6 +325,12 @@ func Feedback(ctx context.Context, db *sql.DB, ownerID int64, id, action string)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO intelligence_feedback(owner_id,discovery_id,action) VALUES($1,$2,$3)`, ownerID, id, action); err != nil {
 		return "", err
 	}
+	if action != "hide" && action != "unhide" {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO intelligence_preferences(owner_id,discovery_id,action) VALUES($1,$2,$3)
+ ON CONFLICT(owner_id,discovery_id) DO UPDATE SET action=EXCLUDED.action,note='',updated_at=now()`, ownerID, id, action); err != nil {
+			return "", err
+		}
+	}
 	switch action {
 	case "hide":
 		state = "hidden"
@@ -341,6 +347,112 @@ func Feedback(ctx context.Context, db *sql.DB, ownerID int64, id, action string)
 		return "", err
 	}
 	return state, nil
+}
+
+type Preference struct {
+	DiscoveryID string    `json:"discovery_id"`
+	Kind        string    `json:"kind"`
+	Title       string    `json:"title"`
+	Action      string    `json:"action"`
+	Note        string    `json:"note"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func Preferences(ctx context.Context, db *sql.DB, ownerID int64, limit int) ([]Preference, error) {
+	if ownerID <= 0 || limit < 1 || limit > 100 {
+		return nil, errors.New("invalid intelligence preference query")
+	}
+	rows, err := db.QueryContext(ctx, `SELECT p.discovery_id,d.kind,o.title,p.action,p.note,p.updated_at
+ FROM intelligence_preferences p JOIN intelligence_discoveries d ON d.owner_id=p.owner_id AND d.id=p.discovery_id
+ JOIN LATERAL (SELECT title FROM intelligence_observations x WHERE x.owner_id=p.owner_id AND x.discovery_id=p.discovery_id ORDER BY updated_at DESC,id DESC LIMIT 1) o ON true
+ WHERE p.owner_id=$1 ORDER BY p.updated_at DESC,p.discovery_id LIMIT $2`, ownerID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Preference{}
+	for rows.Next() {
+		var item Preference
+		if err = rows.Scan(&item.DiscoveryID, &item.Kind, &item.Title, &item.Action, &item.Note, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func SetPreference(ctx context.Context, db *sql.DB, ownerID int64, id, action, note string) error {
+	allowed := map[string]bool{"interesting": true, "already_knew": true, "irrelevant": true, "normal": true, "remind_me": true}
+	if ownerID <= 0 || len(id) != 64 || len(note) > 500 || !allowed[action] {
+		return errors.New("invalid intelligence preference")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO intelligence_preferences(owner_id,discovery_id,action,note) VALUES($1,$2,$3,$4)
+ ON CONFLICT(owner_id,discovery_id) DO UPDATE SET action=EXCLUDED.action,note=EXCLUDED.note,updated_at=now()`, ownerID, id, action, note); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO intelligence_feedback(owner_id,discovery_id,action) VALUES($1,$2,$3)`, ownerID, id, action); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func ClearPreference(ctx context.Context, db *sql.DB, ownerID int64, id string) error {
+	if ownerID <= 0 || len(id) != 64 {
+		return errors.New("invalid intelligence preference identity")
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM intelligence_preferences WHERE owner_id=$1 AND discovery_id=$2`, ownerID, id)
+	return err
+}
+
+// ApplyPreference adjusts priority only. Confidence and evidence remain untouched.
+func ApplyPreference(ctx context.Context, db *sql.DB, d Discovery) (Discovery, error) {
+	d.ID = StableID(d.OwnerID, d.Kind, d.SubjectKey)
+	var action sql.NullString
+	var similarIrrelevant int
+	err := db.QueryRowContext(ctx, `SELECT (SELECT p.action FROM intelligence_preferences p
+  JOIN intelligence_discoveries d ON d.owner_id=p.owner_id AND d.id=p.discovery_id
+  WHERE d.owner_id=$1 AND d.kind=$2 AND d.subject_key=$4),
+ (SELECT count(*) FROM intelligence_preferences p2 JOIN intelligence_discoveries d2 ON d2.owner_id=p2.owner_id AND d2.id=p2.discovery_id
+  WHERE p2.owner_id=$1 AND d2.kind=$2 AND p2.action='irrelevant' AND p2.discovery_id<>$3)
+	`, d.OwnerID, d.Kind, d.ID, d.SubjectKey).Scan(&action, &similarIrrelevant)
+	if err != nil {
+		return Discovery{}, err
+	}
+	delta := 0
+	if action.Valid {
+		switch action.String {
+		case "interesting":
+			delta = 8
+		case "already_knew":
+			delta = -8
+		case "irrelevant":
+			delta = -12
+		case "normal":
+			delta = -6
+		case "remind_me":
+			delta = 5
+		}
+	}
+	if similarIrrelevant > 3 {
+		similarIrrelevant = 3
+	}
+	delta -= similarIrrelevant * 3
+	d.RelevanceScore += delta
+	if d.RelevanceScore < 0 {
+		d.RelevanceScore = 0
+	}
+	if d.RelevanceScore > 100 {
+		d.RelevanceScore = 100
+	}
+	return d, nil
 }
 
 type scanner interface{ Scan(...any) error }
