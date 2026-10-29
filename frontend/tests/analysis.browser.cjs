@@ -433,8 +433,15 @@ async function main() {
     .waitFor()
 
   await settle()
+  const merchantTransactions = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/transactions' &&
+      url.searchParams.get('merchant') === 'MARCHAND TEST' &&
+      url.searchParams.get('type') === 'debit'
+  })
   await page.getByRole('button', { name: 'MARCHAND TEST', exact: true }).click()
   await page.getByText('Marchand exact : MARCHAND TEST').waitFor()
+  await merchantTransactions
   assert.ok(
     requests.some(
       (x) =>
