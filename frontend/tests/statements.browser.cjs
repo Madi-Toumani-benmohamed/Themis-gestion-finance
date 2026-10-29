@@ -115,6 +115,16 @@ async function main() {
     page.setDefaultTimeout(10000)
     const errors = []
     page.on('pageerror', (e) => errors.push(e.message))
+    const settleMotion = () => page.evaluate(async () => {
+      await document.fonts.ready
+      await new Promise(requestAnimationFrame)
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime))
+          .map((a) => a.finished.catch(() => {})),
+      )
+    })
     await page.addInitScript(() => localStorage.setItem('themis-theme', 'dark'))
     await page.route('**/api/**', async (route) => {
       const r = route.request(),
@@ -503,9 +513,8 @@ async function main() {
     fs.mkdirSync(artifacts, { recursive: true })
     for (const width of [1920, 960, 768, 390, 320]) {
       await page.setViewportSize({ width, height: 1080 })
-      await page.evaluate(async () => {
-        await document.fonts.ready
-      })
+      // Navigation and filtered rows can still be entering after data is ready.
+      await settleMotion()
       assert.equal(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -519,7 +528,7 @@ async function main() {
       assert.deepEqual(
         axe.violations.map((v) => ({
           id: v.id,
-          nodes: v.nodes.map((n) => n.target),
+          nodes: v.nodes.map((n) => ({ target: n.target, failure: n.failureSummary })),
         })),
         [],
         `axe ${width}`,
@@ -532,13 +541,14 @@ async function main() {
         await dialog().evaluate((el) => el.scrollWidth <= el.clientWidth),
         true,
       )
+      await settleMotion()
       const daxe = await new AxeBuilder({ page })
         .include('.statement-dialog')
         .analyze()
       assert.deepEqual(
         daxe.violations.map((v) => ({
           id: v.id,
-          nodes: v.nodes.map((n) => n.target),
+          nodes: v.nodes.map((n) => ({ target: n.target, failure: n.failureSummary })),
         })),
         [],
       )
@@ -560,14 +570,7 @@ async function main() {
     }
     await page.setViewportSize({ width: 1920, height: 1080 })
     await page.locator('.sidebar-footer .theme-toggle').click()
-    await page.evaluate(async () => {
-      await Promise.all(
-        document
-          .getAnimations()
-          .filter((a) => Number.isFinite(a.effect.getComputedTiming().endTime))
-          .map((a) => a.finished.catch(() => {})),
-      )
-    })
+    await settleMotion()
     await statusColors()
     const light = await new AxeBuilder({ page })
       .include('.statements-page')
