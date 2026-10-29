@@ -1,3 +1,4 @@
+import { AnimatedRegion, MotionCard, ProgressFill, Reveal } from '../motion'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { useToast } from '../Toast'
@@ -97,7 +98,7 @@ export default function Credits() {
       )}
       {report && (
         <>
-          <div
+          <Reveal
             className="obligations-banner"
             aria-label="Synthèse des engagements déclarés"
           >
@@ -136,7 +137,7 @@ export default function Credits() {
                 {report.taxes_to_verify} paiement(s) à vérifier
               </span>
             </div>
-          </div>
+          </Reveal>
           {(report.unknown_credits_count > 0 ||
             report.invalid_credits_count > 0) && (
             <p className="notice" role="status">
@@ -191,10 +192,10 @@ export default function Credits() {
               </p>
             ) : (
               <div className="credits-grid">
-                {credits.map((c) => {
+                {credits.map((c, index) => {
                   const pct = calculateProgress(c)
                   return (
-                    <article
+                    <MotionCard as="article" index={index}
                       className="credit-card"
                       key={c.id}
                       aria-label={c.name}
@@ -239,11 +240,11 @@ export default function Credits() {
                           <p className="muted">Progression non documentée.</p>
                         ) : (
                           <>
-                            <progress
+                            <span className="motion-credit-progress"><progress className="sr-only"
                               max="100"
                               value={pct}
                               aria-label={`Progression déclarée de ${c.name}`}
-                            />
+                            /><ProgressFill percent={pct} /></span>
                             <p className="progress-info">
                               {pct.toLocaleString('fr-FR')} % remboursé selon
                               vos déclarations
@@ -305,7 +306,7 @@ export default function Credits() {
                           Retirer
                         </button>
                       </div>
-                    </article>
+                    </MotionCard>
                   )
                 })}
               </div>
@@ -343,7 +344,7 @@ export default function Credits() {
             {!report.taxes.length ? (
               <p className="empty-state">Aucune échéance enregistrée.</p>
             ) : (
-              <div className="taxes-list">
+              <AnimatedRegion className="taxes-list" revision={taxSort}>
                 <table className="taxes-table">
                   <caption className="sr-only">
                     Échéances et paiements déclarés
@@ -438,7 +439,7 @@ export default function Credits() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </AnimatedRegion>
             )}
           </section>
           <p className="credit-note">

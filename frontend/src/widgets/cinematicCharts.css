@@ -24,3 +24,9 @@
 @media (prefers-reduced-motion: reduce) {
   .dashboard .chart-stage *, .dashboard .chart-exact-value { animation: none !important; transition: none !important; }
 }
+.dashboard .category-view-control { font-size: 11px; line-height: 1.6; }
+.dashboard .donut-center { max-width: 58%; pointer-events: none; }
+.dashboard .donut-total { font-size: clamp(17px,1.7vw,23px); }
+.dashboard .donut-label { font-size: 10px; line-height: 1.5; margin-top: 4px; overflow-wrap: anywhere; }
+.dashboard .cinematic-donut > .motion-chart { width: 100%; }
+.dashboard .cinematic-legend button { font-size: 12px; line-height: 1.6; min-height: 42px; }

@@ -1,3 +1,4 @@
+import { AnimatedTabs, TabIndicator } from '../motion'
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../Toast";
@@ -295,7 +296,7 @@ export default function AIConfiguration({ onApplied }) {
           {config.configuration_error}
         </p>
       )}
-      <div
+      <AnimatedTabs
         className="ai-settings-tabs"
         role="tablist"
         aria-label="Configuration de l’intelligence artificielle"
@@ -311,10 +312,10 @@ export default function AIConfiguration({ onApplied }) {
             onKeyDown={(e) => tabKey(e, index)}
             onClick={() => setPanel(key)}
           >
-            {label}
+            {panel === key && <TabIndicator />}{label}
           </button>
         ))}
-      </div>
+      </AnimatedTabs>
       <div
         className="ai-settings-panel"
         id={`${id}-panel`}

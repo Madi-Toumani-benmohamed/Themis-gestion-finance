@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:browser": "node tests/transactions.browser.cjs && node tests/budgets.browser.cjs && node tests/simulation.browser.cjs && node tests/analysis.browser.cjs && node tests/credits.browser.cjs && node tests/ai-configuration.browser.cjs && node tests/statements.browser.cjs && node tests/import-fidelity.browser.cjs && npm run test:cinematic",
+    "test:browser": "node tests/transactions.browser.cjs && node tests/budgets.browser.cjs && node tests/simulation.browser.cjs && node tests/analysis.browser.cjs && node tests/credits.browser.cjs && node tests/ai-configuration.browser.cjs && node tests/statements.browser.cjs && node tests/import-fidelity.browser.cjs && npm run test:motion && npm run test:cinematic",
     "test:cinematic": "node tests/cinematic.browser.cjs",
+    "test:motion": "node tests/motion.browser.cjs",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
@@ -21,6 +22,7 @@
     "@fontsource/fraunces": "^5.2.9",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/inter": "^5.2.8",
+    "motion": "14.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7"
