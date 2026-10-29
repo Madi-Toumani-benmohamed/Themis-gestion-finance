@@ -9,8 +9,8 @@ function FloatingPaths({ position, reduced }) {
     d: `M-${380 - i * 5 * position} -${189 + i * 6}C-${380 - i * 5 * position} -${189 + i * 6} -${312 - i * 5 * position} ${216 - i * 6} ${152 - i * 5 * position} ${343 - i * 6}C${616 - i * 5 * position} ${470 - i * 6} ${684 - i * 5 * position} ${875 - i * 6} ${684 - i * 5 * position} ${875 - i * 6}`,
     width: 0.5 + i * 0.03,
     opacity: 0.2 + i * 0.013,
-    duration: 9 + ((i * 7) % 7),
-    delay: -((i * 11) % 18),
+    duration: 1.8 + (i % 5) * 0.22,
+    delay: (i % 18) * 0.025,
   })), [position])
 
   return (

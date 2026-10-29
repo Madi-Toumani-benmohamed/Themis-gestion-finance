@@ -282,7 +282,7 @@ export default function App() {
       onDragLeave={(e) => { if (e.target === e.currentTarget) setDrag(false) }}
       onDrop={onDrop}
     >
-      <BackgroundPaths ambient className="site-background" />
+      <BackgroundPaths key={tab} ambient className="site-background" />
       <div className="app-shell">
       <ScrollProgress />
       <NavigationMotion><aside className="sidebar">
