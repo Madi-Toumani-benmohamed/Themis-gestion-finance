@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine,
-  ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
+  ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, ReferenceLine,
+  ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush, ReferenceDot,
 } from 'recharts'
 import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { AnimatedChart, ChartFocusDot } from '../motion/AnimatedChart'
@@ -11,6 +11,7 @@ import './cinematicCharts.css'
 import { dashboardModel } from '../components/dashboardModel.mjs'
 import { budgetWidgetModel } from '../components/budgetWidgetModel.mjs'
 import { cents, euroCents } from '../components/money.mjs'
+import { withCalendarGaps } from './chartCalendar.mjs'
 import { readColors, softGradient, ChartTooltip, axisX, axisY, gridProps } from '../components/ChartPrimitives'
 
 // Valeurs par défaut (clair) pour le premier rendu synchrone.
@@ -30,12 +31,35 @@ const ACCENT = '#5B5BD6'
 // la brosse. On isole donc le résumé (qui réagit au déplacement) du graphe.
 const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, currentMonthIdx, selectedMonthIdx }) {
   const gradientId = useId().replaceAll(':', '')
+  const [hidden, setHidden] = useState(() => new Set())
+  const [focused, setFocused] = useState(null)
   // Ligne verticale pour le mois courant
   const currentMonthLabel = currentMonthIdx >= 0 ? all[currentMonthIdx]?.label : null
   // Ligne verticale pour le mois sélectionné (si différent)
   const selectedMonthLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? all[selectedMonthIdx]?.label : null
+  const renderLegend = () => <div className="cinematic-chart-legend" role="group" aria-label="Séries affichées" data-hidden-series={[...hidden].join(',')}>
+    {[
+      { dataKey: 'income', value: 'Revenus', color: c.GREEN },
+      { dataKey: 'expenses', value: 'Dépenses', color: c.RED },
+      { dataKey: 'net', value: 'Net', color: c.ACCENT },
+    ].map(item => {
+      const seriesKey = item.dataKey
+      const visible = !hidden.has(seriesKey)
+      return <button key={seriesKey} type="button" aria-pressed={visible}
+        className={`${visible ? '' : 'is-muted'}${focused === seriesKey ? ' is-focused' : ''}`}
+        onMouseEnter={() => setFocused(seriesKey)} onMouseLeave={() => setFocused(null)}
+        onFocus={() => setFocused(seriesKey)} onBlur={() => setFocused(null)}
+        onClick={() => setHidden(previous => {
+          const next = new Set(previous)
+          next.has(seriesKey) ? next.delete(seriesKey) : next.add(seriesKey)
+          return next
+        })}>
+        <i aria-hidden="true" style={{ '--series-color': item.color }} />{item.value}
+      </button>
+    })}
+  </div>
   return (
-    <AnimatedChart revision={all}><ResponsiveContainer width="100%" height={300}>
+    <div className="flux-chart-shell"><AnimatedChart revision={all}><ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={all} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>
           {softGradient(`${gradientId}-income`, c.GREEN)}
@@ -44,17 +68,16 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
         <CartesianGrid {...gridProps(c)} />
         <XAxis dataKey="label" {...axisX(c)} />
         <YAxis {...axisY(c, 40)} />
-        <Tooltip content={<ChartTooltip colors={c} />} />
-        <Legend iconType="circle" wrapperStyle={{ fontSize: 12, paddingTop: 6 }} />
+        <Tooltip cursor={{ stroke: c.ACCENT, strokeOpacity: 0.38, strokeDasharray: '3 5' }} content={<ChartTooltip colors={c} />} />
         {currentMonthIdx >= 0 && (
           <ReferenceLine x={currentMonthLabel} stroke={c.ACCENT} strokeOpacity={0.4} strokeDasharray="4 4" label={{ position: 'top', offset: -10, fill: c.ACCENT, fontSize: 10, value: 'Mois en cours' }} />
         )}
         {selectedMonthLabel && (
           <ReferenceLine x={selectedMonthLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
         )}
-        <Area isAnimationActive={false} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill={`url(#${gradientId}-income)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
-        <Area isAnimationActive={false} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill={`url(#${gradientId}-expenses)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
-        <Line isAnimationActive={false} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Area hide={hidden.has('income')} isAnimationActive={false} connectNulls={false} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} strokeOpacity={focused && focused !== 'income' ? .32 : 1} fill={`url(#${gradientId}-income)`} fillOpacity={focused && focused !== 'income' ? .22 : 1} strokeWidth={focused === 'income' ? 3.1 : 2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Area hide={hidden.has('expenses')} isAnimationActive={false} connectNulls={false} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} strokeOpacity={focused && focused !== 'expenses' ? .32 : 1} fill={`url(#${gradientId}-expenses)`} fillOpacity={focused && focused !== 'expenses' ? .22 : 1} strokeWidth={focused === 'expenses' ? 3.1 : 2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Line hide={hidden.has('net')} isAnimationActive={false} connectNulls={false} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeOpacity={focused && focused !== 'net' ? .32 : 1} strokeWidth={focused === 'net' ? 3.1 : 2.5} dot={false} activeDot={<ChartFocusDot />} />
         <Brush
           dataKey="label" height={28} stroke={c.ACCENT} fill={c.PAPER}
           travellerWidth={9} gap={1}
@@ -62,7 +85,7 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
           onChange={onBrush}
         />
       </ComposedChart>
-    </ResponsiveContainer></AnimatedChart>
+    </ResponsiveContainer></AnimatedChart>{renderLegend()}</div>
   )
 }, (prev, next) =>
   prev.all === next.all &&
@@ -76,8 +99,10 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
 export function FluxWidget({ data, config, selectedMonth }) {
   // `all` DOIT garder une référence stable : sinon Recharts croit que les
   // données ont changé et réinitialise la brosse.
-  const all = useMemo(() => (data.monthly ?? []).map((m) => ({
-    ...m, net: +(m.income - m.expenses).toFixed(2), label: monthLabel(m.month),
+  const all = useMemo(() => withCalendarGaps(data.monthly ?? []).map((m) => ({
+    ...m,
+    net: Number.isFinite(m.income) && Number.isFinite(m.expenses) ? +(m.income - m.expenses).toFixed(2) : null,
+    label: monthLabel(m.month),
   })), [data.monthly])
 
   // Identifier le mois courant
@@ -112,7 +137,11 @@ export function FluxWidget({ data, config, selectedMonth }) {
   const from = range?.startIndex ?? (hasBrush ? initialStart : 0)
   const to = range?.endIndex ?? (all.length - 1)
   const win = all.slice(from, to + 1)
-  const avg = (k) => win.length ? win.reduce((s, m) => s + m[k], 0) / win.length : 0
+  const avg = (key) => {
+    const observed = win.map(row => row[key]).filter(Number.isFinite)
+    return observed.length ? { value: observed.reduce((sum, value) => sum + value, 0) / observed.length, count: observed.length } : null
+  }
+  const incomeAverage = avg('income'), expenseAverage = avg('expenses')
   const span = hasBrush
     ? `${all[from]?.label} → ${all[to]?.label} · ${to - from + 1} mois`
     : `${all.length} mois`
@@ -130,8 +159,16 @@ export function FluxWidget({ data, config, selectedMonth }) {
         {hasBrush && <span className="flux-hint">tire la brosse pour zoomer</span>}
       </div>
       <FluxChart all={all} c={c} initialStart={initialStart} onBrush={hasBrush ? onBrush : undefined} currentMonthIdx={currentMonthIdx} selectedMonthIdx={selectedMonthIdx} />
+      <table className="motion-sr-only"><caption>Flux mensuels observés ; les mois absents restent non observés</caption>
+        <thead><tr><th scope="col">Mois</th><th scope="col">Revenus</th><th scope="col">Dépenses</th><th scope="col">Net</th></tr></thead>
+        <tbody>{all.map(row => <tr key={row.month}><th scope="row">{row.label}</th>
+          <td>{Number.isFinite(row.income) ? eur(row.income) : 'Non observé'}</td>
+          <td>{Number.isFinite(row.expenses) ? eur(row.expenses) : 'Non observé'}</td>
+          <td>{Number.isFinite(row.net) ? eur(row.net) : 'Non observé'}</td>
+        </tr>)}</tbody>
+      </table>
       <div className="flux-foot">
-        Moyenne sur la fenêtre <b>{eur(avg('income'))}</b> de revenus · <b>{eur(avg('expenses'))}</b> de dépenses{avgNote}
+        Moyenne des mois observés : <b>{incomeAverage ? eur(incomeAverage.value) : '—'}</b> de revenus ({incomeAverage?.count ?? 0}) · <b>{expenseAverage ? eur(expenseAverage.value) : '—'}</b> de dépenses ({expenseAverage?.count ?? 0}){avgNote}
       </div>
     </div>
   )
@@ -142,22 +179,24 @@ export function FluxWidget({ data, config, selectedMonth }) {
 /* ------------------------------------------------------------------ */
 export function SoldeWidget({ data, config, selectedMonth }) {
   const gradientId = useId().replaceAll(':', '')
-  const monthly = (data.monthly ?? []).slice(-(config.months || 12))
+  const monthly = withCalendarGaps(data.monthly ?? []).slice(-(config.months || 12))
   const currentMonthIdx = monthly.findIndex(m => m.is_current || m.status === 'current')
   const selectedMonthIdx = selectedMonth ? monthly.findIndex(m => m.month === selectedMonth) : -1
   const series = useMemo(() => {
     let cum = 0
     return monthly.map((m) => {
+      if (!Number.isFinite(m.income) || !Number.isFinite(m.expenses)) return { label: monthLabel(m.month), cumul: null }
       cum += m.income - m.expenses
       return { label: monthLabel(m.month), cumul: +cum.toFixed(2) }
     })
   }, [data, config.months])
   if (series.length === 0) return <Empty />
+  const lastObserved = [...series].reverse().find(point => Number.isFinite(point.cumul))
   const c = readColors()
   const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
   const selectedLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? series[selectedMonthIdx]?.label : null
   return (
-    <AnimatedChart revision={series}><ResponsiveContainer width="100%" height={220}>
+    <div className="solde-chart-shell"><AnimatedChart revision={series}><ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>{softGradient(`${gradientId}-cumul`, c.ACCENT, 0.22, 0.01)}</defs>
         <CartesianGrid {...gridProps(c)} />
@@ -165,6 +204,7 @@ export function SoldeWidget({ data, config, selectedMonth }) {
         <YAxis {...axisY(c, 44)} />
         <Tooltip content={<ChartTooltip colors={c} />} />
         <ReferenceLine y={0} stroke={c.MUTED} strokeOpacity={0.4} strokeDasharray="4 4" />
+        {lastObserved && <ReferenceDot x={lastObserved.label} y={lastObserved.cumul} r={4} fill={c.ACCENT} stroke={c.PAPER} strokeWidth={2} />}
         {currentMonthIdx >= 0 && currentMonthIdx === series.length - 1 && (
           <ReferenceLine x={currentLabel} stroke={c.ACCENT} strokeOpacity={0.4} strokeDasharray="4 4" label={{ position: 'top', offset: -10, fill: c.ACCENT, fontSize: 10, value: 'Mois en cours' }} />
         )}
@@ -173,7 +213,7 @@ export function SoldeWidget({ data, config, selectedMonth }) {
         )}
         <Area isAnimationActive={false} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill={`url(#${gradientId}-cumul)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
       </ComposedChart>
-    </ResponsiveContainer></AnimatedChart>
+    </ResponsiveContainer></AnimatedChart><p className="solde-chart-context">Cumul des flux enregistrés sur la fenêtre · les périodes sans observation ouvrent une rupture.</p></div>
   )
 }
 

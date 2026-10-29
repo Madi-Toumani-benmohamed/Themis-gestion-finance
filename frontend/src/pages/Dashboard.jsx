@@ -134,27 +134,30 @@ function KpiRow({ selectedMonth }) {
   if (error) return <p className="notice err" role="alert">Indicateurs indisponibles : {error}</p>
   if (!kpi) return <p className="motion-period-state" role="status">{loadedMonth === selectedMonth ? 'Aucun indicateur observé pour cette période.' : 'Chargement des indicateurs…'}</p>
 
-  const delta = (d) => d == null ? null : (
-    <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
-  )
-
-  const cell = (label, value, tone, deltaEl, subLabel) => (
+  const variation = (value, inverse = false) => {
+    if (value == null) return { value: '—', context: 'Comparaison indisponible', tone: '' }
+    const tone = value === 0 ? '' : (value > 0) !== inverse ? 'kpi-pos' : 'kpi-neg'
+    return { value: `${value > 0 ? '+' : ''}${value} %`, context: 'vs mois précédent complet', tone }
+  }
+  const incomeChange = variation(kpi.incomeDelta)
+  const expenseChange = variation(kpi.spentDelta, true)
+  const savings = kpi.savings == null
+    ? { value: '—', context: 'Indisponible sur cette période', tone: '' }
+    : { value: `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 }).format(kpi.savings)} %`, context: 'résultat / revenus observés', tone: kpi.savings < 0 ? 'kpi-neg' : '' }
+  const cell = (label, value, tone, context, money = false) => (
     <div className={`kpi ${tone || ''}`}>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value"><AnimatedNumber value={value} missing="Indisponible" /></div>
-      {deltaEl}
-      {subLabel}
+      <div className="kpi-value">{money ? <AnimatedNumber value={value} missing="Indisponible" /> : value}</div>
+      <span className="kpi-period-badge">{context}</span>
     </div>
   )
 
-  const periodBadge = kpi.periodLabel ? <span className={`kpi-period-badge${kpi.isCurrent ? '' : ' kpi-period-incomplete'}`}>{kpi.periodLabel}</span> : null
-
   return (
     <>{loadedMonth !== selectedMonth && <p className="motion-period-state" role="status">Actualisation des indicateurs ; données affichées : {monthLabel(loadedMonth)}.</p>}<div className="kpi-row" data-period={loadedMonth} data-pending={loadedMonth !== selectedMonth} aria-busy={loadedMonth !== selectedMonth}>
-      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
-      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
-      {cell('Résultat des flux enregistrés', kpi.net, '')}
-      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
+      {cell('Variation des revenus', incomeChange.value, incomeChange.tone, incomeChange.context)}
+      {cell('Variation des dépenses', expenseChange.value, expenseChange.tone, expenseChange.context)}
+      {cell('Taux d’épargne des flux', savings.value, savings.tone, savings.context)}
+      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '', kpi.periodLabel || 'Estimation disponible', true)}
     </div></>
   )
 }
@@ -304,9 +307,9 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
     <CinematicDashboard header={header}>
       {err && <div className="notice err" role="alert">{err}</div>}
 
-      <MotionSurface className="cinematic-summary" revealKey="summary"><FinancialSummary history={data.monthly} selectedMonth={selectedMonth} onInspectCoverage={month => onNavigate?.('statements', { month })} /></MotionSurface>
+      <MotionSurface className="cinematic-summary panel-level-hero" revealKey="summary"><FinancialSummary history={data.monthly} selectedMonth={selectedMonth} onInspectCoverage={month => onNavigate?.('statements', { month })} /></MotionSurface>
       <MotionSurface delay={80} revealKey="kpis"><KpiRow selectedMonth={selectedMonth} /></MotionSurface>
-      <MotionSurface delay={160} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
+      <MotionSurface className="panel-level-editorial" delay={160} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
 
       <div className="dash-toolbar">
         <div className="dashboard-section-title"><span className="eyebrow">Explorer tes finances</span><h2>Les détails font la différence.</h2><span className="dashboard-save-state" role="status">{saveState === 'saving' ? 'Enregistrement…' : saveState === 'saved' ? 'Disposition enregistrée ✓' : ''}</span></div>
@@ -330,8 +333,9 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
           const def = WIDGETS[w.type]
           if (!def) return null
           const C = def.component
+          const panelLevel = w.type === 'flux' || w.type === 'attention' ? 'focus' : ['top', 'subs', 'budgets'].includes(w.type) ? 'quiet' : 'standard'
           return (
-            <MotionSurface key={w.id} revealKey={`widget-${w.id}`} layout="position" delay={Math.min(i, 4) * 70} className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
+            <MotionSurface key={w.id} revealKey={`widget-${w.id}`} layout="position" delay={Math.min(i, 4) * 70} className={`widget ${w.size} widget-${w.type} panel-level-${panelLevel}`} style={{ '--i': i }}>
               <div className="widget-head">
                 <h3>{def.title}</h3>
                 {editing && (
