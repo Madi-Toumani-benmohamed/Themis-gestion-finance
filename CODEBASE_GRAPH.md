@@ -611,6 +611,16 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `api/analytics.go` : fenêtre `months` jusqu’à 600, dates strictes et calendrier complet pour les séries bornées, trous `null` sans ajout de zéros. Agrégations SQL et propriété inchangées ; aucun nouvel endpoint ou schéma.
 - `tagHistoryModel.mjs` et tests, `api/tag_history_test.go`, parcours navigateur Analyse étendu : précision, bornes, données absentes, noms spéciaux, dix ans d’historique, zoom clavier et accessibilité.
 
+### Intelligence financière v2 — audit et contrat commun (2026-10-29)
+
+- `docs/INTELLIGENCE_V2_AUDIT.md` cartographie les détecteurs, critères, preuves/couverture, périodes comparables, transferts/remboursements, flottants legacy, mémoire, endpoints et absence de registry/jobs. Il prescrit la réutilisation des rapports existants.
+- `backend/internal/intelligence/` introduit le modèle Discovery commun. L’identité stable du phénomène (`ID`) est distincte de `ObservationID`; les métriques sont typées et l’évidence référence des transactions/périodes sans copier les libellés sensibles.
+- `Score` applique les poids configurables proposés (30/25/20/15/10), reste séparé de la confiance et plafonne les découvertes sans preuve ou couverture complète à 49. `Prioritize` retire les éléments masqués, déduplique et borne la liste avec tri déterministe.
+- `Registry.Record` écrit identité et observations immuables dans la migration additive 028, avec empreintes stables, limites explicites et vérification propriétaire des IDs de transaction. `Feed`/`Get`/`History` filtrent systématiquement par owner. `GET /api/intel/feed` (3 par défaut, 50 maximum) et `GET /api/intel/discoveries/{id}` ne recalculent rien au chargement.
+- `POST /api/intel/recompute` réutilise la revue de récurrences et les signaux existants (price creep, services similaires, dérive marchand, hausse taguée, motif saisonnier). Les montants sont adaptés depuis les centimes exacts; couverture, limites et IDs sources sont conservés. Calcul manuel borné à 500 découvertes et sérialisé par advisory lock propriétaire; les signaux absents sont résolus et les masqués restent masqués.
+- `POST /api/intel/discoveries/{id}/feedback` garde l’historique propriétaire des sept actions. `hide` masque; `unhide` attend un recalcul qui confirme à nouveau l’existence du phénomène. Les pondérations personnelles de feedback restent au Lot 3.
+- Tests unitaires et intégration PostgreSQL couvrent le score, les adaptateurs, l’idempotence, versions, historique, feedback, réconciliation, lock et isolation. La file/jobs après mutations et l’intégration Dashboard restent les étapes à venir pour l’exécution réellement proactive.
+
 
 ## Consolidation Crédits & taxes — octobre 2026
 
