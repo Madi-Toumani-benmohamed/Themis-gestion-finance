@@ -51,13 +51,13 @@ export function FinancialSummary({ selectedMonth, onInspectCoverage, history = [
             <div><dt><span className="financial-flow-icon" aria-hidden="true">↙</span> Revenus</dt><dd><AnimatedNumber value={h.income} missing="Indisponible" delay={140} /></dd></div>
             <div><dt><span className="financial-flow-icon" aria-hidden="true">↗</span> Dépenses</dt><dd><AnimatedNumber value={h.expenses} missing="Indisponible" delay={180} /></dd></div>
           </dl>
-          <HeroFlow history={history} month={shownMonth} />
           <p className="financial-summary-note">Flux enregistrés sur la période · Ce résultat ne représente pas le solde bancaire.</p>
         </m.div>
         <div className="financial-summary-attention">
           <div className="financial-summary-attention-heading"><h3>Points d’attention</h3><span className="financial-summary-count">{model.attention.length}</span></div>
           {model.attention.length ? <ul className="financial-summary-points">{model.attention.map(renderPoint)}</ul> : <p className="financial-summary-empty">{model.complete ? 'Aucune alerte détectée sur les données disponibles.' : 'Aucune alerte établie à ce stade. Les flux de la période restent incomplets.'}</p>}
           {model.observations.length > 0 && <div className="financial-summary-observations"><h4>Repères</h4><ul className="financial-summary-points">{model.observations.map(renderPoint)}</ul></div>}
+          <HeroFlow history={history} month={shownMonth} surface="paper" />
         </div>
       </div>
       <footer className="financial-summary-footer">

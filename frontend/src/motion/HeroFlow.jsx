@@ -13,7 +13,7 @@ export function HeroAtmosphere() {
   </svg></>
 }
 
-export function HeroFlow({ history = [], month }) {
+export function HeroFlow({ history = [], month, surface = 'dark' }) {
   const series = useMemo(() => {
     const available = history.filter(item => item.month <= month)
     if (!available.length) return []
@@ -27,16 +27,18 @@ export function HeroFlow({ history = [], month }) {
     }).filter(item => item.month >= available[0].month)
   }, [history, month])
   const id = useId().replaceAll(':', ''), colors = readColors()
+  const incomeColor = surface === 'paper' ? colors.GREEN : '#9de0d0'
+  const expenseColor = surface === 'paper' ? colors.ACCENT : '#c7b6ff'
   if (series.filter(row => Number.isFinite(row.income) || Number.isFinite(row.expenses)).length < 2) return null
   return <div className="motion-hero-flow">
-    <div className="motion-hero-flow-head"><span>Flux mensuels · {series.length} mois</span><span className="motion-hero-flow-key"><span><i style={{ background: '#9de0d0' }} />Revenus</span><span><i style={{ background: '#c7b6ff' }} />Dépenses</span></span></div>
+    <div className="motion-hero-flow-head"><span>Flux mensuels · {series.length} mois</span><span className="motion-hero-flow-key"><span><i style={{ background: incomeColor }} />Revenus</span><span><i style={{ background: expenseColor }} />Dépenses</span></span></div>
     <AnimatedChart revision={series} aria-hidden="true">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={series} margin={{ top: 8, bottom: 3, right: 5, left: 5 }}>
-          <defs>{softGradient(`${id}-income`, '#9de0d0', .18, 0)}{softGradient(`${id}-expenses`, '#c7b6ff', .12, 0)}</defs>
+          <defs>{softGradient(`${id}-income`, incomeColor, .18, 0)}{softGradient(`${id}-expenses`, expenseColor, .12, 0)}</defs>
           <Tooltip content={({ payload, ...props }) => <ChartTooltip {...props} payload={payload} label={payload?.[0]?.payload.label} colors={colors} />} />
-          <Area isAnimationActive={false} connectNulls={false} type="linear" dataKey="income" name="Revenus" stroke="#9de0d0" fill={`url(#${id}-income)`} strokeWidth={1.8} dot={{ r: 1.8, strokeWidth: 0, fill: '#9de0d0' }} activeDot={<ChartFocusDot />} />
-          <Area isAnimationActive={false} connectNulls={false} type="linear" dataKey="expenses" name="Dépenses" stroke="#c7b6ff" fill={`url(#${id}-expenses)`} strokeWidth={1.8} dot={{ r: 1.8, strokeWidth: 0, fill: '#c7b6ff' }} activeDot={<ChartFocusDot />} />
+          <Area isAnimationActive={false} connectNulls={false} type="linear" dataKey="income" name="Revenus" stroke={incomeColor} fill={`url(#${id}-income)`} strokeWidth={1.8} dot={{ r: 1.8, strokeWidth: 0, fill: incomeColor }} activeDot={<ChartFocusDot />} />
+          <Area isAnimationActive={false} connectNulls={false} type="linear" dataKey="expenses" name="Dépenses" stroke={expenseColor} fill={`url(#${id}-expenses)`} strokeWidth={1.8} dot={{ r: 1.8, strokeWidth: 0, fill: expenseColor }} activeDot={<ChartFocusDot />} />
         </AreaChart>
       </ResponsiveContainer>
     </AnimatedChart>

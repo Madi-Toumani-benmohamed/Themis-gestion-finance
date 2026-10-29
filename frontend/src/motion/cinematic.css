@@ -1,0 +1,90 @@
+/* One dashboard composition, sharing the application's indigo and surface tokens. */
+.cinematic-dashboard { --dashboard-radius: 18px; }
+.cinematic-header { position: relative; isolation: isolate; overflow: hidden; border-radius: var(--dashboard-radius); padding: 20px 28px 28px; margin-bottom: 22px; background: #202038; color: #f4f3ff; border: 1px solid #c1baff26; }
+.cinematic-scene { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; background: radial-gradient(ellipse at 85% 0%, #6d64b93d, transparent 60%), linear-gradient(120deg,#1c1c32,#292643); }
+.scene-grid { position: absolute; inset: 0; opacity: .13; background-image: linear-gradient(#c7c1ef25 1px,transparent 1px),linear-gradient(90deg,#c7c1ef25 1px,transparent 1px); background-size: 44px 44px; mask-image: linear-gradient(90deg,transparent 35%,#000); }
+.scene-light { position: absolute; inset: -100%; background: linear-gradient(110deg,transparent 43%,#d3caff13 50%,transparent 56%); opacity: 0; }
+.scene-orbit-system { position: absolute; right: 3%; bottom: -28px; width: 320px; height: 250px; color: #c4bbf4; opacity: .65; }
+.scene-orbits { stroke-width: .75; opacity: .5; }
+.scene-crystal { stroke-width: 1; opacity: .75; }
+.scene-stars { opacity: .7; }
+.cinematic-masthead { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+.cinematic-edition { display: inline-flex; align-items: center; gap: 9px; color: #cac5e4; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.cinematic-edition i { width: 6px; height: 6px; border: 1px solid #c8bfff; transform: rotate(45deg); }
+.motion-control { display: inline-flex; align-items: center; gap: 8px; color: #d2cce9; font-size: 11px; }
+.motion-control select { background: #292641; color: #f2efff; border: 1px solid #aaa0d755; border-radius: 7px; font: inherit; min-height: 34px; padding: 5px 8px; max-width: 145px; cursor: pointer; color-scheme: dark; }
+.motion-control select:focus-visible { outline: 2px solid #d4c9ff; outline-offset: 3px; }
+.cinematic-header .dashboard-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 22px 32px; margin: 0; min-width: 0; }
+.cinematic-header .dashboard-heading > div:not(.month-selector) { flex: 1 1 360px; min-width: 0; }
+.cinematic-header .dashboard-heading .eyebrow { color: #cbc6e5; font-size: 10px; margin-bottom: 14px; letter-spacing: .12em; }
+.cinematic-header .dashboard-heading .eyebrow::before { display: none; }
+.cinematic-header .dashboard-heading h1 { color: #f8f6ff; font-size: clamp(32px,3.8vw,50px); font-weight: 450; line-height: 1.15; letter-spacing: -.05em; }
+.cinematic-header .dashboard-heading h1 em { color: #d2c7ff; }
+.cinematic-header .dashboard-intro { color: #cac5df; margin-top: 12px; font-size: 12px; line-height: 1.7; }
+.cinematic-header .month-selector { flex: 0 1 auto; max-width: 100%; border: 1px solid #b5a8e74a; background: #24213c; box-shadow: 0 3px 15px #12102433; }
+.cinematic-header .month-selector :is(button,select) { color: #f0ecff; background: transparent; }
+.cinematic-header .month-selector option { color: #f0ecff; background: #24213c; }
+.cinematic-header .month-selector button:disabled { opacity: .4; }
+.cinematic-header .month-selector .month-now-btn.active { color: #fff; background: #6358bb; }
+.cinematic-header .month-selector :focus-visible { outline: 2px solid #d4c9ff; outline-offset: -2px; }
+.cinematic-summary { border-radius: var(--dashboard-radius); margin-bottom: 20px; }
+.cinematic-dashboard .financial-summary { margin: 0; border-radius: var(--dashboard-radius); box-shadow: 0 4px 24px -18px #24203d35; }
+.cinematic-dashboard .financial-summary-result { background: radial-gradient(ellipse at 100% 0%,#8e80ff29,transparent 70%),linear-gradient(130deg,#232039,#35304f); }
+.cinematic-dashboard .financial-summary-amount { font-size: clamp(34px,3.7vw,56px); }
+.cinematic-dashboard .kpi-row { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); background: transparent; gap: 14px; border: 0; border-radius: 0; box-shadow: none; overflow: visible; margin-bottom: 20px; }
+.cinematic-dashboard .kpi-row:has(.kpi:nth-child(4)) { grid-template-columns: repeat(4,minmax(0,1fr)); }
+.cinematic-dashboard .kpi-row .kpi { min-width: 0; padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.cinematic-dashboard .kpi-label { line-height: 1.6; letter-spacing: .06em; font-size: 10px; }
+.cinematic-dashboard .kpi-value { font-size: clamp(23px,2.35vw,32px); overflow-wrap: anywhere; }
+.cinematic-dashboard .kpi-period-badge { display: block; line-height: 1.5; }
+.cinematic-dashboard .journal { border: 1px solid var(--line); box-shadow: none; border-radius: var(--dashboard-radius); }
+.cinematic-dashboard .widget { min-width: 0; border: 1px solid var(--line); background: var(--paper); border-radius: var(--dashboard-radius); box-shadow: 0 5px 22px -18px #24203d33; }
+.cinematic-dashboard .widget-head { border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 18px; }
+.cinematic-dashboard .widget-head h3 { display: flex; align-items: center; gap: 9px; }
+.cinematic-dashboard .widget-head h3::before { content: ''; flex-shrink: 0; width: 5px; height: 5px; border-radius: 2px; background: var(--accent); opacity: .65; }
+.cinematic-dashboard .widget-flux { border-top: 2px solid var(--accent); }
+.cinematic-dashboard .dashboard-section-title .eyebrow { letter-spacing: .1em; font-size: 10px; }
+.cinematic-dashboard .dash-toolbar { margin-block: 28px 18px; }
+.cinematic-dashboard .motion-surface { position: relative; min-width: 0; }
+.cinematic-dashboard .widget.motion-surface { transition: border-color 200ms,box-shadow 200ms; }
+.cinematic-dashboard .widget.motion-surface:hover { border-color: color-mix(in srgb,var(--accent) 35%,var(--line)); box-shadow: 0 10px 30px -24px #54459b60; }
+.cinematic-dashboard .motion-surface:focus-within { border-color: var(--accent); }
+/* Do not let old chart wipe effects hide axes, legends or controls. */
+.cinematic-dashboard :is(.widget,.kpi,.journal,.recharts-wrapper) { animation: none; clip-path: none; }
+[data-motion="full"] .cinematic-dashboard[data-entrance="first"] .scene-orbit-system { animation: scene-assemble 1700ms var(--motion-ease) both; }
+[data-motion="full"] .cinematic-dashboard[data-entrance="first"] .scene-light { animation: scene-light-pass 1800ms var(--motion-ease) both; }
+@keyframes scene-assemble { from { opacity: .05; transform: translate(26px,12px) rotate(-12deg) scale(.88); } to { opacity: .65; transform: none; } }
+@keyframes scene-light-pass { from { opacity: 0; transform: translateX(-15%); } 45% { opacity: 1; } to { opacity: 0; transform: translateX(15%); } }
+/* The same preference also stops Motion, SVG/WAAPI and native navigation. */
+:is([data-motion="reduced"],[data-motion="off"]) .app *,
+:is([data-motion="reduced"],[data-motion="off"]) .app *::before,
+:is([data-motion="reduced"],[data-motion="off"]) .app *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+:is([data-motion="reduced"],[data-motion="off"]) .motion-reveal { opacity: 1 !important; transform: none !important; }
+:is([data-motion="reduced"],[data-motion="off"])::view-transition-group(*),
+:is([data-motion="reduced"],[data-motion="off"])::view-transition-old(*),
+:is([data-motion="reduced"],[data-motion="off"])::view-transition-new(*) { animation: none !important; }
+@media (max-width: 1100px) {
+  .cinematic-dashboard .kpi-row:has(.kpi:nth-child(4)) { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .cinematic-dashboard .kpi-row .kpi { padding: 18px 16px; }
+}
+@media (max-width: 640px) {
+  .cinematic-header { padding: 18px; border-radius: 14px; }
+  .cinematic-masthead { gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .cinematic-edition { font-size: 9px; letter-spacing: .08em; }
+  .motion-control-label { display: none; }
+  .motion-control select { max-width: 125px; }
+  .scene-orbit-system { right: -100px; top: 30px; bottom: auto; opacity: .35; }
+  .cinematic-header .dashboard-heading { gap: 20px; }
+  .cinematic-header .dashboard-heading > div:not(.month-selector) { flex-basis: 100%; }
+  .cinematic-header .dashboard-heading h1 { font-size: clamp(30px,8vw,40px); }
+  .cinematic-header .month-selector { width: 100%; justify-content: space-between; }
+  .cinematic-dashboard .kpi-row { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+  .cinematic-dashboard .kpi-row .kpi:last-child:nth-child(3) { grid-column: 1 / -1; }
+  .cinematic-dashboard .kpi-value { font-size: 23px; }
+  .cinematic-dashboard .financial-summary-amount { font-size: clamp(27px,7.5vw,40px); }
+}
+@media (prefers-reduced-motion: reduce) { .cinematic-dashboard *, .cinematic-dashboard *::before, .cinematic-dashboard *::after { animation: none !important; transition: none !important; } }
+@media print, (forced-colors: active) { .cinematic-scene { display: none; } .cinematic-header { background: Canvas; color: CanvasText; border-color: CanvasText; } .cinematic-header :is(h1,em,p,span,select,button) { color: CanvasText !important; background: Canvas !important; } }
+.cinematic-dashboard .financial-summary-attention { display: flex; flex-direction: column; }
+.cinematic-dashboard .financial-summary-attention .motion-hero-flow { padding-top: 22px; margin-top: auto; }
+.cinematic-dashboard .financial-summary-attention :is(.motion-hero-flow-head,.motion-hero-flow-period) { color: var(--muted); }

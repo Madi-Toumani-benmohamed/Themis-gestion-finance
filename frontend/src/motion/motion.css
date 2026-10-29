@@ -6,7 +6,7 @@
   --motion-scene: 360ms;
 }
 .motion-page { view-transition-name: themis-content; animation: motion-page-in var(--motion-scene) var(--motion-ease) both; }
-html[data-motion-navigation] .motion-page { animation: none; }
+.motion-page[data-page-entrance="native"] { animation: none; }
 ::view-transition { pointer-events: none; }
 @keyframes motion-page-in { from { opacity: .3; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }

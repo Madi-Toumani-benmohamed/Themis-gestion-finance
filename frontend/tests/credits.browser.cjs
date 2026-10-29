@@ -215,8 +215,7 @@ async function main() {
         .click()
       await root.getByRole('heading', { name: 'Mes engagements' }).waitFor()
     }
-    async function ready() {
-      await root.locator('.obligations-banner').waitFor()
+    async function settleMotion() {
       await page.evaluate(() =>
         Promise.all(
           document
@@ -228,7 +227,14 @@ async function main() {
         ),
       )
     }
+    async function ready() {
+      await root.locator('.obligations-banner').waitFor()
+      await settleMotion()
+    }
     async function axe() {
+      // Dialogs and history rows animate independently of page readiness.
+      // Measure their final colors, not a transient ancestor opacity.
+      await settleMotion()
       const result = await new AxeBuilder({ page })
         .include('main')
         .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])

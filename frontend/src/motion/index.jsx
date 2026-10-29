@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useRef } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { LazyMotion, domMax, MotionConfig, m, LayoutGroup, useAnimationControls, useInView, useIsPresent } from 'motion/react'
-import { motionReduced, useMotionReduced } from './preference'
+import { motionReduced, useMotionReduced, subscribeMotion } from './preference'
+import { MotionSessionProvider } from './Motion'
 import { ease, revealDelay, spring, timing } from './tokens'
 
 export { m, AnimatePresence } from 'motion/react'
@@ -10,21 +11,20 @@ export { timing, ease, spring } from './tokens'
 
 export function MotionProvider({ children }) {
   const reduced = useMotionReduced()
-  return <LazyMotion features={domMax} strict><MotionConfig reducedMotion={reduced ? 'always' : 'never'} transition={{ duration: reduced ? 0 : timing.feedback, ease }}>{children}</MotionConfig></LazyMotion>
+  return <MotionSessionProvider><LazyMotion features={domMax} strict><MotionConfig reducedMotion={reduced ? 'always' : 'never'} transition={{ duration: reduced ? 0 : timing.feedback, ease }}>{children}</MotionConfig></LazyMotion></MotionSessionProvider>
 }
 
 // Snapshot transitions keep one live page, one focus tree and one set of effects.
 export function usePageNavigation() {
   const generation = useRef(0), pending = useRef(null)
   useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const stop = () => { if (media.matches) pending.current?.skipTransition() }
-    media.addEventListener('change', stop)
+    const stop = () => { if (motionReduced()) pending.current?.skipTransition() }
+    const unsubscribe = subscribeMotion(stop)
     return () => {
       generation.current++
       pending.current?.skipTransition()
       delete document.documentElement.dataset.motionNavigation
-      media.removeEventListener('change', stop)
+      unsubscribe()
     }
   }, [])
   return useCallback(update => {
@@ -51,7 +51,10 @@ export function usePageNavigation() {
 }
 
 export function PageTransition({ children, className = '', page }) {
-  return <main className={`${className} motion-page`} data-page={page}>{children}</main>
+  // Remember the entrance chosen at mount: clearing the document's transition
+  // flag must not start a second CSS entrance after the native one finishes.
+  const [nativeEntrance] = useState(() => document.documentElement.dataset.motionNavigation === 'active')
+  return <main className={`${className} motion-page`} data-page={page} data-page-entrance={nativeEntrance ? 'native' : 'css'}>{children}</main>
 }
 
 export function NavigationMotion({ children }) {
