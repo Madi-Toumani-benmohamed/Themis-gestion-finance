@@ -33,7 +33,7 @@
 .background-paths--ambient.site-background { position: fixed; z-index: 0; }
 [data-theme="dark"] .background-paths--ambient.site-background { color: #c0b8ff; }
 .background-paths--ambient.site-background { color: #6655ae; }
-.background-paths__stroke { animation: background-path-flow var(--path-duration, 12s) linear var(--path-delay, 0s) infinite; }
+.background-paths__stroke { animation: background-path-flow var(--path-duration, 2.5s) cubic-bezier(.22,1,.36,1) var(--path-delay, 0s) 1 both; }
 .background-paths__layer[data-static="true"] .background-paths__stroke { animation: none; stroke-dasharray: none; }
 @keyframes background-path-flow { to { stroke-dashoffset: -1; } }
 
