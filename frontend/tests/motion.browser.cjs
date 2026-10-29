@@ -5,8 +5,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const baseline = process.env.THEMIS_MOTION_BASELINE === '1'
 const output = process.env.THEMIS_MOTION_OUTPUT || '/tmp/themis-motion'
-const monthly = Array.from({ length: 18 }, (_, i) => ({ month: new Date(Date.UTC(2025, 4 + i, 1)).toISOString().slice(0, 7), income: 3249.47, expenses: i === 17 ? 2367.18 : 2200 + (i % 5) * 87.14, is_current: i === 17, status: i === 17 ? 'current' : 'complete', days_observed: i === 17 ? 21 : 30, days_in_month: 31 }))
-const by_category = monthly.flatMap(m => [{ month: m.month, category: 'Logement', color: '#7867c6', total: 1100 }, { month: m.month, category: 'Alimentation', color: '#408b7c', total: 400 }, { month: m.month, category: 'Autres dépenses', color: '#ba874b', total: m.expenses - 1500 }])
+const monthly = Array.from({ length: 18 }, (_, i) => ({ month: new Date(Date.UTC(2025, 4 + i, 1)).toISOString().slice(0, 7), income: 3249.47, expenses: i === 17 ? 2367.18 : (220000 + (i % 5) * 8714) / 100, is_current: i === 17, status: i === 17 ? 'current' : 'complete', days_observed: i === 17 ? 21 : 30, days_in_month: 31 }))
+const by_category = monthly.flatMap(m => [{ month: m.month, category: 'Logement', color: '#7867c6', total: 1100 }, { month: m.month, category: 'Alimentation', color: '#408b7c', total: 400 }, { month: m.month, category: 'Autres dépenses', color: '#ba874b', total: +(m.expenses - 1500).toFixed(2) }])
 const summary = month => ({ monthly: monthly.filter(m => !month || m.month <= month), by_category, uncategorized: 0 })
 const hero = month => {
   const row = monthly.find(m => m.month === month)
@@ -15,7 +15,10 @@ const hero = month => {
 const simulation = { available: true, income: 3249.47, observed_income: 3249.47, base_spend: 2367.18, current_net: 882.29, reference_complete: false, reference_periods: [{ month: '2026-09', completeness: 'unknown' }], categories: [{ category: 'Logement', before: 1100 }, { category: 'Autres dépenses', before: 1267.18 }] }
 async function settle(page) {
   await page.bringToFront()
-  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise(requestAnimationFrame)
+  })
   try {
     await expect.poll(() => page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming().endTime)).length), { timeout: 10000 }).toBe(0)
   } catch (error) {
@@ -150,11 +153,21 @@ async function main() {
       const expectedWarnings = warnings.splice(warningStart)
       assert.ok(expectedWarnings.every(w => w.includes('503 (Service Unavailable)')), 'only the requested synthetic network error is expected')
     }
+    await page.evaluate(() => {
+      window.__pageEntrances = []
+      document.addEventListener('animationstart', event => {
+        if (event.target.matches('main') && event.animationName === 'motion-page-in') window.__pageEntrances.push(event.target.dataset.page)
+      })
+    })
     metrics.navigation = await measure(page, async () => {
       await page.getByRole('tab', { name: 'Simulation', exact: true }).click()
       await expect(page.locator('.scenario-verdict strong')).toContainText('882,29')
     })
     await settle(page)
+    if (!baseline && await page.evaluate(() => !!document.startViewTransition)) {
+      assert.deepEqual(await page.evaluate(() => window.__pageEntrances), [], 'native navigation must not replay the CSS page entrance')
+      await expect(page.locator('main')).toHaveCSS('transform', 'none')
+    }
     await page.screenshot({ path: `${output}/simulation-light.png` })
     if (!baseline) {
       await page.locator('.scenario-category summary').first().click()
@@ -209,6 +222,8 @@ async function main() {
       await page.evaluate(() => window.scrollTo(0, 0))
       await settle(page)
       await page.screenshot({ path: `${output}/dashboard-mobile.png`, fullPage: true })
+      // Full-page capture can reveal more cards and start their finite entrances.
+      await settle(page)
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no mobile page overflow')
       metrics.idle_running_animations = await page.evaluate(() => document.getAnimations().filter(a => a.playState === 'running').length)
       assert.equal(metrics.idle_running_animations, 0, 'no perpetual motion after settling')

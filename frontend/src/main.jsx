@@ -11,6 +11,7 @@ import './styles.css'
 import './refonte.css'
 import './cockpit.css'
 import './motion/motion.css'
+import './motion/cinematic.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -115,6 +115,14 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - `useModal.js` conserve le dialogue natif et la restauration du focus ; une copie décorative inerte termine la sortie après fermeture immédiate de l’état React, pour préserver les réouvertures rapides des transactions/relevés.
 - Référence : `docs/MOTION_DESIGN.md`. Validation : `tests/motion.browser.cjs` (API synthétique, montants, périodes, navigation rapide, mouvement réduit, accessibilité, performances) et scénarios navigateur/E2E existants.
 
+### Dashboard cinématique (reprise PR #39)
+- `motion/preference.js` unifie le choix persistant et la priorité système pour Motion, WAAPI, navigation et dialogues ; `Motion.jsx` conserve les révélations terminées en session.
+- `PageTransition` mémorise le mode d'entrée de chaque page ; la fin d'une transition native ne relance plus l'entrée CSS ni le décalage vertical de Simulation. Régression couverte par `motion.browser.cjs`.
+- `CinematicDashboard.jsx` / `cinematic.css` portent un bandeau adaptatif et un décor SVG à animation finie. Le contenu et les contrôles ne dépendent pas du décor.
+- `components/dashboardModel.mjs` partage la sélection du mois, le net exact et les comparaisons de périodes complètes entre les KPI du dashboard et le widget configurable.
+- `Dashboard.jsx` sérialise les sauvegardes de disposition. `widgets/index.jsx` garde les gradients propres à chaque instance et la légende des catégories accessible.
+- Validation : `dashboardModel.test.mjs`, `cinematic.browser.cjs`, `motion.browser.cjs`, parcours métier et E2E. Voir `docs/CINEMATIC_DASHBOARD.md` et `docs/CINEMATIC_VALIDATION.md`.
+
 ### Pages (`frontend/src/pages/`)
 | Page | Description |
 |------|-------------|
