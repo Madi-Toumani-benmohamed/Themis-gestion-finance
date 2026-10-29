@@ -143,6 +143,9 @@ async function main() {
     }
     await expect(page.locator('.cinematic-dashboard')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-motion', 'full')
+    const hero = page.locator('.cinematic-header')
+    await hero.hover({ position: { x: 50, y: 80 } })
+    await expect.poll(() => hero.locator('.scene-orbit-system').evaluate(node => node.parentElement.parentElement.style.getPropertyValue('--scene-shift-x'))).not.toBe('0px')
     const frameSamplePromise = page.evaluate(() => new Promise(resolve => {
       const deltas = []
       let last
@@ -166,6 +169,11 @@ async function main() {
     await expect.poll(() => page.evaluate(() => window.__drawnPaths.filter(path => path.length > 0 && path.end === 0).length)).toBeGreaterThan(0)
     await page.locator('.widget-kpi').scrollIntoViewIfNeeded()
     await expect(page.locator('.widget-kpi .value').first()).toHaveText(/3[\s\u202f]456,78/)
+    const incomeSeries = page.locator('.widget-flux .cinematic-chart-legend').getByRole('button', { name: 'Revenus', exact: true })
+    await incomeSeries.click()
+    await expect(incomeSeries).toHaveAttribute('aria-pressed', 'false')
+    await incomeSeries.click()
+    await expect(incomeSeries).toHaveAttribute('aria-pressed', 'true')
     await screenshot(page, 'dashboard-cinematic-light')
     await page.locator('.dashboard-heading').scrollIntoViewIfNeeded()
     if (artifactDir) await page.screenshot({ path: path.join(artifactDir, 'dashboard-cinematic-light-viewport.png') })
@@ -213,7 +221,8 @@ async function main() {
 
     await page.getByRole('button', { name: 'Mois précédent', exact: true }).click()
     await expect(page.locator('.financial-summary-amount')).toHaveText(/400,01/)
-    await expect(page.locator('.kpi-value').first()).toHaveText(/3[\s\u202f]000,11/)
+    await expect(page.locator('.kpi-value').first()).toHaveText('—')
+    await expect(page.locator('.kpi-label').first()).toHaveText('Variation des revenus')
     await expect(page.locator('.widget-kpi .value').first()).toHaveText(/3[\s\u202f]000,11/)
     await expect(page.locator('.financial-summary-context')).toContainText('Couverture insuffisante')
     await expect(page.locator('.financial-summary-status')).toContainText('Données incomplètes')
@@ -235,7 +244,7 @@ async function main() {
     await staleResponses
     await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     await expect(page.locator('.financial-summary-amount')).toHaveText(/1[\s\u202f]234,56/)
-    await expect(page.locator('.kpi-value').first()).toHaveText(/3[\s\u202f]456,78/)
+    await expect(page.locator('.kpi-value').first()).toHaveText('—')
     assert.equal(await page.locator('.month-selector-select').inputValue(), month)
 
     const allowedMoney = new Set(monthly.flatMap(row => [row.income, row.expenses, +(row.income - row.expenses).toFixed(2)]).map(money))

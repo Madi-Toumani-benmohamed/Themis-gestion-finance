@@ -123,6 +123,13 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - `Dashboard.jsx` sérialise les sauvegardes de disposition. `widgets/index.jsx` garde les gradients propres à chaque instance et la légende des catégories accessible.
 - Validation : `dashboardModel.test.mjs`, `cinematic.browser.cjs`, `motion.browser.cjs`, parcours métier et E2E. Voir `docs/CINEMATIC_DASHBOARD.md` et `docs/CINEMATIC_VALIDATION.md`.
 
+### Cinematic Experience 2.0
+- `Dashboard.jsx` présente des KPI non redondants (variations comparables, taux d’épargne existant et reste à vivre) et différencie panneaux Hero/Focus/Standard/Quiet sans toucher aux calculs métier ou aux préférences personnalisées.
+- `widgets/chartCalendar.mjs` complète uniquement la géométrie des courbes par des mois `null` pour ne pas relier deux observations séparées par une absence. `widgets/index.jsx` expose la légende de flux au clavier, un tableau de valeurs accessible et des moyennes qui gardent le dénominateur des périodes observées ; le cumul interrompt sa courbe au même endroit et marque sa dernière valeur.
+- `motion/AnimatedChart.jsx` chorégraphie grille/axes, courbes décalées, aires et légende à l’entrée ; une nouvelle révision utilise un fondu bref de sa géométrie exacte, sans morphing de valeurs ni répétition du dessin au zoom.
+- `motion/CinematicDashboard.jsx` et `motion/cinematic.css` ajoutent la parallaxe discrète de l’orbite au pointeur souris et une grille desktop asymétrique. Le mobile garde les décorations et les tables SR hors du défilement horizontal (`motion.css`).
+- Audits/décisions : `docs/CINEMATIC_DESIGN_AUDIT.md` et `docs/CINEMATIC_DESIGN_SYSTEM.md`. Vérification ciblée : `npm run test:cinematic`, `npm run test:motion` et `node --test src/widgets/chartCalendar.test.mjs src/components/dashboardModel.test.mjs`.
+
 ### Pages (`frontend/src/pages/`)
 | Page | Description |
 |------|-------------|
@@ -603,6 +610,16 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `pages/TagAnalysis.jsx` : durées 6/12/24/36/60/120 mois, ou deux mois personnalisés à valider ; sélection des tags conservée. La durée est propre à l’historique, distincte du croisement catégorie/tag mensuel.
 - `api/analytics.go` : fenêtre `months` jusqu’à 600, dates strictes et calendrier complet pour les séries bornées, trous `null` sans ajout de zéros. Agrégations SQL et propriété inchangées ; aucun nouvel endpoint ou schéma.
 - `tagHistoryModel.mjs` et tests, `api/tag_history_test.go`, parcours navigateur Analyse étendu : précision, bornes, données absentes, noms spéciaux, dix ans d’historique, zoom clavier et accessibilité.
+
+### Intelligence financière v2 — audit et contrat commun (2026-10-29)
+
+- `docs/INTELLIGENCE_V2_AUDIT.md` cartographie les détecteurs, critères, preuves/couverture, périodes comparables, transferts/remboursements, flottants legacy, mémoire, endpoints et absence de registry/jobs. Il prescrit la réutilisation des rapports existants.
+- `backend/internal/intelligence/` introduit le modèle Discovery commun. L’identité stable du phénomène (`ID`) est distincte de `ObservationID`; les métriques sont typées et l’évidence référence des transactions/périodes sans copier les libellés sensibles.
+- `Score` applique les poids configurables proposés (30/25/20/15/10), reste séparé de la confiance et plafonne les découvertes sans preuve ou couverture complète à 49. `Prioritize` retire les éléments masqués, déduplique et borne la liste avec tri déterministe.
+- `Registry.Record` écrit identité et observations immuables dans la migration additive 028, avec empreintes stables, limites explicites et vérification propriétaire des IDs de transaction. `Feed`/`Get`/`History` filtrent systématiquement par owner. `GET /api/intel/feed` (3 par défaut, 50 maximum) et `GET /api/intel/discoveries/{id}` ne recalculent rien au chargement.
+- `POST /api/intel/recompute` réutilise la revue de récurrences et les signaux existants (price creep, services similaires, dérive marchand, hausse taguée, motif saisonnier). Les montants sont adaptés depuis les centimes exacts; couverture, limites et IDs sources sont conservés. Calcul manuel borné à 500 découvertes et sérialisé par advisory lock propriétaire; les signaux absents sont résolus et les masqués restent masqués.
+- `POST /api/intel/discoveries/{id}/feedback` garde l’historique propriétaire des sept actions. `hide` masque; `unhide` attend un recalcul qui confirme à nouveau l’existence du phénomène. Les pondérations personnelles de feedback restent au Lot 3.
+- Tests unitaires et intégration PostgreSQL couvrent le score, les adaptateurs, l’idempotence, versions, historique, feedback, réconciliation, lock et isolation. La file/jobs après mutations et l’intégration Dashboard restent les étapes à venir pour l’exécution réellement proactive.
 
 
 ## Consolidation Crédits & taxes — octobre 2026
