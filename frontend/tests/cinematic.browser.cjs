@@ -29,6 +29,8 @@ let layout = [
   { id: 'test-categories', type: 'categories', size: 'half', config: {} },
   { id: 'test-trend', type: 'trend', size: 'half', config: { category: 'Logement TEST', months: 12 } },
 ]
+let omittedMonth = null, invalidCategories = false, failSummary = false
+let layoutGate = null, releaseLayout, layoutWrites = 0
 let holdPrevious = false
 let releasePrevious
 let previousRequested
@@ -39,7 +41,8 @@ async function mockAPI(context) {
     const request = route.request()
     const url = new URL(request.url())
     const selected = url.searchParams.get('month') || month
-    const row = monthly.find(item => item.month === selected) || monthly.at(-1)
+    const row = monthly.find(item => item.month === selected)
+    if (url.pathname === '/api/summary' && failSummary && url.searchParams.has('month')) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Indicateurs TEST indisponibles' }) })
     if (holdPrevious && url.searchParams.get('month') === previous && ['/api/summary', '/api/hero', '/api/journal', '/api/remaining'].includes(url.pathname)) {
       previousRequested?.()
       await previousGate
@@ -50,8 +53,10 @@ async function mockAPI(context) {
       case '/api/auth/me': body = { id: 1, username: 'CINEMATIC TEST', role: 'user' }; break
       case '/api/health': body = { status: 'ok', ai_enabled: false, ai_provider: 'none' }; break
       case '/api/accounts': body = [{ id: 1, name: 'COMPTE SYNTHETIQUE', kind: 'courant', balance: null }]; break
-      case '/api/summary': body = { monthly: monthly.filter(item => item.month <= selected), by_category: categories, uncategorized: 0 }; break
-      case '/api/hero': body = {
+      case '/api/summary': body = { monthly: monthly.filter(item => item.month <= selected && item.month !== omittedMonth), by_category: invalidCategories ? categories.map(item => ({ ...item, total: 1.001 })) : categories, uncategorized: 0 }; break
+      case '/api/hero':
+        if (!row || selected === omittedMonth) { body = { available: false, month: selected }; break }
+        body = {
         available: true, month: row.month, period: { is_current: row.is_current }, period_complete: false,
         income: row.income, expenses: row.expenses, net: +(row.income - row.expenses).toFixed(2), tone: 'neutral',
         headline: 'Les flux disponibles restent provisoires — TEST.',
@@ -61,7 +66,11 @@ async function mockAPI(context) {
       case '/api/remaining': body = { available: false }; break
       case '/api/journal': body = { events: [{ title: 'Relevé synthétique reçu', detail: 'Jeu de données de test uniquement.', tone: 'neutral', importance: 65 }] }; break
       case '/api/settings/dashboard':
-        if (request.method() === 'PUT') layout = request.postDataJSON()
+        if (request.method() === 'PUT') {
+          layoutWrites++
+          if (layoutGate) await layoutGate
+          layout = request.postDataJSON()
+        }
         body = { value: layout }; break
       case '/api/categories':
       case '/api/domains': body = [{ id: 1, name: 'Logement TEST', color: '#6d65d9' }]; break
@@ -77,6 +86,8 @@ async function mockAPI(context) {
 async function screenshot(page, name) {
   if (!artifactDir) return
   fs.mkdirSync(artifactDir, { recursive: true })
+  await page.evaluate(() => document.fonts.ready)
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
   await page.screenshot({ path: path.join(artifactDir, name + '.png'), fullPage: true })
 }
 
@@ -91,6 +102,16 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, locale: 'fr-FR', reducedMotion: 'no-preference' })
     await mockAPI(context)
     await context.addInitScript(() => {
+      Object.defineProperty(navigator, 'hardwareConcurrency', { configurable: true, get: () => 4 })
+      window.__drawnPaths = []
+      const animate = Element.prototype.animate
+      Element.prototype.animate = function (frames, options) {
+        const animation = animate.call(this, frames, options)
+        if (this.matches('[data-draw], .recharts-line-curve, .recharts-area-curve')) {
+          animation.finished.then(() => window.__drawnPaths.push({ className: this.getAttribute('class'), length: frames[0]?.strokeDashoffset, end: frames.at(-1)?.strokeDashoffset })).catch(() => {})
+        }
+        return animation
+      }
       window.__displayedMoney = []
       // Record every committed amount, including short-lived intermediate values.
       new MutationObserver(() => {
@@ -113,7 +134,7 @@ async function main() {
       await context.close()
       return
     }
-    await expect(page.locator('.cinematic-dashboard')).toHaveAttribute('data-entrance', 'first')
+    await expect(page.locator('.cinematic-dashboard')).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-motion', 'full')
     const frameSamplePromise = page.evaluate(() => new Promise(resolve => {
       const deltas = []
@@ -135,6 +156,7 @@ async function main() {
     await expect(page.locator('.financial-summary-context')).toContainText('Données provisoires')
     assert.ok(await page.locator('.motion-surface').count(), 'Reusable depth surfaces must be present')
     const frameSample = await frameSamplePromise
+    await expect.poll(() => page.evaluate(() => window.__drawnPaths.filter(path => path.length > 0 && path.end === 0).length)).toBeGreaterThan(0)
     await page.locator('.widget-kpi').scrollIntoViewIfNeeded()
     await expect(page.locator('.widget-kpi .value').first()).toHaveText(/3[\s\u202f]456,78/)
     await screenshot(page, 'dashboard-cinematic-light')
@@ -152,6 +174,19 @@ async function main() {
     await page.keyboard.press('Enter')
     await expect(page.getByText('Ajouter un widget :', { exact: true })).toBeVisible()
     const resizeFlux = page.locator('.widget-flux').getByTitle('Demi / pleine largeur', { exact: true })
+    layoutGate = new Promise(resolve => { releaseLayout = resolve })
+    const writesBefore = layoutWrites
+    await resizeFlux.click()
+    await expect.poll(() => layoutWrites).toBe(writesBefore + 1)
+    await expect(page.locator('.widget-flux')).toHaveClass(/\bhalf\b/)
+    await resizeFlux.click()
+    await expect(page.locator('.widget-flux')).toHaveClass(/\bfull\b/)
+    assert.equal(layoutWrites, writesBefore + 1, 'Concurrent layout writes must be serialized')
+    layoutGate = null
+    releaseLayout()
+    await expect.poll(() => layoutWrites).toBe(writesBefore + 2)
+    await expect(page.getByRole('status').filter({ hasText: 'Disposition enregistrée' })).toBeVisible()
+    assert.equal(layout.find(widget => widget.id === 'test-flux').size, 'full')
     await resizeFlux.click()
     await expect(page.locator('.widget-flux')).toHaveClass(/\bhalf\b/)
     await expect(page.getByRole('status').filter({ hasText: 'Disposition enregistrée' })).toBeVisible()
@@ -198,6 +233,28 @@ async function main() {
     const recorded = await page.evaluate(() => window.__displayedMoney)
     assert.ok(recorded.length > 0, 'Amount observer must actually record rendered values')
     assert.deepEqual([...new Set(recorded.map(normalize))].filter(value => !allowedMoney.has(value)), [], 'Financial figures must never show interpolated amounts')
+
+    // Missing or invalid data must not borrow another month's figures or crash the page.
+    omittedMonth = month
+    await page.reload()
+    await expect(page.getByText('Aucun indicateur observé pour cette période.', { exact: true })).toBeVisible()
+    await expect(page.locator('.financial-summary-amount')).toHaveCount(0)
+    await expect(page.locator('.kpi-row')).toHaveCount(0)
+    omittedMonth = null
+    invalidCategories = true
+    await page.reload()
+    await expect(page.getByRole('alert').filter({ hasText: 'Répartition indisponible' })).toBeVisible()
+    await expect(page.locator('.financial-summary-amount')).toContainText('234,56')
+    invalidCategories = false
+    failSummary = true
+    await page.reload()
+    await expect(page.getByRole('alert').filter({ hasText: 'Indicateurs indisponibles' })).toBeVisible()
+    failSummary = false
+    await page.reload()
+    await expect(page.locator('.financial-summary-amount')).toContainText('234,56')
+    await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
+    await page.locator('.widget-kpi').scrollIntoViewIfNeeded()
+    await expect.poll(() => page.locator('.widget-kpi').evaluate(node => node.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length)).toBe(0)
 
     // Switching tabs preserves focus and does not replay the full introduction.
     const accounts = page.getByRole('tab', { name: 'Comptes', exact: true })
@@ -258,6 +315,19 @@ async function main() {
     const mobileResults = await new AxeBuilder({ page: mobile }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
     if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'axe-mobile.json'), JSON.stringify(mobileResults, null, 2))
     assert.deepEqual(mobileResults.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.map(node => node.target) })), [], 'Mobile dashboard must pass targeted Axe checks')
+    for (const width of [320, 768, 1024]) {
+      await mobile.setViewportSize({ width, height: 900 })
+      await noHorizontalOverflow(mobile)
+      assert.ok(await mobile.locator('.cinematic-header').evaluate(node => {
+        const bounds = node.getBoundingClientRect()
+        return [...node.querySelectorAll('h1,.month-selector')].every(child => { const box = child.getBoundingClientRect(); return box.top >= bounds.top && box.bottom <= bounds.bottom })
+      }), 'Header content must remain on its background at every width')
+    }
+    // An intentionally empty layout must survive reloads instead of restoring defaults.
+    layout = []
+    await page.reload()
+    await expect(page.locator('.financial-summary-amount')).toContainText('234,56')
+    await expect(page.locator('.widget-grid > .widget')).toHaveCount(0)
     assert.deepEqual(errors, [], 'No uncaught browser errors')
     console.log('PASS cinematic dashboard: exact amounts, month, navigation, preferences, keyboard, mobile and Axe.')
     await mobileContext.close()

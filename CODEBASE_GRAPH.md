@@ -106,19 +106,22 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 
 ## Frontend — Structure
 
-### Prototype cinématique du Dashboard
+### Mouvement et interactions (`frontend/src/motion/`)
+- `index.jsx` centralise le provider Motion, les transitions de navigation (View Transitions avec repli), les révélations au scroll, cartes, onglets, panneaux et jauges. `PresencePanel` rend les éléments sortants inertes.
+- `tokens.js` définit les rythmes et springs ; `preference.js` suit le mouvement réduit dès le premier rendu et à chaud ; `motion.css` harmonise les interactions après les feuilles existantes.
+- `AnimatedNumber.jsx` anime les caractères déjà formatés, en gardant le montant exact dans le texte accessible/copiable. Les valeurs absentes restent absentes.
+- `AnimatedChart.jsx` révèle la géométrie Recharts avec Web Animations, sans changer les séries ni remonter le graphique lors du zoom. `HeroFlow.jsx` présente les flux disponibles sur douze mois calendaires, avec ruptures pour les mois absents et tableau accessible.
+- `FinancialSummary` et les KPI identifient la période des valeurs conservées pendant le chargement et ignorent les réponses obsolètes. Un mois absent ne reprend pas les KPI du mois précédent.
+- `useModal.js` conserve le dialogue natif et la restauration du focus ; une copie décorative inerte termine la sortie après fermeture immédiate de l’état React, pour préserver les réouvertures rapides des transactions/relevés.
+- Référence : `docs/MOTION_DESIGN.md`. Validation : `tests/motion.browser.cjs` (API synthétique, montants, périodes, navigation rapide, mouvement réduit, accessibilité, performances) et scénarios navigateur/E2E existants.
 
-- `motion/Motion.jsx` : préférences centralisées (`auto/full/reduced/off`), priorité
-  de `prefers-reduced-motion`, surfaces CSS 3D réutilisables et transition du `main`.
-- `motion/CinematicDashboard.jsx`, `motion/cinematic.css` : scène décorative SVG
-  originale, entrée unique par ouverture, parallaxe limité et mode statique.
-- `widgets/index.jsx::ChartStage`, `widgets/cinematicCharts.css` : tracés exacts
-  révélés une fois, aucun compteur de montants interpolés, donut plan avec relief
-  décoratif désactivable et légende clavier ; aucun calcul financier modifié.
-- `tests/cinematic.browser.cjs` : mocks synthétiques, mois hors ordre, montants,
-  focus/navigation, préférences live, tactile, Axe et captures avant/après.
-- Architecture, audit et suites proposées : `docs/CINEMATIC_DASHBOARD.md` ;
-  résultats et limites : `docs/CINEMATIC_VALIDATION.md`.
+### Dashboard cinématique (reprise PR #39)
+- `motion/preference.js` unifie le choix persistant et la priorité système pour Motion, WAAPI, navigation et dialogues ; `Motion.jsx` conserve les révélations terminées en session.
+- `PageTransition` mémorise le mode d'entrée de chaque page ; la fin d'une transition native ne relance plus l'entrée CSS ni le décalage vertical de Simulation. Régression couverte par `motion.browser.cjs`.
+- `CinematicDashboard.jsx` / `cinematic.css` portent un bandeau adaptatif et un décor SVG à animation finie. Le contenu et les contrôles ne dépendent pas du décor.
+- `components/dashboardModel.mjs` partage la sélection du mois, le net exact et les comparaisons de périodes complètes entre les KPI du dashboard et le widget configurable.
+- `Dashboard.jsx` sérialise les sauvegardes de disposition. `widgets/index.jsx` garde les gradients propres à chaque instance et la légende des catégories accessible.
+- Validation : `dashboardModel.test.mjs`, `cinematic.browser.cjs`, `motion.browser.cjs`, parcours métier et E2E. Voir `docs/CINEMATIC_DASHBOARD.md` et `docs/CINEMATIC_VALIDATION.md`.
 
 ### Pages (`frontend/src/pages/`)
 | Page | Description |

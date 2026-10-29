@@ -1,3 +1,5 @@
+import { MotionCard, ProgressFill } from '../motion'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api, monthLabel } from '../api'
 import { useToast } from '../Toast'
@@ -295,10 +297,10 @@ function BudgetMetric({ label, value, note }) {
     </div>
   )
 }
-function Envelope({ row, onEdit, onDelete, onInspect }) {
+function Envelope({ row, index, onEdit, onDelete, onInspect }) {
   const remaining = row.remainingCents
   return (
-    <article className={`budget-envelope budget-envelope-${row.status}`}>
+    <MotionCard as="article" index={index} className={`budget-envelope budget-envelope-${row.status}`}>
       <div className="budget-envelope-main">
         <div>
           <h4>{row.domain_name}</h4>
@@ -311,7 +313,7 @@ function Envelope({ row, onEdit, onDelete, onInspect }) {
           </span>
         </div>
         <div className="budget-envelope-value">
-          <strong>{eur(row.spentCents)}</strong>
+          <strong><AnimatedNumber value={row.spentCents} format={eur} /></strong>
           <span>sur {eur(row.limit)} de plafond</span>
         </div>
       </div>
@@ -324,7 +326,7 @@ function Envelope({ row, onEdit, onDelete, onInspect }) {
         aria-valuenow={Math.min(row.spentCents, row.limit)}
         aria-valuetext={`${budgetPercent(row.ratio)} consommés, ${eur(Math.abs(remaining))} ${remaining < 0 ? 'de dépassement' : 'disponibles'}`}
       >
-        <span style={{ width: `${row.width}%` }} />
+        <ProgressFill percent={row.width} />
       </div>
       <div className="budget-envelope-balance">
         <span>
@@ -362,7 +364,7 @@ function Envelope({ row, onEdit, onDelete, onInspect }) {
           </button>
         </span>
       </div>
-    </article>
+    </MotionCard>
   )
 }
 function Recurrence({ item, onReview, onInspect }) {
@@ -617,9 +619,10 @@ export default function Budgets({ onNavigate }) {
   const recItems = (recReport?.items ?? []).filter(
     (item) => showIgnored || item.status !== 'ignored',
   )
-  const exportRow = (row) => (
+  const exportRow = (row, index) => (
     <Envelope
       key={row.id}
+      index={index}
       row={row}
       onEdit={() => setDialog({ mode: 'edit', row })}
       onDelete={() => setDialog({ mode: 'delete', row })}

@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, eur, kindIcon, monthLabel } from '../api'
 import { WIDGETS, DEFAULT_LAYOUT } from '../widgets'
-import { FinancialSummary } from '../components/FinancialSummary'
+import { PresencePanel, m, AnimatePresence, ease, useMotionReduced } from '../motion'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { MotionSurface } from '../motion/Motion'
 import { CinematicDashboard } from '../motion/CinematicDashboard'
+import { dashboardModel } from '../components/dashboardModel.mjs'
+import { FinancialSummary } from '../components/FinancialSummary'
 
 let uid = 100
 const newId = () => `w${uid++}_${Date.now() % 10000}`
@@ -31,7 +34,9 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
   // Liste des mois disponibles (sur les 24 derniers mois)
   const availableMonths = useMemo(() => {
     const months = []
-    for (let i = 0; i < 24; i++) {
+    const [selectedYear, selectedNumber] = selectedMonth.split('-').map(Number)
+    const count = Math.max(24, (now.getFullYear() - selectedYear) * 12 + now.getMonth() - selectedNumber + 2)
+    for (let i = 0; i < count; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       months.push({
         value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
@@ -39,7 +44,7 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
       })
     }
     return months
-  }, [])
+  }, [selectedMonth, currentMonth])
 
   const goToPrev = () => {
     const [y, m] = selectedMonth.split('-').map(Number)
@@ -113,66 +118,44 @@ function MonthSelector({ selectedMonth, onMonthChange }) {
 // Indicateurs clés : les quatre chiffres essentiels du mois de référence.
 function KpiRow({ selectedMonth }) {
   const [kpi, setKpi] = useState(null)
+  const [loadedMonth, setLoadedMonth] = useState('')
+  const [error, setError] = useState(null)
   useEffect(() => {
     let active = true
-    setKpi(null)
+    setError(null)
     Promise.all([api.summary(24, selectedMonth), api.remaining(selectedMonth).catch(() => null)]).then(([s2, rav]) => {
       if (!active) return
-      const m = s2.monthly?.at(-1)
-      if (!m) return setKpi(null)
-      const prev = s2.monthly?.at(-2)
-
-      // Ne pas calculer de delta si le mois courant est incomplet
-      // ou si le mois précédent est incomplet.
-      const isCurrent = m.is_current || m.status === 'current'
-      const prevIncomplete = prev && (prev.status === 'incomplete' || prev.is_current)
-
-      const deltaPct = (cur, was) => {
-        if (was == null || was === 0) return null
-        return Math.round(((cur - was) / Math.abs(was)) * 100)
-      }
-      setKpi({
-        income: m.income, spent: m.expenses, net: m.income - m.expenses,
-        isCurrent,
-        periodStatus: m.status,
-        daysObserved: m.days_observed,
-        daysInMonth: m.days_in_month,
-        coverageRatio: m.coverage_ratio,
-        rav: rav && rav.available ? rav.remaining : null,
-        spentDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.expenses, prev.expenses) : null,
-        incomeDelta: (!isCurrent && !prevIncomplete && prev) ? deltaPct(m.income, prev.income) : null,
-      })
-    }).catch(() => { if (active) setKpi(null) })
+      setLoadedMonth(selectedMonth)
+      const model = dashboardModel(s2.monthly, selectedMonth)
+      setKpi(model ? { ...model, rav: rav?.available && Number.isFinite(rav.remaining) ? rav.remaining : null } : null)
+    }).catch(e => { if (active) { setKpi(null); setError(e.message); setLoadedMonth(selectedMonth) } })
     return () => { active = false }
   }, [selectedMonth])
-  if (!kpi) return null
+  if (error) return <p className="notice err" role="alert">Indicateurs indisponibles : {error}</p>
+  if (!kpi) return <p className="motion-period-state" role="status">{loadedMonth === selectedMonth ? 'Aucun indicateur observé pour cette période.' : 'Chargement des indicateurs…'}</p>
 
   const delta = (d) => d == null ? null : (
     <span className="kpi-delta">{d > 0 ? '+' : ''}{d}%<span>vs mois préc.</span></span>
   )
 
-  const cell = (label, value, tone, deltaEl, subLabel, delay) => (
-    <MotionSurface className={`kpi ${tone || ''}`} delay={delay} revealKey={`kpi-${label}`}>
+  const cell = (label, value, tone, deltaEl, subLabel) => (
+    <div className={`kpi ${tone || ''}`}>
       <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{eur(value)}</div>
+      <div className="kpi-value"><AnimatedNumber value={value} missing="Indisponible" /></div>
       {deltaEl}
       {subLabel}
-    </MotionSurface>
+    </div>
   )
 
-  const periodBadge = kpi.isCurrent ? (
-    <span className="kpi-period-badge">Mois en cours — {kpi.daysObserved}/{kpi.daysInMonth} jours</span>
-  ) : kpi.periodStatus === 'incomplete' ? (
-    <span className="kpi-period-badge kpi-period-incomplete">Incomplet — {kpi.daysObserved}/{kpi.daysInMonth} jours</span>
-  ) : null
+  const periodBadge = kpi.periodLabel ? <span className={`kpi-period-badge${kpi.isCurrent ? '' : ' kpi-period-incomplete'}`}>{kpi.periodLabel}</span> : null
 
   return (
-    <div className="kpi-row">
-      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge, 80)}
-      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta), null, 160)}
-      {cell('Résultat des flux enregistrés', kpi.net, '', null, null, 240)}
-      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '', null, null, 320)}
-    </div>
+    <>{loadedMonth !== selectedMonth && <p className="motion-period-state" role="status">Actualisation des indicateurs ; données affichées : {monthLabel(loadedMonth)}.</p>}<div className="kpi-row" data-period={loadedMonth} data-pending={loadedMonth !== selectedMonth} aria-busy={loadedMonth !== selectedMonth}>
+      {cell('Revenus', kpi.income, '', delta(kpi.incomeDelta), periodBadge)}
+      {cell('Dépenses', kpi.spent, '', delta(kpi.spentDelta))}
+      {cell('Résultat des flux enregistrés', kpi.net, '')}
+      {kpi.rav != null && cell('Reste à vivre estimé', kpi.rav, kpi.rav < 0 ? 'kpi-neg' : '')}
+    </div></>
   )
 }
 
@@ -206,7 +189,7 @@ function Journal({ onNavigate, selectedMonth }) {
       <div className="jevent-body">
         <div className="jevent-line">
           <span className="jevent-title">{kindIcon(e.merchant_kind) && <span className="kicon" aria-hidden="true">{kindIcon(e.merchant_kind)}</span>}{e.title}</span>
-          {e.amount ? <span className={`jevent-amount ${e.amount > 0 ? 'pos' : 'neg'}`}>{e.amount > 0 ? '+' : ''}{Math.round(e.amount)} €</span> : null}
+          {Number.isFinite(e.amount) ? <span className={`jevent-amount ${e.amount > 0 ? 'pos' : 'neg'}`}>{e.amount > 0 ? '+' : ''}{eur(e.amount)}</span> : null}
         </div>
         <p className="jevent-detail">{e.detail}</p>
         {e.action && (
@@ -240,10 +223,12 @@ function Journal({ onNavigate, selectedMonth }) {
 }
 
 export default function Dashboard({ onGoUpload, onNavigate }) {
+  const reduced = useMotionReduced()
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
   const [layout, setLayout] = useState(null)
   const [editing, setEditing] = useState(false)
+  const saveQueue = useRef(Promise.resolve()), saveRevision = useRef(0), saveTimer = useRef(null)
   const [saveState, setSaveState] = useState('idle') // idle | saving | saved
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const now = new Date()
@@ -253,16 +238,24 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
   useEffect(() => {
     api.summary(24).then(setData).catch((e) => setErr(e.message))
     api.getSetting('dashboard')
-      .then((s) => setLayout(Array.isArray(s.value) && s.value.length ? s.value : DEFAULT_LAYOUT))
+      .then((s) => setLayout(Array.isArray(s.value) ? s.value : DEFAULT_LAYOUT))
       .catch(() => setLayout(DEFAULT_LAYOUT))
   }, [])
 
+  useEffect(() => () => clearTimeout(saveTimer.current), [])
+
   const persist = useCallback((next) => {
+    const revision = ++saveRevision.current
+    clearTimeout(saveTimer.current)
+    setErr(null)
     setLayout(next)
     setSaveState('saving')
-    api.putSetting('dashboard', next)
-      .then(() => { setSaveState('saved'); setTimeout(() => setSaveState('idle'), 1500) })
-      .catch((e) => { setErr(e.message); setSaveState('idle') })
+    saveQueue.current = saveQueue.current.catch(() => {}).then(() => api.putSetting('dashboard', next))
+    saveQueue.current.then(() => {
+      if (revision !== saveRevision.current) return
+      setSaveState('saved')
+      saveTimer.current = setTimeout(() => setSaveState('idle'), 1500)
+    }).catch(e => { if (revision === saveRevision.current) { setErr(`Disposition non enregistrée : ${e.message}`); setSaveState('idle') } })
   }, [])
 
   const move = (i, dir) => {
@@ -284,38 +277,36 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
   if (err && !data) return <div className="notice err">{err}</div>
   if (!data || !layout) return <p style={{ color: 'var(--muted)' }}><span className="spinner" />Chargement…</p>
 
+  const header = (
+      <header className="dashboard-heading">
+        <div>
+          <p className="eyebrow">Ton espace de pilotage</p>
+          <h1><span className="motion-title-line"><m.span initial={reduced ? false : { y: '110%' }} animate={{ y: 0 }} transition={{ duration: reduced ? 0 : .72, ease }}>La vue <em>d’ensemble.</em></m.span></span></h1>
+          <p className="dashboard-intro">Les chiffres essentiels. Le recul pour décider.</p>
+        </div>
+        <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
+      </header>
+  )
+
   if ((data.monthly ?? []).length === 0) {
     return (
-      <CinematicDashboard>
-      <header className="dashboard-heading">
-        <div><p className="eyebrow">Ton espace de pilotage</p><h1>Une nouvelle <em>perspective.</em></h1><p className="dashboard-intro">Tes finances prennent une autre dimension.</p></div>
-      </header>
-      <div className="empty" style={{ marginTop: 24 }}>
+      <CinematicDashboard header={header}><div className="empty" style={{ marginTop: 24 }}>
         <p><b>Aucune donnée pour l'instant.</b></p>
         <p>Dépose ton premier relevé PDF dans la fente ci-dessus, ou{' '}
           <button className="link" onClick={onGoUpload}>choisis un fichier</button>.</p>
-      </div>
-      </CinematicDashboard>
+      </div></CinematicDashboard>
     )
   }
 
   const available = Object.entries(WIDGETS)
 
   return (
-    <CinematicDashboard>
-      {err && <div className="notice err">{err}</div>}
+    <CinematicDashboard header={header}>
+      {err && <div className="notice err" role="alert">{err}</div>}
 
-      <header className="dashboard-heading">
-        <div>
-          <p className="eyebrow"><span aria-hidden="true">◈</span> Ton espace de pilotage</p>
-          <h1>La vue <em>d’ensemble.</em></h1>
-          <p className="dashboard-intro">Les chiffres essentiels. Le recul pour décider.</p>
-        </div>
-        <MonthSelector selectedMonth={selectedMonth} onMonthChange={setSelectedMonth} />
-      </header>
-      <MotionSurface className="cinematic-summary" revealKey="summary"><FinancialSummary selectedMonth={selectedMonth} onInspectCoverage={() => onNavigate?.('statements', { month: selectedMonth })} /></MotionSurface>
-      <KpiRow selectedMonth={selectedMonth} />
-      <MotionSurface delay={120} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
+      <MotionSurface className="cinematic-summary" revealKey="summary"><FinancialSummary history={data.monthly} selectedMonth={selectedMonth} onInspectCoverage={month => onNavigate?.('statements', { month })} /></MotionSurface>
+      <MotionSurface delay={80} revealKey="kpis"><KpiRow selectedMonth={selectedMonth} /></MotionSurface>
+      <MotionSurface delay={160} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
 
       <div className="dash-toolbar">
         <div className="dashboard-section-title"><span className="eyebrow">Explorer tes finances</span><h2>Les détails font la différence.</h2><span className="dashboard-save-state" role="status">{saveState === 'saving' ? 'Enregistrement…' : saveState === 'saved' ? 'Disposition enregistrée ✓' : ''}</span></div>
@@ -324,15 +315,15 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
         </button>
       </div>
 
-      {editing && (
-        <div className="widget-palette">
+      <AnimatePresence>{editing && (
+        <PresencePanel className="widget-palette" initial={reduced ? false : { opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: reduced ? 0 : .2, ease }} style={{ overflow: 'hidden' }}>
           <span className="muted">Ajouter un widget :</span>
           {available.map(([type, def]) => (
             <button key={type} className="btn-secondary" onClick={() => add(type)}>＋ {def.title}</button>
           ))}
           <button className="link" onClick={reset}>réinitialiser</button>
-        </div>
-      )}
+        </PresencePanel>
+      )}</AnimatePresence>
 
       <div className="widget-grid">
         {layout.map((w, i) => {
@@ -340,7 +331,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
           if (!def) return null
           const C = def.component
           return (
-            <MotionSurface key={w.id} revealKey={`widget-${w.id}`} className={`widget ${w.size} widget-${w.type}`} delay={Math.min(i, 4) * 70} style={{ '--i': i }}>
+            <MotionSurface key={w.id} revealKey={`widget-${w.id}`} layout="position" delay={Math.min(i, 4) * 70} className={`widget ${w.size} widget-${w.type}`} style={{ '--i': i }}>
               <div className="widget-head">
                 <h3>{def.title}</h3>
                 {editing && (

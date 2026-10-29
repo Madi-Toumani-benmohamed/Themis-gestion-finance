@@ -1,3 +1,4 @@
+import { AnimatePresence, PresencePanel, useMotionReduced, ease } from './motion'
 import { createContext, useContext, useState, useCallback, useRef } from 'react'
 
 const ToastCtx = createContext(() => {})
@@ -7,6 +8,7 @@ export const useToast = () => useContext(ToastCtx)
 let seq = 0
 
 export function ToastProvider({ children }) {
+  const reduced = useMotionReduced()
   const [toasts, setToasts] = useState([])
   const timers = useRef({})
 
@@ -56,8 +58,8 @@ export function ToastProvider({ children }) {
     <ToastCtx.Provider value={toast}>
       {children}
       <div className="toast-stack" role="status" aria-live="polite">
-        {toasts.map((t) => (
-          <div key={t.id} className={`toast toast-${t.kind}`}>
+        <AnimatePresence initial={false}>{toasts.map((t) => (
+          <PresencePanel key={t.id} layout="position" initial={reduced ? false : { opacity: 0, y: 16, scale: .97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, x: reduced ? 0 : 16 }} transition={{ duration: reduced ? 0 : .22, ease }} className={`toast toast-${t.kind}`}>
             <span className="toast-icon">{icon[t.kind]}</span>
             <span className="toast-text">{t.text}</span>
             {t.action ? (
@@ -73,8 +75,8 @@ export function ToastProvider({ children }) {
                 <span className="toast-bar" />
               </>
             )}
-          </div>
-        ))}
+          </PresencePanel>
+        ))}</AnimatePresence>
       </div>
     </ToastCtx.Provider>
   )

@@ -1,14 +1,17 @@
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useState } from 'react'
 import {
   ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, Legend, ReferenceLine,
   ComposedChart, Area, LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Brush,
 } from 'recharts'
+import { AnimatedNumber } from '../motion/AnimatedNumber'
+import { AnimatedChart, ChartFocusDot } from '../motion/AnimatedChart'
+import { ProgressFill } from '../motion'
 import { api, eur, monthLabel } from '../api'
+import './cinematicCharts.css'
+import { dashboardModel } from '../components/dashboardModel.mjs'
 import { budgetWidgetModel } from '../components/budgetWidgetModel.mjs'
 import { cents, euroCents } from '../components/money.mjs'
 import { readColors, softGradient, ChartTooltip, axisX, axisY, gridProps } from '../components/ChartPrimitives'
-import { useMotion, useSceneReveal } from '../motion/Motion'
-import './cinematicCharts.css'
 
 // Valeurs par défaut (clair) pour le premier rendu synchrone.
 const INK = '#16161D'
@@ -18,58 +21,6 @@ const MUTED = '#8A8A99'
 const LINE = '#ECECF1'
 const ACCENT = '#5B5BD6'
 
-// Le montant exact existe dès la première image ; seule sa présentation bouge.
-function Roll({ value, fmt }) {
-  return <span className="chart-exact-value">{fmt(value)}</span>
-}
-
-// Les tracés conservent leurs coordonnées exactes pendant la révélation.
-// Aucun compteur de montants, aucune interpolation entre deux jeux de données.
-const revealedCharts = new Set()
-
-function ChartStage({ children, kind = 'curve', scene }) {
-  const ref = useRef(null)
-  const visible = useSceneReveal(ref)
-  const { animated } = useMotion()
-  useEffect(() => {
-    if (!visible || !animated || revealedCharts.has(scene)) return
-    const animations = []
-    const frame = requestAnimationFrame(() => {
-      const el = ref.current
-      if (!el || !el.animate) return
-      revealedCharts.add(scene)
-      const curves = el.querySelectorAll('.recharts-area-curve, .recharts-line-curve')
-      curves.forEach((curve, index) => {
-        const length = curve.getTotalLength?.()
-        if (!Number.isFinite(length) || length <= 0) return
-        animations.push(curve.animate([
-          { strokeDasharray: `${length} ${length}`, strokeDashoffset: length },
-          { strokeDasharray: `${length} ${length}`, strokeDashoffset: 0 },
-        ], { duration: 900, delay: index * 100, easing: 'cubic-bezier(.22,1,.36,1)' }))
-      })
-      el.querySelectorAll('.recharts-area-area').forEach(area => {
-        animations.push(area.animate([{ opacity: .2 }, { opacity: 1 }], { duration: 1000 }))
-      })
-      el.querySelectorAll('.recharts-bar-rectangle path').forEach((bar, index) => {
-        animations.push(bar.animate([
-          { transform: 'scaleY(.04)', opacity: .45 },
-          { transform: 'scaleY(1)', opacity: 1 },
-        ], { duration: 650, delay: Math.min(index * 35, 280), easing: 'cubic-bezier(.22,1,.36,1)' }))
-      })
-      el.querySelectorAll('.recharts-pie-sector').forEach((sector, index) => {
-        animations.push(sector.animate([{ opacity: .2 }, { opacity: 1 }], {
-          duration: 550, delay: Math.min(index * 65, 400),
-        }))
-      })
-    })
-    return () => {
-      cancelAnimationFrame(frame)
-      animations.forEach(animation => animation.cancel())
-    }
-  }, [visible, animated, scene])
-  return <div ref={ref} className={`chart-stage chart-stage-${kind}`}>{children}</div>
-}
-
 /* ------------------------------------------------------------------ */
 /* Widget : flux — revenus vs dépenses (aires interactives)            */
 /* ------------------------------------------------------------------ */
@@ -78,13 +29,13 @@ function ChartStage({ children, kind = 'curve', scene }) {
 // la brosse reste où on la pose : si le graphe re-render, Recharts réinitialise
 // la brosse. On isole donc le résumé (qui réagit au déplacement) du graphe.
 const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, currentMonthIdx, selectedMonthIdx }) {
-  const gradientId = useId().replace(/:/g, '')
+  const gradientId = useId().replaceAll(':', '')
   // Ligne verticale pour le mois courant
   const currentMonthLabel = currentMonthIdx >= 0 ? all[currentMonthIdx]?.label : null
   // Ligne verticale pour le mois sélectionné (si différent)
   const selectedMonthLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? all[selectedMonthIdx]?.label : null
   return (
-    <ChartStage scene="flux"><ResponsiveContainer width="100%" height={300}>
+    <AnimatedChart revision={all}><ResponsiveContainer width="100%" height={300}>
       <ComposedChart data={all} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>
           {softGradient(`${gradientId}-income`, c.GREEN)}
@@ -101,9 +52,9 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
         {selectedMonthLabel && (
           <ReferenceLine x={selectedMonthLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
         )}
-        <Area isAnimationActive={false} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill={`url(#${gradientId}-income)`} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.PAPER }} />
-        <Area isAnimationActive={false} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill={`url(#${gradientId}-expenses)`} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.PAPER }} />
-        <Line isAnimationActive={false} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.PAPER }} />
+        <Area isAnimationActive={false} name="Revenus" type="monotone" dataKey="income" stroke={c.GREEN} fill={`url(#${gradientId}-income)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Area isAnimationActive={false} name="Dépenses" type="monotone" dataKey="expenses" stroke={c.RED} fill={`url(#${gradientId}-expenses)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
+        <Line isAnimationActive={false} name="Net" type="monotone" dataKey="net" stroke={c.ACCENT} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
         <Brush
           dataKey="label" height={28} stroke={c.ACCENT} fill={c.PAPER}
           travellerWidth={9} gap={1}
@@ -111,7 +62,7 @@ const FluxChart = memo(function FluxChart({ all, c, initialStart, onBrush, curre
           onChange={onBrush}
         />
       </ComposedChart>
-    </ResponsiveContainer></ChartStage>
+    </ResponsiveContainer></AnimatedChart>
   )
 }, (prev, next) =>
   prev.all === next.all &&
@@ -190,7 +141,7 @@ export function FluxWidget({ data, config, selectedMonth }) {
 /* Widget : solde net cumulé                                           */
 /* ------------------------------------------------------------------ */
 export function SoldeWidget({ data, config, selectedMonth }) {
-  const gradientId = useId().replace(/:/g, '')
+  const gradientId = useId().replaceAll(':', '')
   const monthly = (data.monthly ?? []).slice(-(config.months || 12))
   const currentMonthIdx = monthly.findIndex(m => m.is_current || m.status === 'current')
   const selectedMonthIdx = selectedMonth ? monthly.findIndex(m => m.month === selectedMonth) : -1
@@ -206,7 +157,7 @@ export function SoldeWidget({ data, config, selectedMonth }) {
   const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
   const selectedLabel = selectedMonthIdx >= 0 && selectedMonthIdx !== currentMonthIdx ? series[selectedMonthIdx]?.label : null
   return (
-    <ChartStage scene="cumul"><ResponsiveContainer width="100%" height={220}>
+    <AnimatedChart revision={series}><ResponsiveContainer width="100%" height={220}>
       <ComposedChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <defs>{softGradient(`${gradientId}-cumul`, c.ACCENT, 0.22, 0.01)}</defs>
         <CartesianGrid {...gridProps(c)} />
@@ -220,9 +171,9 @@ export function SoldeWidget({ data, config, selectedMonth }) {
         {selectedLabel && (
           <ReferenceLine x={selectedLabel} stroke={c.ACCENT} strokeOpacity={0.3} strokeDasharray="8 4" label={{ position: 'bottom', offset: 10, fill: c.ACCENT, fontSize: 9, value: 'Mois consulté' }} />
         )}
-        <Area isAnimationActive={false} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill={`url(#${gradientId}-cumul)`} strokeWidth={2.5} dot={false} activeDot={{ r: 5, strokeWidth: 2, stroke: c.PAPER }} />
+        <Area isAnimationActive={false} type="monotone" name="Cumul net" dataKey="cumul" stroke={c.ACCENT} fill={`url(#${gradientId}-cumul)`} strokeWidth={2.5} dot={false} activeDot={<ChartFocusDot />} />
       </ComposedChart>
-    </ResponsiveContainer></ChartStage>
+    </ResponsiveContainer></AnimatedChart>
   )
 }
 
@@ -237,15 +188,20 @@ export function CategoriesWidget({ data, selectedMonth }) {
   const cur = month ? data.monthly?.find((m) => m.month === month) : data.monthly?.at(-1)
   const isCurrent = cur?.is_current || cur?.status === 'current'
   const curStatus = cur?.status === 'incomplete'
-  const slices = (data.by_category ?? []).filter((c) => c.month === month && c.total > 0)
-  const total = slices.reduce((s, c) => s + c.total, 0)
+  const slices = useMemo(() => (data.by_category ?? []).filter((c) => c.month === month && c.total > 0), [data.by_category, month])
+  let total
+  try {
+    const totalCents = slices.reduce((sum, category) => sum + cents(category.total), 0)
+    if (!Number.isSafeInteger(totalCents)) throw new Error('Montant hors limites.')
+    total = totalCents / 100
+  } catch { return <p className="notice err" role="alert">Répartition indisponible : montants invalides.</p> }
   const active = slices.findIndex(slice => slice.category === activeCategory)
   if (slices.length === 0) return <Empty />
   const cc = readColors()
   return (
     <div className="category-cinematic">
       <div className="category-view-control">
-        <span>Répartition exacte · {monthLabel(month)}</span>
+        <span>Dépenses enregistrées · {monthLabel(month)}{isCurrent ? ' · Mois en cours' : curStatus ? ' · Données incomplètes' : ''}</span>
         <button type="button" className="chart-depth-toggle" aria-pressed={!depth}
           onClick={() => setDepth(value => !value)}
           aria-label="Vue plane du graphique">
@@ -255,7 +211,7 @@ export function CategoriesWidget({ data, selectedMonth }) {
       <div className="category-overview">
         <div className={`donut-wrap cinematic-donut ${depth ? 'has-depth' : ''}`}>
           <span className="donut-orbit" aria-hidden="true" />
-          <ChartStage kind="donut" scene="categories"><ResponsiveContainer width="100%" height={220}>
+          <AnimatedChart revision={slices}><ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie isAnimationActive={false}
                 data={slices} dataKey="total" nameKey="category"
@@ -277,13 +233,11 @@ export function CategoriesWidget({ data, selectedMonth }) {
                   label={point.name} />
               }} />
             </PieChart>
-          </ResponsiveContainer></ChartStage>
+          </ResponsiveContainer></AnimatedChart>
           <div className="donut-center">
-            <div className="donut-total">{eur(active >= 0 ? slices[active].total : total)}</div>
+            <div className="donut-total"><AnimatedNumber value={active >= 0 ? slices[active].total : total} /></div>
             <div className="donut-label">
               {active >= 0 ? slices[active].category : monthLabel(month)}
-              {isCurrent && <span className="donut-period-badge">Mois en cours</span>}
-              {curStatus && <span className="donut-period-badge donut-period-incomplete">Incomplet</span>}
             </div>
           </div>
         </div>
@@ -311,7 +265,7 @@ export function CategoriesWidget({ data, selectedMonth }) {
 /* Widget : tendance d'une catégorie                                   */
 /* ------------------------------------------------------------------ */
 export function CategoryTrendWidget({ data, config, editing, onConfig, selectedMonth }) {
-  const gradientId = useId().replace(/:/g, '')
+  const gradientId = useId().replaceAll(':', '')
   const names = useMemo(
     () => [...new Set((data.by_category ?? []).map((c) => c.category))].sort(),
     [data],
@@ -320,10 +274,10 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
   const months = (data.monthly ?? []).slice(-(config.months || 12))
   const currentMonthIdx = months.findIndex(m => m.is_current || m.status === 'current')
   const selectedMonthIdx = selectedMonth ? months.findIndex(m => m.month === selectedMonth) : -1
-  const series = months.map((m) => ({
+  const series = useMemo(() => months.map((m) => ({
     label: monthLabel(m.month),
     total: +((data.by_category ?? []).find((c) => c.month === m.month && c.category === cat)?.total ?? 0).toFixed(2),
-  }))
+  })), [data.monthly, data.by_category, config.months, cat])
   const color = (data.by_category ?? []).find((c) => c.category === cat)?.color || GREEN
   const cc = readColors()
   const currentLabel = currentMonthIdx >= 0 ? series[currentMonthIdx]?.label : null
@@ -336,7 +290,7 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
         </select>
       </div>
       {series.every((s) => s.total === 0) ? <Empty /> : (
-        <ChartStage kind="bar" scene="trend"><ResponsiveContainer width="100%" height={190}>
+        <AnimatedChart revision={series} growBars><ResponsiveContainer width="100%" height={190}>
           <BarChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <defs>{softGradient(`${gradientId}-bar`, color, 0.95, 0.55)}</defs>
             <CartesianGrid {...gridProps(cc)} />
@@ -351,7 +305,7 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
             )}
             <Bar isAnimationActive={false} dataKey="total" name={cat} fill={`url(#${gradientId}-bar)`} maxBarSize={34} radius={[6, 6, 0, 0]} />
           </BarChart>
-        </ResponsiveContainer></ChartStage>
+        </ResponsiveContainer></AnimatedChart>
       )}
     </div>
   )
@@ -361,34 +315,19 @@ export function CategoryTrendWidget({ data, config, editing, onConfig, selectedM
 /* Widget : cartes KPI du mois sélectionné                             */
 /* ------------------------------------------------------------------ */
 export function KpiWidget({ data, selectedMonth }) {
-  // Si un mois est sélectionné, on le cherche ; sinon le dernier mois disponible
   const month = selectedMonth || data.monthly?.at(-1)?.month
-  const cur = month ? data.monthly?.find((m) => m.month === month) : data.monthly?.at(-1)
-  const prevIdx = cur ? data.monthly?.indexOf(cur) - 1 : -1
-  const prev = prevIdx >= 0 ? data.monthly[prevIdx] : undefined
-  if (!cur) return <Empty />
-  const net = cur.income - cur.expenses
-  const savings = cur.income > 0 ? (net / cur.income) * 100 : null
-
-  // Ne pas calculer de delta si le mois courant est incomplet
-  // ou si le mois précédent est incomplet.
-  const isCurrent = cur.is_current || cur.status === 'current'
-  const prevIncomplete = prev && (prev.status === 'incomplete' || prev.is_current)
-
-  const delta = (a, b) => (!isCurrent && !prevIncomplete && b ? ((a - b) / b) * 100 : null)
-
+  let model
+  try { model = dashboardModel(data.monthly, month) } catch { return <p className="notice err" role="alert">Indicateurs indisponibles : montants invalides.</p> }
+  if (!model) return <Empty />
+  const { income, spent, net, savings } = model
+  const tone = value => value == null ? '' : value >= 0 ? 'credit' : 'debit'
   const kpis = [
-    { label: 'Revenus', num: cur.income, fmt: eur, d: delta(cur.income, prev?.income), goodUp: true },
-    { label: 'Dépenses', num: cur.expenses, fmt: eur, d: delta(cur.expenses, prev?.expenses), goodUp: false },
-    { label: 'Net', num: net, fmt: eur, cls: net >= 0 ? 'credit' : 'debit' },
-    { label: "Taux d'épargne", num: savings, fmt: (v) => (v === null ? '—' : `${v.toFixed(0)} %`), cls: savings >= 0 ? 'credit' : 'debit' },
+    { label: 'Revenus', num: income, fmt: eur, d: model.incomeDelta, goodUp: true },
+    { label: 'Dépenses', num: spent, fmt: eur, d: model.spentDelta, goodUp: false },
+    { label: 'Net', num: net, fmt: eur, cls: tone(net) },
+    { label: "Taux d'épargne", num: savings, fmt: value => `${value.toFixed(0)} %`, cls: tone(savings) },
   ]
-
-  const periodBadge = isCurrent ? (
-    <span className="kpi-period-badge">Mois en cours — {cur.days_observed}/{cur.days_in_month} jours</span>
-  ) : cur.status === 'incomplete' ? (
-    <span className="kpi-period-badge kpi-period-incomplete">Incomplet — {cur.days_observed}/{cur.days_in_month} jours</span>
-  ) : null
+  const periodBadge = model.periodLabel ? <span className={`kpi-period-badge${model.isCurrent ? '' : ' kpi-period-incomplete'}`}>{model.periodLabel}</span> : null
 
   return (
     <div className="kpi-grid">
@@ -397,7 +336,7 @@ export function KpiWidget({ data, selectedMonth }) {
         <div className="kpi-card" key={k.label}>
           <div className="label">{k.label}</div>
           <div className={'value ' + (k.cls || '')}>
-            {k.num === null ? '—' : <Roll value={k.num} fmt={k.fmt} />}
+            {k.num === null ? '—' : <AnimatedNumber value={k.num} format={k.fmt} />}
           </div>
           {k.d !== null && k.d !== undefined && (
             <div className={'delta ' + ((k.d >= 0) === k.goodUp ? 'credit' : 'debit')}>
@@ -458,7 +397,7 @@ export function TopWidget({ config, selectedMonth, data }) {
       )}
       {rows.map((t) => (
         <div className="top-row" key={t.id}>
-          <div className="top-bar" style={{ width: `${(-t.amount / max) * 100}%` }} />
+          <ProgressFill className="top-bar" percent={(-t.amount / max) * 100} />
           <span className="top-label">{(t.display_label || t.label).slice(0, 46)}</span>
           <span className="top-amount">{eur(-t.amount)}</span>
         </div>
