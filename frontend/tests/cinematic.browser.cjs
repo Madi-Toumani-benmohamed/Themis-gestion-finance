@@ -83,11 +83,18 @@ async function mockAPI(context) {
   })
 }
 
+async function settleMotion(page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise(requestAnimationFrame)
+  })
+  await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
+}
+
 async function screenshot(page, name) {
   if (!artifactDir) return
   fs.mkdirSync(artifactDir, { recursive: true })
-  await page.evaluate(() => document.fonts.ready)
-  await expect.poll(() => page.evaluate(() => document.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
+  await settleMotion(page)
   await page.screenshot({ path: path.join(artifactDir, name + '.png'), fullPage: true })
 }
 
@@ -164,6 +171,8 @@ async function main() {
     if (artifactDir) await page.screenshot({ path: path.join(artifactDir, 'dashboard-cinematic-light-viewport.png') })
     console.log('Headless Chromium frame sample (environment-specific, not a device FPS guarantee):', JSON.stringify(frameSample))
     if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'frame-sample.json'), JSON.stringify(frameSample, null, 2))
+    // Accessibility must not depend on optional screenshot capture settling motion.
+    await settleMotion(page)
     const lightResults = await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
     if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'axe-light.json'), JSON.stringify(lightResults, null, 2))
     assert.deepEqual(lightResults.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.map(node => node.target) })), [], 'Light dashboard must pass targeted Axe checks')
@@ -289,6 +298,7 @@ async function main() {
     await screenshot(page, 'dashboard-cinematic-dark-reduced')
     await noHorizontalOverflow(page)
 
+    await settleMotion(page)
     const results = await new AxeBuilder({ page }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
     if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'axe.json'), JSON.stringify(results, null, 2))
     assert.deepEqual(results.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.map(node => node.target) })), [], 'Dark dashboard must pass targeted Axe checks')
@@ -312,6 +322,7 @@ async function main() {
     await mobile.locator('.dashboard-heading').scrollIntoViewIfNeeded()
     await mobile.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
     if (artifactDir) await mobile.screenshot({ path: path.join(artifactDir, 'dashboard-cinematic-mobile-viewport.png') })
+    await settleMotion(mobile)
     const mobileResults = await new AxeBuilder({ page: mobile }).include('main').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()
     if (artifactDir) fs.writeFileSync(path.join(artifactDir, 'axe-mobile.json'), JSON.stringify(mobileResults, null, 2))
     assert.deepEqual(mobileResults.violations.map(item => ({ id: item.id, impact: item.impact, nodes: item.nodes.map(node => node.target) })), [], 'Mobile dashboard must pass targeted Axe checks')
