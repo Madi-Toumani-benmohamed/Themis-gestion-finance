@@ -150,12 +150,6 @@ jobs:
         working-directory: backend
         run: go mod download
 
-      - name: Diagnose dashboard visual reference
-        working-directory: frontend
-        env:
-          CI: 'true'
-        run: npm run test:e2e -- tests/e2e/visual.spec.ts -g dashboard
-
       - name: Preserve mocked UI, responsive and accessibility checks
         working-directory: frontend
         env:
