@@ -248,7 +248,8 @@ async function main() {
             ),
           })),
       }
-    } else if (path === '/api/tag-folders')
+    } else if (path === '/api/projects') data = { projects: [], query_to: month + '-21', has_more: false }
+    else if (path === '/api/tag-folders')
       data = {
         month: m,
         query_to: `${m}-21`,

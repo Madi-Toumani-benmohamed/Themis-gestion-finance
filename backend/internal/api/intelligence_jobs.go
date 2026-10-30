@@ -107,6 +107,10 @@ func (s *Server) processIntelligenceJob(parent context.Context, job intelligence
 // Reuse the exact authenticated handler path so asynchronous and manual runs
 // share validation, locking, detectors and registry reconciliation.
 func (s *Server) runIntelligenceJob(ctx context.Context, owner int64) error {
+	if _, err := s.refreshProjectSuggestions(ctx, owner, 0); err != nil {
+		return err
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/intel/recompute", strings.NewReader(`{}`))
 	if err != nil {
 		return err

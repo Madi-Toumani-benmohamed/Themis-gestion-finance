@@ -1,0 +1,187 @@
+.financial-projects {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.financial-projects p {
+  line-height: 1.6;
+}
+.financial-projects h3,
+.financial-projects h4 {
+  margin-block: 0.75rem;
+}
+.project-cards,
+.project-cost-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 1rem;
+}
+.project-card {
+  display: grid;
+  text-align: left;
+  gap: 0.5rem;
+  padding: 1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.project-card[aria-expanded='true'] {
+  border-color: var(--accent);
+}
+.project-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.project-detail {
+  min-width: 0;
+  padding: clamp(0.75rem, 2vw, 1.5rem);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+}
+.project-detail > section,
+.project-detail > details,
+.project-detail fieldset {
+  margin-block: 1.5rem;
+}
+.project-form {
+  display: grid;
+  gap: 1rem;
+  max-width: 760px;
+  padding-block: 1rem;
+}
+.financial-projects label {
+  display: grid;
+  gap: 0.4rem;
+}
+.financial-projects input:not([type='checkbox']),
+.financial-projects select,
+.financial-projects textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  border-radius: 6px;
+  font: inherit;
+}
+.project-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 1rem;
+}
+.project-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.project-actions > h3 {
+  flex: 1 1 200px;
+}
+.project-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  gap: 1rem;
+}
+.project-metrics dd {
+  margin: 0.5rem 0;
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+.project-metrics dt {
+  line-height: 1.5;
+}
+.project-coverage,
+.project-observation {
+  border-left: 3px solid var(--accent);
+  padding: 0.5rem 1rem;
+}
+.project-breakdown {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.project-breakdown li > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.project-bar {
+  display: block;
+  height: 6px;
+  background: var(--line-strong);
+  margin-top: 0.4rem;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.project-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+.project-chart {
+  width: 100%;
+  height: 260px;
+  min-width: 0;
+}
+.project-table {
+  overflow-x: auto;
+  margin-block: 1rem;
+}
+.project-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.project-table th,
+.project-table td {
+  text-align: left;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--line-strong);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.project-table caption {
+  text-align: left;
+  padding-block: 0.5rem;
+}
+.financial-projects fieldset {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line-strong);
+}
+.financial-projects summary {
+  cursor: pointer;
+  padding-block: 0.75rem;
+}
+.project-rule {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  margin-block: 0.75rem;
+}
+.financial-projects progress {
+  width: min(100%, 400px);
+  accent-color: var(--accent);
+}
+@media (max-width: 600px) {
+  .project-table table {
+    min-width: 560px;
+  }
+  .project-detail {
+    padding: 0.75rem;
+  }
+}
+/* Recharts' offscreen tooltip must not widen the page after a viewport resize. */
+.project-chart {
+  overflow: hidden;
+}
+.financial-projects .project-card,
+.financial-projects .project-detail {
+  overflow-wrap: anywhere;
+}
