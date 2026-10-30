@@ -234,10 +234,24 @@ async function main() {
       for (const width of [360, 768, 1280])
         for (const theme of ['light', 'dark']) {
           await page.setViewportSize({ width, height: 900 })
-          await page.evaluate(
-            (t) => document.documentElement.setAttribute('data-theme', t),
-            theme,
-          )
+          await page.evaluate(async (t) => {
+            document.documentElement.setAttribute('data-theme', t)
+            await document.fonts.ready
+            // Axe must inspect a painted, settled theme, not cached pixels from
+            // the previous one. This also waits for finite CSS transitions.
+            await new Promise(requestAnimationFrame)
+            await Promise.all(
+              document
+                .getAnimations()
+                .filter(
+                  (animation) =>
+                    animation.effect?.getComputedTiming().iterations !==
+                    Infinity,
+                )
+                .map((animation) => animation.finished.catch(() => {})),
+            )
+            await new Promise(requestAnimationFrame)
+          }, theme)
           assert.ok(
             await page.evaluate(
               () => document.documentElement.scrollWidth <= innerWidth + 1,
