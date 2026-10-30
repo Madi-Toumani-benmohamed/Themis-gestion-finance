@@ -106,6 +106,9 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 
 ## Frontend — Structure
 
+- `PageLoader.jsx` charge les pages à la demande avec Suspense et une récupération en cas d’échec ; `App.jsx` précharge la destination au survol/focus. Auth reste immédiat. `tests/loading.browser.cjs` vérifie le build réel.
+- `IntelligenceHighlights.jsx` suspend le polling des jobs dans les onglets masqués et le reprend au retour sans chevauchement. Mesures et limites : `docs/PERFORMANCE_OPTIMIZATION.md`.
+
 ### Mouvement et interactions (`frontend/src/motion/`)
 - `index.jsx` centralise le provider Motion, les transitions de navigation (View Transitions avec repli), les révélations au scroll, cartes, onglets, panneaux et jauges. `PresencePanel` rend les éléments sortants inertes.
 - `tokens.js` définit les rythmes et springs ; `preference.js` suit le mouvement réduit dès le premier rendu et à chaud ; `motion.css` harmonise les interactions après les feuilles existantes.

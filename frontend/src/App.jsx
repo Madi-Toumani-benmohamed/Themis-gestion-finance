@@ -3,18 +3,8 @@ import { api } from './api'
 import ImportPreview from './components/ImportPreview'
 import { reviewedImport } from './components/reviewedImport.mjs'
 import { useToast } from './Toast'
-import Dashboard from './pages/Dashboard'
-import Transactions from './pages/Transactions'
-import Statements from './pages/Statements'
-import Advice from './pages/Advice'
-import Budgets from './pages/Budgets'
-import Admin from './pages/Admin'
 import Auth from './pages/Auth'
-import Accounts from './pages/Accounts'
-import Credits from './pages/Credits'
-import Analyse from './pages/Analyse'
-import Simulate from './pages/Simulate'
-import Assistant from './pages/Assistant'
+import { Pages, PageLoader, preloadPage } from './PageLoader'
 import AssistantFloating from './components/AssistantFloating'
 import HalftoneWordmarkFooter from './components/ui/halftone-wordmark-footer'
 import { BackgroundPaths } from './components/ui/background-paths'
@@ -23,6 +13,13 @@ import { ICONS } from './navIcons'
 import { Logo } from './Logo'
 import ScrollProgress from './ScrollProgress'
 import { ActiveNavigation, NavigationMotion, PageTransition, usePageNavigation, useMotionReduced, ProgressFill, m, AnimatePresence, ease } from './motion'
+
+const {
+  dashboard: Dashboard, transactions: Transactions, statements: Statements,
+  advice: Advice, budgets: Budgets, admin: Admin, accounts: Accounts,
+  credits: Credits, analyse: Analyse, simulate: Simulate, assistant: Assistant,
+} = Pages
+const preparePage = name => { preloadPage(name).catch(() => {}) }
 
 // Familles de navigation. `admin` est rendu séparément, dans le pied.
 const NAV_BASE = [
@@ -302,6 +299,8 @@ export default function App() {
                   title={label}
                   aria-selected={tab === id}
                   className={tab === id ? 'active' : ''}
+                  onPointerEnter={() => preparePage(id)}
+                  onFocus={() => preparePage(id)}
                   onClick={() => navigateScene(() => setTab(id))}
                 >
                   {tab === id && <ActiveNavigation />}
@@ -323,6 +322,8 @@ export default function App() {
               title="Admin"
               aria-selected={tab === 'admin'}
               className={tab === 'admin' ? 'active' : ''}
+              onPointerEnter={() => preparePage('admin')}
+              onFocus={() => preparePage('admin')}
               onClick={() => navigateScene(() => setTab('admin'))}
             >
               {tab === 'admin' && <ActiveNavigation />}
@@ -410,17 +411,19 @@ export default function App() {
       {drag && <div className="drop-veil" aria-hidden="true"><span>Dépose ton relevé</span></div>}
 
       <PageTransition page={tab} className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
-        {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-        {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
-        {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
-        {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
-        {tab === 'credits' && <Credits />}
-        {tab === 'simulate' && <Simulate />}
-        {tab === 'accounts' && <Accounts />}
-        {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
-        {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
-        {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
-        {tab === 'assistant' && <Assistant />}
+        <PageLoader>
+          {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
+          {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
+          {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
+          {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
+          {tab === 'credits' && <Credits />}
+          {tab === 'simulate' && <Simulate />}
+          {tab === 'accounts' && <Accounts />}
+          {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
+          {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
+          {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
+          {tab === 'assistant' && <Assistant />}
+        </PageLoader>
       </PageTransition>
 
       <HalftoneWordmarkFooter
