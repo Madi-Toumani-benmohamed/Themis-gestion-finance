@@ -63,6 +63,8 @@ async function mockAPI(context) {
         coverage: { last_tx: `${row.month}-21`, stale: false },
         points: [{ kind: 'coverage', tone: 'attention', text: 'Couverture documentaire partielle — TEST.' }],
       }; break
+      case '/api/intel/feed': body = { discoveries: [], limit: 3 }; break
+      case '/api/intel/jobs/status': body = { status: 'idle' }; break
       case '/api/remaining': body = { available: false }; break
       case '/api/journal': body = { events: [{ title: 'Relevé synthétique reçu', detail: 'Jeu de données de test uniquement.', tone: 'neutral', importance: 65 }] }; break
       case '/api/settings/dashboard':

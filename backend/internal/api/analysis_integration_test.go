@@ -145,9 +145,12 @@ func TestAnalysisSignalsPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signals, limits, err := srv.loadAnalysisSignals(context.Background(), 1, "2020-01", now)
+	signals, limits, comparable, err := srv.loadAnalysisSignals(context.Background(), 1, "2020-01", now)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !comparable {
+		t.Fatal("complete synthetic periods should be comparable")
 	}
 	kinds := map[string]bool{}
 	for _, signal := range signals {
@@ -166,9 +169,12 @@ func TestAnalysisSignalsPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	signals, limits, err = srv.loadAnalysisSignals(context.Background(), 1, "2020-01", now)
+	signals, limits, comparable, err = srv.loadAnalysisSignals(context.Background(), 1, "2020-01", now)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if comparable {
+		t.Fatal("coverage gap should block monthly comparison")
 	}
 	for _, signal := range signals {
 		if signal["kind"] != "seasonal" {

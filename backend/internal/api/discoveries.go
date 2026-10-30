@@ -25,7 +25,7 @@ func (s *Server) discoveries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := analysisRecurringSignals(report)
-	signals, limitations, err := s.loadAnalysisSignals(r.Context(), s.ownerID(r), month, now)
+	signals, limitations, _, err := s.loadAnalysisSignals(r.Context(), s.ownerID(r), month, now)
 	if err != nil {
 		writeErr(w, 500, fmt.Errorf("signaux analytiques indisponibles"))
 		return
