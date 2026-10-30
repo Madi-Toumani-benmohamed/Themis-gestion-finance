@@ -1,3 +1,4 @@
+import { documentKey } from './documentKey.mjs'
 export const LIMITS = {
   rows: 100,
   columns: 26,
@@ -111,7 +112,7 @@ export function newWorkbook(
   title = 'Nouvelle feuille',
 ) {
   return {
-    client_key: crypto.randomUUID(),
+    client_key: documentKey(),
     title,
     type: 'workbook',
     schema_version: 1,

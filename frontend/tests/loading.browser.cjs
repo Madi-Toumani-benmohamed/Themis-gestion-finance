@@ -4,6 +4,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
+const verifyHttpAccess = require('./laboratory-http-check.cjs')
 const base = 'http://127.0.0.1:5190'
 const manifest = JSON.parse(fs.readFileSync(path.resolve('dist/.vite/manifest.json'), 'utf8'))
 const asset = name => manifest[`src/pages/${name}.jsx`].file
@@ -71,6 +72,7 @@ async function main() {
     await page.getByRole('button', { name: 'Recharger la page', exact: true }).click()
     await expect(page.getByText("Aucune donnée pour l'instant.", { exact: true })).toBeVisible()
     assert.deepEqual(errors, [])
+    await verifyHttpAccess(browser, base)
     const bytes = loginScripts.reduce((sum, file) => sum + fs.statSync(path.join('dist', file)).size, 0)
     console.log(JSON.stringify({ result: 'PASS', login_js_bytes: bytes, login_scripts: loginScripts, checks: 'deferred Laboratory/Fiscal/Worker, production decimal calculation, routes/charts, focus prefetch, module reuse, failed chunk and recovery' }, null, 2))
   } finally { await browser?.close(); preview.kill('SIGTERM') }
