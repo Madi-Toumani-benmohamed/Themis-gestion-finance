@@ -1,6 +1,6 @@
 # Audit — Intelligence financière v2
 
-Date de l’audit : 2026-10-29. Périmètre : backend, mémoire, migrations, Dashboard/Analyse/Assistant et tests existants. Cet audit décrit le code observé sur `feat/intelligence-v2-foundation` ; les constats sont des points de départ de migration, pas une spécification concurrente.
+Date de l’audit : 2026-10-29. Périmètre : backend, mémoire, migrations, Dashboard/Analyse/Assistant et tests existants. Les constats initiaux décrivent `feat/intelligence-v2-foundation`; les sections d’état d’implémentation ci-dessous consignent les lots ajoutés ensuite.
 
 ## Synthèse
 
@@ -52,8 +52,8 @@ Les endpoints ne sont pas tous des moteurs indépendants : anomalies et hero app
 ## Persistance, événements et interface
 
 - PostgreSQL et migrations embarquées lexicalement dans `internal/db/migrations` ; migration 027 est la plus récente. Les schémas récents utilisent contraintes composées `(id, owner_id)` pour empêcher les références inter-propriétaires.
-- Il existe un registre de décisions explicites pour les récurrences (020), mais aucun registre versionné de découvertes, feedback générique, files de recalcul ou worker intelligence.
-- Mutations pertinentes déjà routées : confirmation/suppression/revalidation d’import, PATCH transaction (catégorie/tags), règles, alias marchand, tags/domaines, allocations et corrections de remboursement. Il n’existe pas de signal événementiel commun. Le traitement Graphiti après import est un goroutine best effort, pas une file résiliente.
+- Il existe un registre de décisions explicites pour les récurrences (020). Les migrations 028–030 ajoutent le registre versionné, le feedback générique, les préférences et une file coalescée de recalcul avec worker PostgreSQL.
+- Les mutations pertinentes sont raccordées au middleware de file après un retour HTTP réussi : confirmation/suppression d’import, modification de transaction, règles, alias marchand, tags/domaines, comptes, remboursements, récurrences et réapplication des règles. Le worker utilise des baux, `SKIP LOCKED`, coalescence par propriétaire, reprise bornée et endpoint de statut. L’enqueue est best effort pour ne jamais annuler une mutation financière validée.
 - Dashboard affiche synthèse, KPI et journal ; pas de section “Ce que Thémis a remarqué”. Analyse affiche les découvertes existantes. Assistant ne peut pas explorer une découverte par ID.
 
 ## Plan d’intégration recommandé
@@ -79,6 +79,30 @@ Les endpoints ne sont pas tous des moteurs indépendants : anomalies et hero app
 - La migration additive `028_intelligence_registry.sql` ajoute les identités de phénomène, observations versionnées et historique de feedback. Son rollback refuse de supprimer des données existantes.
 - `Registry.Record` est idempotent pour un même contenu/version, conserve l’identité lors d’une nouvelle observation et vérifie que chaque ID de transaction référencé appartient au propriétaire indiqué. Les observations disparues peuvent être résolues sans réactiver celles que l’utilisateur a masquées.
 - `GET /api/intel/feed` lit uniquement le registre, par utilisateur, 3 éléments par défaut et 50 maximum. `GET /api/intel/discoveries/{id}` applique le même cloisonnement et fournit jusqu’à 100 observations historiques.
-- `POST /api/intel/recompute` mutualise la revue des récurrences et les signaux d’analyse existants : récurrences, dérive marchand, hausse taguée, motif saisonnier, montant récurrent à vérifier et services similaires. Les montants restent en centimes; les preuves sources et réserves de couverture sont adaptées explicitement. Ce recalcul est synchrone, manuel, sérialisé par propriétaire et borné à 500 découvertes; il ne bloque pas l’ouverture du Dashboard.
-- `POST /api/intel/discoveries/{id}/feedback` journalise les sept actions prévues. `hide` masque immédiatement; `unhide` met en état résolu et une preuve retrouvée par recalcul réactive le phénomène. Les autres retours sont persistés, mais leur ajustement de pertinence est réservé à la personnalisation du Lot 3.
-- Le lot a des tests unitaires et d’intégration PostgreSQL pour identité/version, idempotence, historique, feedback, réconciliation, verrou concurrent et isolation propriétaire. Les déclencheurs automatiques après mutations, la file durable et la vue Dashboard restent hors de cette fondation et doivent être livrés avant de qualifier l’expérience de proactive.
+- `POST /api/intel/recompute` mutualise la revue des récurrences, les signaux d’analyse existants et comportementaux. Il reste disponible comme action immédiate et est aussi appelé par le worker; le travail durable est coalescé par propriétaire et n’est pas exécuté au chargement du Dashboard. Le calcul est sérialisé par propriétaire et borné à 500 découvertes.
+- `POST /api/intel/discoveries/{id}/feedback` journalise les sept actions prévues. `hide` masque immédiatement; `unhide` met en état résolu et une preuve retrouvée par recalcul réactive le phénomène. Les retours non lifecycle alimentent maintenant les préférences du Lot 3.
+- Le lot a des tests unitaires et d’intégration PostgreSQL pour identité/version, idempotence, historique, feedback, réconciliation, verrou concurrent et isolation propriétaire. Le déclenchement automatique, la file et l’historique Dashboard ont été ajoutés dans les lots suivants.
+
+## État d’implémentation — Lot 2 (signaux comportementaux intégrés)
+
+- `internal/intelligence/behavior.go` fournit trois détecteurs purs : hausse progressive sur exactement six mois consécutifs (quatre pas haussiers minimum, +100 € et +30 % si la base est positive), contributions entre deux fenêtres disjointes de trois mois avec rapprochement exact, et hausse de fréquence nécessitant au moins trois opérations supplémentaires, +50 % ou plus et une activité sur deux mois récents au minimum.
+- `internal/api/behavior_discoveries.go` calcule des tendances par marchand/catégorie, décompose une variation des débits ordinaires par marchand, et mesure les fréquences d’achat par marchand et le week-end par catégorie. Le service travaille dans un snapshot PostgreSQL répétable, owner-scoped; il suspend tous ces signaux si l’un des six mois n’est pas entièrement documenté. Les transferts sont exclus via `financialExpenseSQLT`; les sommes sont analysées en centimes.
+- Les contributions positives et négatives sont rapprochées aux sommes des six mois. La carte garde trois contributeurs positifs au plus et une contribution résiduelle nette, avec les preuves transactionnelles des marchands contributeurs référencées (limite de registre : 500 IDs par observation).
+- Limites : la fréquence par catégorie mesure le week-end; six mois ne suffisent pas à distinguer une saisonnalité; les remboursements non rapprochés restent séparés des débits observés. Les nouveaux signaux sont consultables via le Dashboard.
+- Tests unitaires couvrent tendances, variation réconciliée, fréquence durable ou ponctuelle et déduplication. `TestBehaviorDiscoveriesPostgres` valide six relevés raccordés, le refus d’un mois non validé et l’exclusion d’un transfert interne.
+
+## État d’implémentation — Lot 3 (préférences explicites)
+
+- La migration additive `029_intelligence_preferences.sql` conserve le dernier retour révisable par découverte avec une note explicite bornée; l’historique complet reste dans `intelligence_feedback`. Le rollback refuse de supprimer des préférences existantes.
+- `GET/PATCH /api/intel/preferences` expose les préférences du propriétaire, permet de corriger une action et une note, ou de supprimer le choix sans effacer l’historique du feedback.
+- Au recalcul, `interesting`, `already_knew`, `irrelevant`, `normal` et `remind_me` ajustent uniquement la pertinence; la confiance, les métriques et les preuves ne changent pas. Un feedback `irrelevant` atténue aussi les signaux de même type avec une pénalité bornée, sans désactiver le détecteur. Graphiti n’est pas requis.
+- Les tests d’intégration PostgreSQL vérifient la persistance, l’édition et la suppression d’une préférence, ainsi que la pénalité spécifique et celle, bornée, appliquée à un phénomène similaire.
+
+## État d’implémentation — Lot 4 (Dashboard et Assistant)
+
+- `IntelligenceHighlights` présente au plus trois découvertes du feed sur le Dashboard, avec période, qualité des preuves, métriques, couverture, limites, liens vers les transactions et actions de feedback. Le recalcul automatique est suivi via `GET /api/intel/jobs/status`; le bouton explicite continue de déclencher un recalcul immédiat.
+- Le détail à la demande affiche l’historique versionné des observations. Les tendances, variations de dépenses et fréquences montrent une comparaison graphique accompagnée d’un tableau accessible contenant les valeurs exactes.
+- Le panneau permet de corriger ou supprimer les préférences apprises. Ses contrôles restent utilisables au clavier et les styles respectent le mouvement réduit.
+- L’outil `get_verified_discoveries` permet à l’Assistant de lire le même feed vérifié, avec métriques, preuves, couverture et limites. Le prompt précise que les textes de relevés, marchands, notes et mémoire sont des données non fiables.
+- Limites restantes : le déclenchement dépend d’une liste explicite de routes mutation; les modifications introduites par un nouveau endpoint devront être ajoutées à cette liste. Le traitement est asynchrone dans le même processus API (plusieurs instances restent protégées par les verrous PostgreSQL); une file dédiée séparée n’est pas prévue. Les graphiques couvrent les comparaisons comportementales courantes, les autres métriques restent lisibles sous forme de valeurs typées et de tableau.
+- Vérification finale de cette étape : `go test ./... -count=1` et `go vet ./...` passent avec PostgreSQL 16 isolé; `npm run build` passe. Vite conserve un avertissement de bundle JavaScript supérieur à 500 kB.

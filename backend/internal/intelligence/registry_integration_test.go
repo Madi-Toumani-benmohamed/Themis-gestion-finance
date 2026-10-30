@@ -49,6 +49,36 @@ func TestRegistryOwnerIsolationAndIdempotentHistoryPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	if err = intelligence.Enqueue(ctx, store, 1, "statement_import"); err != nil {
+		t.Fatal(err)
+	}
+	if err = intelligence.Enqueue(ctx, store, 1, "category_change"); err != nil {
+		t.Fatal(err)
+	}
+	job, err := intelligence.Claim(ctx, store)
+	if err != nil || job == nil || job.OwnerID != 1 || job.Trigger != "category_change" || job.Attempts != 1 {
+		t.Fatalf("coalesced job claim mismatch: %+v %v", job, err)
+	}
+	if err = intelligence.Enqueue(ctx, store, 1, "tag_change"); err != nil {
+		t.Fatal(err)
+	}
+	if err = intelligence.CompleteJob(ctx, store, 1); err != nil {
+		t.Fatal(err)
+	}
+	job, err = intelligence.Claim(ctx, store)
+	if err != nil || job == nil || job.Trigger != "tag_change" {
+		t.Fatalf("mutation during run did not schedule one rerun: %+v %v", job, err)
+	}
+	if err = intelligence.CompleteJob(ctx, store, 1); err != nil {
+		t.Fatal(err)
+	}
+	jobStatus, err := intelligence.GetJobStatus(ctx, store, 1)
+	if err != nil || jobStatus.Status != "done" || jobStatus.LastSuccessAt == nil {
+		t.Fatalf("job status mismatch: %+v %v", jobStatus, err)
+	}
+	if other, err := intelligence.GetJobStatus(ctx, store, 2); err != nil || other.Status != "idle" {
+		t.Fatalf("job status crossed owner boundary: %+v %v", other, err)
+	}
 	discovery := intelligence.Discovery{
 		OwnerID: 1, Kind: "recurring", SubjectKey: "merchant:synthetic-shop", Period: "2026-09",
 		Title: "Hausse observée", Summary: "Quatre périodes complètes comparées.", Confidence: 80,
@@ -108,6 +138,34 @@ func TestRegistryOwnerIsolationAndIdempotentHistoryPostgres(t *testing.T) {
 	}
 	if state, err := intelligence.Feedback(ctx, store, 1, first.ID, "interesting"); err != nil || state != "hidden" {
 		t.Fatalf("non-lifecycle feedback changed state: %q, %v", state, err)
+	}
+	preferences, err := intelligence.Preferences(ctx, store, 1, 100)
+	if err != nil || len(preferences) != 1 || preferences[0].Action != "interesting" {
+		t.Fatalf("feedback preference was not persisted: %+v, %v", preferences, err)
+	}
+	if err = intelligence.SetPreference(ctx, store, 1, first.ID, "irrelevant", "synthetic exception"); err != nil {
+		t.Fatal(err)
+	}
+	preferences, err = intelligence.Preferences(ctx, store, 1, 100)
+	if err != nil || len(preferences) != 1 || preferences[0].Action != "irrelevant" || preferences[0].Note != "synthetic exception" {
+		t.Fatalf("preference edit was not persisted: %+v, %v", preferences, err)
+	}
+	personalized, err := intelligence.ApplyPreference(ctx, store, discovery)
+	if err != nil || personalized.RelevanceScore != discovery.RelevanceScore-12 || personalized.Confidence != discovery.Confidence {
+		t.Fatalf("explicit feedback changed more than priority: %+v, %v", personalized, err)
+	}
+	peer := discovery
+	peer.SubjectKey = "merchant:other-synthetic-shop"
+	peerScore, err := intelligence.ApplyPreference(ctx, store, peer)
+	if err != nil || peerScore.RelevanceScore != discovery.RelevanceScore-3 || peerScore.Confidence != discovery.Confidence {
+		t.Fatalf("similar signal preference penalty mismatch: %+v, %v", peerScore, err)
+	}
+	if err = intelligence.ClearPreference(ctx, store, 1, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	preferences, err = intelligence.Preferences(ctx, store, 1, 100)
+	if err != nil || len(preferences) != 0 {
+		t.Fatalf("cleared preference remained visible: %+v, %v", preferences, err)
 	}
 	if state, err := intelligence.Feedback(ctx, store, 2, first.ID, "hide"); err != intelligence.ErrNotFound {
 		t.Fatalf("cross-owner feedback result = %q, %v", state, err)

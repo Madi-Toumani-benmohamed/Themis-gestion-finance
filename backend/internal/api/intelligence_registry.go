@@ -75,6 +75,41 @@ func (s *Server) intelligenceFeedback(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"action": input.Action, "state": state})
 }
 
+func (s *Server) intelligencePreferences(w http.ResponseWriter, r *http.Request) {
+	items, err := intelligence.Preferences(r.Context(), s.DB, s.ownerID(r), 100)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("préférences intelligence indisponibles"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"preferences": items, "limit": 100})
+}
+
+func (s *Server) updateIntelligencePreferences(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		DiscoveryID string `json:"discovery_id"`
+		Action      string `json:"action"`
+		Note        string `json:"note"`
+		Clear       bool   `json:"clear"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("préférence invalide"))
+		return
+	}
+	var err error
+	if input.Clear {
+		err = intelligence.ClearPreference(r.Context(), s.DB, s.ownerID(r), input.DiscoveryID)
+	} else {
+		err = intelligence.SetPreference(r.Context(), s.DB, s.ownerID(r), input.DiscoveryID, input.Action, input.Note)
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("préférence invalide ou découverte inconnue"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"discovery_id": input.DiscoveryID, "saved": !input.Clear})
+}
+
 func (s *Server) recomputeIntelligence(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Month string `json:"month"`
@@ -118,12 +153,20 @@ func (s *Server) recomputeIntelligence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	legacyRecurringSignals := analysisRecurringSignals(report)
-	analysisSignals, _, err := s.loadAnalysisSignals(r.Context(), owner, month, now)
+	analysisSignals, _, analysisCoverageComplete, err := s.loadAnalysisSignals(r.Context(), owner, month, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Errorf("signaux analytiques indisponibles"))
 		return
 	}
-	discoveries := make([]intelligence.Discovery, 0, len(report.Items)+len(analysisSignals))
+	behaviorDiscoveries, behaviorCoverageComplete, err := s.loadBehaviorDiscoveries(r.Context(), owner, month, now)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Errorf("analyse comportementale indisponible"))
+		return
+	}
+	if behaviorCoverageComplete {
+		analysisSignals = removeSubsumedMerchantDrifts(analysisSignals, behaviorDiscoveries)
+	}
+	discoveries := make([]intelligence.Discovery, 0, len(report.Items)+len(analysisSignals)+len(behaviorDiscoveries))
 	for _, item := range report.Items {
 		if item.Status == "ignored" || item.Direction != "debit" || item.protected || item.Nature == "transfer_savings" || item.Nature == "cash_withdrawal" {
 			continue
@@ -142,15 +185,24 @@ func (s *Server) recomputeIntelligence(w http.ResponseWriter, r *http.Request) {
 		}
 		discoveries = append(discoveries, discovery)
 	}
+	discoveries = append(discoveries, behaviorDiscoveries...)
 	if len(discoveries) > 500 {
 		writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("trop de signaux pour un recalcul interactif"))
 		return
 	}
-	currentIDs := map[string][]string{"recurring": {}, "price_creep": {}, "duplicate_subs": {}, "merchant_drift": {}, "tag_surge": {}, "seasonal": {}}
+	currentIDs := map[string][]string{"recurring": {}, "price_creep": {}, "duplicate_subs": {}, "merchant_drift": {}, "tag_surge": {}, "seasonal": {}, "progressive_trend": {}, "spend_variation_contributors": {}, "weekend_frequency_change": {}, "purchase_frequency_change": {}}
 	for _, discovery := range discoveries {
 		ruleVersion := "analysis-signals-v1"
+		if discovery.Kind == "progressive_trend" || discovery.Kind == "spend_variation_contributors" || discovery.Kind == "weekend_frequency_change" || discovery.Kind == "purchase_frequency_change" {
+			ruleVersion = "behavior-v1"
+		}
 		if discovery.Kind == "recurring" {
 			ruleVersion = "recurring-v1"
+		}
+		discovery, err = intelligence.ApplyPreference(r.Context(), s.DB, discovery)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Errorf("application des préférences intelligence impossible"))
+			return
 		}
 		stored, err := intelligence.Record(r.Context(), s.DB, discovery, ruleVersion)
 		if err != nil {
@@ -160,6 +212,12 @@ func (s *Server) recomputeIntelligence(w http.ResponseWriter, r *http.Request) {
 		currentIDs[stored.Kind] = append(currentIDs[stored.Kind], stored.ID)
 	}
 	for kind, ids := range currentIDs {
+		if !analysisCoverageComplete && (kind == "merchant_drift" || kind == "tag_surge" || kind == "seasonal") {
+			continue // Incomplete comparison windows cannot withdraw prior signals.
+		}
+		if !behaviorCoverageComplete && (kind == "progressive_trend" || kind == "spend_variation_contributors" || kind == "weekend_frequency_change" || kind == "purchase_frequency_change") {
+			continue // Insufficient coverage cannot resolve a previously evidenced phenomenon.
+		}
 		if err := intelligence.ReconcileActive(r.Context(), s.DB, owner, kind, ids); err != nil {
 			writeErr(w, http.StatusInternalServerError, fmt.Errorf("synchronisation des découvertes impossible"))
 			return

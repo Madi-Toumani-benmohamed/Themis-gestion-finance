@@ -94,14 +94,14 @@ func analysisRecurringSignals(report recurringReviewReport) []map[string]any {
 
 // Retains merchant/tag/annual investigations, with bounded dates and a shared
 // documentary gate before comparing monthly totals. SQL errors remain errors.
-func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month string, now time.Time) ([]map[string]any, []string, error) {
+func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month string, now time.Time) ([]map[string]any, []string, bool, error) {
 	first, last, _, err := reliabilityWindow(month, now)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	defer tx.Rollback()
 	out := []map[string]any{}
@@ -114,7 +114,7 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 	for i := 3; i >= 0; i-- {
 		report, e := analysisReportFrom(ctx, tx, owner, months[i], now)
 		if e != nil {
-			return nil, nil, e
+			return nil, nil, false, e
 		}
 		if report.Period.Completeness != "complete" {
 			comparable = false
@@ -130,7 +130,7 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
  JOIN transaction_tags tt ON tt.transaction_id=t.id JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id
  GROUP BY tg.name,to_char(t.tx_date,'YYYY-MM')`, owner, first.AddDate(0, -3, 0).Format("2006-01-02"), last.Format("2006-01-02"))
 		if e != nil {
-			return nil, nil, e
+			return nil, nil, false, e
 		}
 		type group struct {
 			kind, name string
@@ -141,12 +141,12 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 			var kind, name, m, raw string
 			if e = rows.Scan(&kind, &name, &m, &raw); e != nil {
 				rows.Close()
-				return nil, nil, e
+				return nil, nil, false, e
 			}
 			amount, pe := parseAnalysisAmount(raw)
 			if pe != nil {
 				rows.Close()
-				return nil, nil, pe
+				return nil, nil, false, pe
 			}
 			key := kind + ":" + name
 			if groups[key] == nil {
@@ -157,7 +157,7 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 		e = rows.Err()
 		rows.Close()
 		if e != nil {
-			return nil, nil, e
+			return nil, nil, false, e
 		}
 		keys := []string{}
 		for key := range groups {
@@ -188,7 +188,7 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
  FROM transactions t WHERE t.owner_id=$1 AND t.amount<=-80 AND t.tx_date BETWEEN $2::date AND $3::date`+notTransferT+`
  GROUP BY 1,2 ORDER BY 1,2`, owner, first.AddDate(0, -35, 0).Format("2006-01-02"), last.Format("2006-01-02"))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	patterns := map[string][]string{}
 	for rows.Next() {
@@ -196,14 +196,14 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 		var count int
 		if err = rows.Scan(&name, &m, &count); err != nil {
 			rows.Close()
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 		patterns[name] = append(patterns[name], m)
 	}
 	err = rows.Err()
 	rows.Close()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	names := []string{}
 	for name := range patterns {
@@ -225,7 +225,7 @@ func (s *Server) loadAnalysisSignals(ctx context.Context, owner int64, month str
 		}
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
-	return out, limits, nil
+	return out, limits, comparable, nil
 }

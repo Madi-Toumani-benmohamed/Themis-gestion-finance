@@ -33,6 +33,8 @@ func main() {
 	srv := &api.Server{DB: database, Cfg: cfg}
 	srv.BackfillDisplayLabels() // noms d'affichage : rattrapage de l'existant
 	srv.Memory = memory.New(memory.Load())
+	workerCtx, stopWorker := context.WithCancel(context.Background())
+	workerDone := srv.StartIntelligenceWorker(workerCtx)
 	mux := http.NewServeMux()
 	mux.Handle("/api/", srv.Router())
 
@@ -59,19 +61,19 @@ func main() {
 
 	go func() {
 		if ok, detail := parser.OCRStatus(); ok {
-		log.Printf("OCR opérationnel (pdftoppm + tesseract fra)")
-	} else {
-		log.Printf("ATTENTION — OCR indisponible : %s ; les relevés sans couche texte (Crédit Agricole…) nécessiteront ANTHROPIC_API_KEY", detail)
-	}
-	srv.InitAI() // env, ou config admin persistée en base si présente
-	llm.ConfigTimeouts(cfg)
-	srv.StartSessionCleanup()
-	if o, ok := srv.GetLLMForCheck().(*llm.Ollama); ok {
-		if err := o.Ping(context.Background()); err != nil {
-			log.Printf("ATTENTION — %v", err)
+			log.Printf("OCR opérationnel (pdftoppm + tesseract fra)")
+		} else {
+			log.Printf("ATTENTION — OCR indisponible : %s ; les relevés sans couche texte (Crédit Agricole…) nécessiteront ANTHROPIC_API_KEY", detail)
 		}
-	}
-	log.Printf("thémis démarre sur :%s", cfg.Port)
+		srv.InitAI() // env, ou config admin persistée en base si présente
+		llm.ConfigTimeouts(cfg)
+		srv.StartSessionCleanup()
+		if o, ok := srv.GetLLMForCheck().(*llm.Ollama); ok {
+			if err := o.Ping(context.Background()); err != nil {
+				log.Printf("ATTENTION — %v", err)
+			}
+		}
+		log.Printf("thémis démarre sur :%s", cfg.Port)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("serveur: %v", err)
 		}
@@ -82,6 +84,12 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	log.Println("arrêt en cours…")
+	stopWorker()
+	select {
+	case <-workerDone:
+	case <-time.After(5 * time.Second):
+		log.Println("arrêt du worker intelligence différé")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)

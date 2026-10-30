@@ -7,6 +7,7 @@ import { MotionSurface } from '../motion/Motion'
 import { CinematicDashboard } from '../motion/CinematicDashboard'
 import { dashboardModel } from '../components/dashboardModel.mjs'
 import { FinancialSummary } from '../components/FinancialSummary'
+import { IntelligenceHighlights } from '../components/IntelligenceHighlights'
 
 let uid = 100
 const newId = () => `w${uid++}_${Date.now() % 10000}`
@@ -309,7 +310,8 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
 
       <MotionSurface className="cinematic-summary panel-level-hero" revealKey="summary"><FinancialSummary history={data.monthly} selectedMonth={selectedMonth} onInspectCoverage={month => onNavigate?.('statements', { month })} /></MotionSurface>
       <MotionSurface delay={80} revealKey="kpis"><KpiRow selectedMonth={selectedMonth} /></MotionSurface>
-      <MotionSurface className="panel-level-editorial" delay={160} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
+      <MotionSurface delay={120} revealKey="intelligence"><IntelligenceHighlights onNavigate={onNavigate} month={selectedMonth} /></MotionSurface>
+      <MotionSurface className="panel-level-editorial" delay={180} revealKey="journal"><Journal onNavigate={onNavigate} selectedMonth={selectedMonth} /></MotionSurface>
 
       <div className="dash-toolbar">
         <div className="dashboard-section-title"><span className="eyebrow">Explorer tes finances</span><h2>Les détails font la différence.</h2><span className="dashboard-save-state" role="status">{saveState === 'saving' ? 'Enregistrement…' : saveState === 'saved' ? 'Disposition enregistrée ✓' : ''}</span></div>
