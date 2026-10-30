@@ -194,6 +194,15 @@ func (s *Server) setTagFolderPref(w http.ResponseWriter, r *http.Request) {
 	case "auto":
 		_, err = s.DB.ExecContext(r.Context(), `DELETE FROM tag_folder_prefs WHERE owner_id=$1 AND tag_name=$2`, owner, name)
 	case "pinned", "hidden":
+		var exists bool
+		if err = s.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM tags WHERE owner_id=$1 AND name=$2)`, owner, name).Scan(&exists); err != nil {
+			writeErr(w, 500, fmt.Errorf("tag indisponible"))
+			return
+		}
+		if !exists {
+			writeErr(w, 404, fmt.Errorf("tag introuvable"))
+			return
+		}
 		_, err = s.DB.ExecContext(r.Context(), `INSERT INTO tag_folder_prefs(owner_id,tag_name,state) VALUES($1,$2,$3) ON CONFLICT(owner_id,tag_name) DO UPDATE SET state=EXCLUDED.state`, owner, name, in.State)
 	default:
 		writeErr(w, 400, fmt.Errorf("state doit être pinned, hidden ou auto"))

@@ -61,6 +61,14 @@ func TestReimbursementMigrationPreservesTransactionsAndSafeRollbackPostgres(t *t
 	if beforeAmount != afterAmount || beforeDate != afterDate || beforeHash != afterHash || beforeAmount != "-10.00" {
 		t.Fatalf("bank transaction changed: before=%s/%s/%s after=%s/%s/%s", beforeAmount, beforeDate, beforeHash, afterAmount, afterDate, afterHash)
 	}
+	// Roll back the newer dependent project migration first (reverse order).
+	projectRollback, err := os.ReadFile("rollbacks/031_financial_projects.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(projectRollback)); err != nil {
+		t.Fatal(err)
+	}
 	rollback, err := os.ReadFile("rollbacks/027_reimbursements.sql")
 	if err != nil {
 		t.Fatal(err)

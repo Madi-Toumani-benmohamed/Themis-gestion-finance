@@ -449,6 +449,15 @@ func (s *Server) changeStatement(w http.ResponseWriter, r *http.Request, deletin
 			writeErr(w, 500, fmt.Errorf("contrôle des remboursements indisponible"))
 			return
 		}
+		var projectLinked bool
+		if err = tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM project_transactions pt JOIN transactions t ON t.id=pt.transaction_id AND t.owner_id=pt.owner_id WHERE t.statement_id=$1 AND pt.owner_id=$2 AND pt.state='confirmed')`, id, owner).Scan(&projectLinked); err != nil {
+			writeErr(w, 500, fmt.Errorf("contrôle des projets indisponible"))
+			return
+		}
+		if projectLinked {
+			writeErr(w, 409, fmt.Errorf("suppression bloquée : retire d’abord les confirmations des projets liés"))
+			return
+		}
 		var linked bool
 		if err = tx.QueryRowContext(r.Context(), `SELECT
 		 EXISTS(SELECT 1 FROM reimbursement_cases c JOIN transactions t ON t.id=c.credit_transaction_id AND t.owner_id=c.owner_id WHERE t.statement_id=$1 AND c.owner_id=$2 AND c.status<>'voided')
