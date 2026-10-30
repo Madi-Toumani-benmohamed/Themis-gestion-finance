@@ -10,6 +10,7 @@ const modules = {
   accounts: () => import('./pages/Accounts'),
   credits: () => import('./pages/Credits'),
   analyse: () => import('./pages/Analyse'),
+  laboratory: () => import('./pages/Laboratory'),
   simulate: () => import('./pages/Simulate'),
   assistant: () => import('./pages/Assistant'),
 }

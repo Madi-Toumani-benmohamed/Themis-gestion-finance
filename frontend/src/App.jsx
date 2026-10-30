@@ -4,6 +4,7 @@ import ImportPreview from './components/ImportPreview'
 import { reviewedImport } from './components/reviewedImport.mjs'
 import { useToast } from './Toast'
 import Auth from './pages/Auth'
+import { LaboratoryProvider, LaboratoryTrigger, clearLaboratoryRecovery } from './components/laboratory/LaboratoryProvider'
 import { Pages, PageLoader, preloadPage } from './PageLoader'
 import AssistantFloating from './components/AssistantFloating'
 import HalftoneWordmarkFooter from './components/ui/halftone-wordmark-footer'
@@ -17,7 +18,7 @@ import { ActiveNavigation, NavigationMotion, PageTransition, usePageNavigation, 
 const {
   dashboard: Dashboard, transactions: Transactions, statements: Statements,
   advice: Advice, budgets: Budgets, admin: Admin, accounts: Accounts,
-  credits: Credits, analyse: Analyse, simulate: Simulate, assistant: Assistant,
+  credits: Credits, analyse: Analyse, simulate: Simulate, laboratory: Laboratory, assistant: Assistant,
 } = Pages
 const preparePage = name => { preloadPage(name).catch(() => {}) }
 
@@ -25,7 +26,7 @@ const preparePage = name => { preloadPage(name).catch(() => {}) }
 const NAV_BASE = [
   ['Pilotage',   [['dashboard', 'Tableau de bord']]],
   ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
-  ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation']]],
+  ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation'], ['laboratory', 'Laboratoire']]],
   ['Sources',    [['statements', 'Relevés'], ['advice', 'Conseils IA']]],
 ]
 // Liste à plat (titre de page, recherche) — inclut admin.
@@ -62,6 +63,7 @@ export default function App() {
   const toast = useToast()
   const reduced = useMotionReduced()
   const [tab, setTab] = useState('dashboard')
+  const [simulationMode, setSimulationMode] = useState('budget')
   const navigateScene = usePageNavigation()
   const [cmdOpen, setCmdOpen] = useState(false)
   const [theme, setTheme] = useState(() => {
@@ -127,9 +129,9 @@ export default function App() {
       .then((st) => {
         setSetupRequired(st.setup_required)
         if (st.setup_required) { setMe(null); return null }
-        return api.authMe().then(setMe).catch(() => setMe(null))
+        return api.authMe().then(setMe).catch(error => { if (error.status === 401) clearLaboratoryRecovery(); setMe(null) })
       })
-      .catch(() => setMe(null))
+      .catch(error => { if (error.status === 401) clearLaboratoryRecovery(); setMe(null) })
   }, [])
 
   useEffect(() => {
@@ -146,6 +148,7 @@ export default function App() {
     uploadQueueCancelled.current = true
     decideImport(false)
     try { await api.authLogout() } catch { /* ignore */ }
+    clearLaboratoryRecovery()
     setMe(null); setSetupRequired(false)
     api.authStatus().then((st) => setSetupRequired(st.setup_required)).catch(() => {})
   }
@@ -273,6 +276,7 @@ export default function App() {
   }
 
   return (
+    <LaboratoryProvider key={me.id} owner={me.id} onNavigate={navigateTo}>
     <div
       className="app"
       onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
@@ -331,6 +335,7 @@ export default function App() {
               <span className="nav-label">Admin</span>
             </button>
           )}
+          <LaboratoryTrigger />
           <button
             className="theme-toggle"
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
@@ -353,7 +358,7 @@ export default function App() {
 
       <div className="app-main">
       <header className="topbar">
-        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span></div>
+        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>{tab === 'simulate' && <select className="simulation-mode" aria-label="Mode de simulation" value={simulationMode} onChange={e => setSimulationMode(e.target.value)}><option value="budget">Budget</option><option value="fiscal">Fiscalité</option></select>}</div>
         <div className="topbar-right">
           <button className="topbar-search" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
@@ -417,7 +422,8 @@ export default function App() {
           {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
           {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
           {tab === 'credits' && <Credits />}
-          {tab === 'simulate' && <Simulate />}
+          {tab === 'simulate' && <Simulate mode={simulationMode} />}
+          {tab === 'laboratory' && <Laboratory />}
           {tab === 'accounts' && <Accounts />}
           {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
           {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
@@ -472,5 +478,6 @@ export default function App() {
         </m.div>
       )}</AnimatePresence>
     </div>
+    </LaboratoryProvider>
   )
 }

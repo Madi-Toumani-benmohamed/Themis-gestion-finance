@@ -4,7 +4,7 @@ export const kindIcon = (k) => ({ savings: '💰', tax: '🏛️', benefit: '�
 const json = (r) => {
   if (r.status === 204) return null
   return r.json().then((body) => {
-    if (!r.ok) throw new Error(body?.error || `Erreur ${r.status}`)
+    if (!r.ok) throw Object.assign(new Error(body?.error || `Erreur ${r.status}`), { status: r.status })
     return body
   })
 }
@@ -26,6 +26,12 @@ const scopedG = (path, params = {}, options = {}) => {
 }
 
 export const api = {
+  fiscalRules: (options = {}) => scopedG('/api/fiscal/rules', {}, options),
+  fiscalSimulate: input => J('/api/fiscal/simulate', 'POST', input),
+  laboratoryList: (offset = 0, options = {}) => scopedG('/api/laboratory', { offset }, options),
+  laboratoryGet: (id, options = {}) => scopedG(`/api/laboratory/${id}`, {}, options),
+  laboratorySave: (id, document) => J(id ? `/api/laboratory/${id}` : '/api/laboratory', id ? 'PUT' : 'POST', document),
+  laboratoryDelete: (id, revision) => J(`/api/laboratory/${id}`, 'DELETE', { revision }),
   health: () => fetch('/api/health').then(json),
   tagsInCategory: (categoryId, month, options = {}) => scopedG('/api/analytics/tags-in-category', { category: categoryId, month }, options),
   tagSeries: (tags, period = 'month', params = {}, options = {}) => scopedG('/api/analytics/tag-series', { period, ...params, tags: tags?.length ? tags.join(',') : undefined }, options),

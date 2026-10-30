@@ -369,6 +369,13 @@ func TestEngagementExportOwnerIsolationPostgres(t *testing.T) {
 	if _, err = db.Exec(string(projectSchema)); err != nil {
 		t.Fatal(err)
 	}
+	labSchema, err := os.ReadFile("../db/migrations/032_laboratory.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(labSchema)); err != nil {
+		t.Fatal(err)
+	}
 	for _, owner := range []int64{1, 2} {
 		w := engagementRequest(t, s, s.createCredit, "POST", "/api/credits", fmt.Sprintf(`{"name":"CONFIDENTIAL_OWNER_%d","monthly_amount":"33.33","months_total":3,"start_month":"2020-01","opening_paid":"0.00"}`, owner), owner, 201)
 		var c creditView
