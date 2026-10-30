@@ -357,6 +357,18 @@ func TestEngagementExportOwnerIsolationPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Export now includes project evidence. Apply the real additive schema,
+	// with the shared transaction identity index from migration 027.
+	if _, err = db.Exec(`CREATE UNIQUE INDEX idx_transactions_identity_owner ON transactions(id,owner_id)`); err != nil {
+		t.Fatal(err)
+	}
+	projectSchema, err := os.ReadFile("../db/migrations/031_financial_projects.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(projectSchema)); err != nil {
+		t.Fatal(err)
+	}
 	for _, owner := range []int64{1, 2} {
 		w := engagementRequest(t, s, s.createCredit, "POST", "/api/credits", fmt.Sprintf(`{"name":"CONFIDENTIAL_OWNER_%d","monthly_amount":"33.33","months_total":3,"start_month":"2020-01","opening_paid":"0.00"}`, owner), owner, 201)
 		var c creditView

@@ -93,7 +93,7 @@ Client{Learn, Query, SearchFacts, BuildFinancialFacts}
 - Appelé par `chat.go` (enrichit prompt) et `handlers.go` (apprend à l'import)
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `027_reimbursements.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+- `001_init.sql` → `031_financial_projects.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
 
 ### Remboursements manuels
 - `reimbursements.go` expose les routes authentifiées `/api/reimbursements*`; `reimbursement_service.go` porte les snapshots, allocations en centimes, verrous, statuts et historique.
@@ -663,3 +663,14 @@ Réutilise `period.go` (`getPeriodInfo`, `comparePeriod`) :
 - `normalize_backfill.go` version 5 met à jour uniquement les colonnes de présentation/type par son transactionnel existant ; aucune migration SQL. `recurring_review.go` regroupe ces occurrences sous un libellé fonctionnel pour la revue, sans classer les retraits en abonnement.
 - `merchant_alias.go::setAlias` exécute désormais l’upsert et sa propagation dans une transaction unique, renvoie les erreurs au lieu de masquer l’échec et aligne le prédicat motif sur les clés vérifiées à l’import. La liste expose `is_pattern`, conservé par correction dans `MerchantList.jsx`. Test d’intégration synthétique : propriétaire isolé et rollback alias+transactions.
 - Tests ciblés : `normalize_test.go`, `recurring_review_test.go`, `transaction_quality_integration_test.go`. Résultats de validation et limitations consignés au compte rendu de mission.
+
+
+### Projets financiers — octobre 2026
+
+- `api/projects.go`, `project_report.go`, `project_links.go`, `project_sources.go` : projets stables, budget facultatif en centimes, partitions réconciliées, confirmations uniques et sources paginées. Le rapport utilise un snapshot REPEATABLE READ et les prédicats financiers/documentaires partagés.
+- Migration additive `031_financial_projects.sql` : `financial_projects`, `project_rules`, `project_transactions`, `project_history`, FK composites propriétaire, contraintes/unicité/index et protection des sources confirmées. Rollback gardé, en ordre inverse avant 027.
+- `intelligence_jobs.go` réutilise le worker durable post-import pour les suggestions déterministes bornées, sans confirmation automatique ni écrasement des rejets. Aucune mutation pendant GET.
+- `project_chat.go` ajoute `get_project_analysis` à l'orchestrateur existant : mêmes faits propriétaire, montants formatés côté backend, IA facultative. `export.go` inclut projets, critères et décisions ; `statement_controls.go` refuse une suppression de source encore confirmée.
+- `FinancialProjects.jsx` et `FinancialProject{Forms,Links,UI}.jsx` apportent vue globale/détail, règles, confirmation/rejet par lot et association manuelle ; `projectModel.mjs` valide la réconciliation à la réception et les saisies exactes. Les anciennes vues `TagFolders` restent accessibles ; reprise par règle et validation explicite.
+- Tests : `projects_integration_test.go` (PostgreSQL synthétique, deux utilisateurs, argent, périodes, imports, erreurs, suppression, export/Assistant, concurrence), `db/project_migration_test.go`, `projectModel.test.mjs`, `tests/projects.browser.cjs` (Axe/responsive) et `tests/e2e/projects.spec.ts` (API/import/auth réels).
+- Audit, contrats, limites et reprise : `docs/PROJECT_ANALYSIS_{AUDIT,API,PROGRESS,REPORT}.md` ; preuve visuelle comparative dans `PROJECT_ANALYSIS_VISUAL_COMPARISON.md`.
