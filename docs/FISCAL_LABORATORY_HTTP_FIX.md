@@ -1,0 +1,11 @@
+# Correction — page blanche sur une VM HTTP et accès aux impôts
+
+Le bug a été reproduit dans le build de production depuis une origine HTTP hors localhost, comme une IP de VM. `isSecureContext=false`, `crypto.randomUUID` absent, `crypto.getRandomValues` disponible. Nouvelle feuille affichait une erreur ; ouvrir la calculatrice déclenchait `crypto.randomUUID is not a function` pendant le rendu et démontait la racine React entière (0 enfant dans #root). Les tests précédents sur localhost ne pouvaient pas le détecter : les navigateurs traitent localhost comme un contexte sécurisé.
+
+Le helper documentKey emploie l’UUID natif quand il existe et sinon16octets de getRandomValues, avec version4 et variante RFC4122. Il ne remplace jamais l’entropie sûre par Math.random. Toutes les actions du Laboratoire utilisent le même helper. Le calcul rapide ne génère plus d’identifiant pendant son rendu : il attend la sauvegarde, dans le bloc de gestion d’erreur. Les copies et suppressions gardent aussi leurs erreurs dans ce bloc, sans effet aléatoire dans un updater React.
+
+L’entrée **Impôts** est maintenant visible dans la navigation ; elle charge directement le simulateur existant. Le sélecteur Fiscalité dans Simulation reste disponible. Aucune modification des règles fiscales, de l’authentification, des montants ou du schéma PostgreSQL.
+
+Validation locale :80tests unitaires Node réussis ; build production ; test de chargement/Worker et nouveau parcours HTTP en1280 et360px avec mouvements normaux, randomUUID réellement absent, création/enregistrement/copie de feuille, calculatrice/enregistrement/conversion et simulation fiscale via Impôts. Aucun pageerror, pas de débordement horizontal. Ce parcours est inclus dans la commande CI existante `npm run test:loading` ; le scénario E2E fiscal vérifie aussi la nouvelle entrée avant le parcours historique.
+
+Pour une VM déjà déployée, le code local ne met pas le service à jour : reconstruire ou remplacer le conteneur avec la version corrigée, puis recharger l’onglet. Avec le Compose du dépôt qui construit app depuis les sources : actualiser le dépôt, puis `docker compose up -d --build app`. Avec une image GHCR, récupérer la nouvelle image et recréer le conteneur selon la configuration utilisée. Ne pas supprimer les volumes PostgreSQL.
