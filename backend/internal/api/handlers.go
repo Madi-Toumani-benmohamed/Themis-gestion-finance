@@ -36,6 +36,13 @@ type Server struct {
 func (s *Server) Router() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /api/fiscal/rules", s.engagementAuthenticated(s.fiscalRules))
+	mux.HandleFunc("POST /api/fiscal/simulate", s.engagementAuthenticated(s.fiscalSimulate))
+	mux.HandleFunc("GET /api/laboratory", s.engagementAuthenticated(s.laboratoryList))
+	mux.HandleFunc("POST /api/laboratory", s.engagementAuthenticated(s.laboratorySave))
+	mux.HandleFunc("GET /api/laboratory/{id}", s.engagementAuthenticated(s.laboratoryGet))
+	mux.HandleFunc("PUT /api/laboratory/{id}", s.engagementAuthenticated(s.laboratorySave))
+	mux.HandleFunc("DELETE /api/laboratory/{id}", s.engagementAuthenticated(s.laboratoryDelete))
 	mux.HandleFunc("POST /api/statements", s.uploadStatement)
 	mux.HandleFunc("POST /api/statements/previews", s.uploadStatement)
 	mux.HandleFunc("POST /api/statements/previews/{token}/confirm", s.confirmImportPreview)

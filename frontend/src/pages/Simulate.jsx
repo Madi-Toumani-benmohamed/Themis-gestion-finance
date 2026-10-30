@@ -1,6 +1,6 @@
 import { ProgressFill, Reveal } from '../motion'
 import { AnimatedNumber } from '../motion/AnimatedNumber'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import {
   cents,
@@ -44,7 +44,7 @@ function MoneyInput({ label, value, onChange, placeholder }) {
     </label>
   )
 }
-export default function Simulate() {
+function BudgetSimulation() {
   const [reference, setReference] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -651,4 +651,12 @@ export default function Simulate() {
       )}
     </div>
   )
+}
+
+const FiscalSimulation = lazy(() => import('../components/FiscalSimulation'))
+export default function Simulate({ mode = 'budget' }) {
+  const [fiscalOpened, setFiscalOpened] = useState(mode === 'fiscal')
+  useEffect(() => { if (mode === 'fiscal') setFiscalOpened(true) }, [mode])
+  return <><div hidden={mode !== 'budget'}><BudgetSimulation /></div>
+    {fiscalOpened && <div hidden={mode !== 'fiscal'}><Suspense fallback={<p role="status">Chargement de la fiscalité…</p>}><FiscalSimulation /></Suspense></div>}</>
 }
