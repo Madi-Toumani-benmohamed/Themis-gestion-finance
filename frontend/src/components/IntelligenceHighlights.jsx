@@ -81,7 +81,10 @@ export function IntelligenceHighlights({ onNavigate, month }) {
     let active = true
     let wasPending = false
     let previousRequest = ''
+    let polling = false
     const poll = async () => {
+      if (!active || document.hidden || polling) return
+      polling = true
       try {
         const status = await api.intelJobStatus()
         if (!active) return
@@ -92,10 +95,17 @@ export function IntelligenceHighlights({ onNavigate, month }) {
         wasPending = pending
         previousRequest = status.requested_at || previousRequest
       } catch { /* Le feed existant reste lisible si le suivi du job échoue. */ }
+      finally { polling = false }
     }
     poll()
     const timer = window.setInterval(poll, 5000)
-    return () => { active = false; window.clearInterval(timer) }
+    const resume = () => { if (!document.hidden) poll() }
+    document.addEventListener('visibilitychange', resume)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', resume)
+    }
   }, [load])
 
   useEffect(() => {

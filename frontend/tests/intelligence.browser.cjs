@@ -16,13 +16,13 @@ async function main() {
     const context = await browser.newContext()
     const page = await context.newPage()
     const errors = [], unexpected = [], mutations = []
-    let hidden = false, preference = null
+    let hidden = false, preference = null, jobRequests = 0
     page.on('pageerror', error => { errors.push(error.message); console.error(error.message) })
     await page.route('**/api/**', async route => {
       const request = route.request(), path = new URL(request.url()).pathname
       let body
       if (path === '/api/intel/feed') body = { discoveries: hidden ? [] : [discovery] }
-      else if (path === '/api/intel/jobs/status') body = { status: 'idle' }
+      else if (path === '/api/intel/jobs/status') { jobRequests++; body = { status: 'idle' } }
       else if (path === '/api/intel/discoveries/synthetic-trend' && request.method() === 'GET') body = { discovery, observations: [{ ...discovery, observation_id: 'observation-test' }] }
       else if (path === '/api/intel/discoveries/synthetic-trend/feedback') {
         const data = request.postDataJSON()
@@ -44,6 +44,7 @@ async function main() {
       window.__navigation = [];
       ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(IntelligenceHighlights, { month: '2026-06', onNavigate: (...args) => window.__navigation.push(args) }));
     </script></body></html>` }))
+    await page.clock.install()
     await page.goto(`${base}/__intelligence_test__`)
     await expect(page.getByRole('heading', { name: discovery.title })).toBeVisible()
     await page.getByRole('button', { name: 'Voir l’historique, le calcul et les limites' }).click()
@@ -71,11 +72,24 @@ async function main() {
         assert.deepEqual(result.violations.map(v => ({ id: v.id, nodes: v.nodes.map(n => ({ target: n.target, failure: n.failureSummary })) })), [], `${theme} Axe at ${width}`)
       }
     }
+    await expect.poll(() => jobRequests).toBeGreaterThan(0)
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    const beforeHidden = jobRequests
+    await page.clock.fastForward(15_000)
+    assert.equal(jobRequests, beforeHidden, 'Hidden tabs must not poll intelligence jobs')
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await expect.poll(() => jobRequests).toBeGreaterThan(beforeHidden)
     await page.getByRole('button', { name: 'Masquer', exact: true }).click()
     await expect(page.locator('.intel-empty')).toContainText('Aucune découverte suffisamment étayée')
     assert.deepEqual(errors, [])
     assert.deepEqual(unexpected, [])
-    console.log('Intelligence browser PASS: exact metrics, history, multi-month sources, recompute, feedback, preferences, empty state and light/dark Axe at four widths.')
+    console.log('Intelligence browser PASS: exact metrics, history, multi-month sources, recompute, feedback, preferences, empty state, hidden-tab polling/resume and light/dark Axe at four widths.')
   } finally { await browser.close() }
 }
 main().catch(error => { console.error(error); process.exitCode = 1 })
