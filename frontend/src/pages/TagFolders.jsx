@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
+import FinancialProjects from '../components/FinancialProjects'
 import {
   analysisMoney,
   analysisMonth,
@@ -81,6 +82,9 @@ function FolderDetail({ name, month }) {
 }
 
 export default function TagFolders({ onNavigate, month = analysisMonth() }) {
+  return <><FinancialProjects month={month} onNavigate={onNavigate} /><LegacyTagFolders month={month} onNavigate={onNavigate} /></>
+}
+function LegacyTagFolders({ onNavigate, month }) {
   const resource = useAnalysisResource(
     (signal) => api.tagFolders(month, { signal }),
     [month],
@@ -136,7 +140,7 @@ export default function TagFolders({ onNavigate, month = analysisMonth() }) {
       )}
 
       <p className="analysis-footnote">
-        Ces regroupements ne sont pas des enveloppes budgétaires. Les totaux
+        Ces regroupements historiques restent accessibles. Pour les reprendre, crée un projet financier, ajoute une règle sur le tag puis valide les suggestions. Les totaux
         couvrent l’historique importé jusqu’à la date indiquée, pas seulement{' '}
         {month}. Un projet détecté reste une hypothèse ; les tags peuvent se
         chevaucher.

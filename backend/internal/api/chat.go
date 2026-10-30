@@ -551,6 +551,7 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 		{"name": "compare_periods", "description": "Comparer deux périodes entre elles"},
 		{"name": "get_category_breakdown", "description": "Ventilation des dépenses par catégorie"},
 		{"name": "get_data_quality", "description": "Vérifier la qualité et la couverture des données"},
+		{"name": "get_project_analysis", "description": "Lister les 50 projets récents sans paramètre ; lire le rapport financier exact avec project_id entier et month YYYY-MM. Coûts en centimes, observations et couverture, lecture seule."},
 		{"name": "get_verified_discoveries", "description": "Lire les trois découvertes vérifiées prioritaires, leurs preuves, période, métriques et limites"},
 	})
 
@@ -604,6 +605,8 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 				tr = toolCategoryBreakdown(db, owner, args)
 			case "get_data_quality":
 				tr = toolDataQuality(db, owner)
+			case "get_project_analysis":
+				tr = toolProjectAnalysis(ctx, db, owner, args)
 			case "get_verified_discoveries":
 				tr = toolVerifiedDiscoveries(ctx, db, owner)
 			default:
@@ -668,6 +671,7 @@ OUTILS DISPONIBLES :
 - compare_periods : compare deux périodes entre elles
 - get_category_breakdown : ventilation par catégorie
 - get_data_quality : état de la couverture des données
+- get_project_analysis : projets et rapports financiers déterministes ; montants en centimes, suggestions exclues, coûts interprojets non additifs, aucune causalité ou tendance à inventer
 - get_verified_discoveries : découvertes vérifiées de l'application avec preuves et limites
 
 IMPORTANT : copie les chiffres EXACTS des résultats d'outils dans ta réponse. Ne devine jamais un montant.`
