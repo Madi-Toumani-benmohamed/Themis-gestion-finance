@@ -7,7 +7,6 @@ const base = process.env.THEMIS_UI_URL || 'http://127.0.0.1:5176'
 let failure = '',
   empty = false,
   delay = 0,
-  calls = [],
   payments = [],
   mutations = []
 const credit = {
@@ -94,13 +93,26 @@ async function main() {
     const page = await context.newPage()
     const errors = []
     page.on('pageerror', (e) => errors.push(e.message))
-    await page.addInitScript(() => localStorage.setItem('themis-theme', 'dark'))
+    await page.addInitScript(() => {
+      localStorage.setItem('themis-theme', 'dark')
+      // StrictMode may abort the first fetch before Chromium dispatches it.
+      // Observe invocations, preserving the original arguments and AbortSignal.
+      window.__creditsFetchPaths = []
+      const originalFetch = window.fetch.bind(window)
+      window.fetch = (input, options) => {
+        const url = new URL(
+          input instanceof Request ? input.url : input,
+          location.href,
+        )
+        window.__creditsFetchPaths.push(url.pathname)
+        return originalFetch(input, options)
+      }
+    })
     await page.route('**/api/**', async (route) => {
       const req = route.request(),
         url = new URL(req.url()),
         path = url.pathname,
         method = req.method()
-      calls.push({ path, method })
       let data = {},
         status = 200
       if (delay && path === '/api/obligations')
@@ -261,11 +273,16 @@ async function main() {
     await page.goto(base)
     await enter()
     await ready()
-    // React StrictMode runs mount/cleanup/mount in the existing Vite development harness.
-    assert.equal(calls.filter((c) => c.path === '/api/obligations').length, 2)
+    // Count effect invocations even when the cleanup abort prevents a network request.
+    const fetchPaths = await page.evaluate(() => window.__creditsFetchPaths)
     assert.equal(
-      calls.filter((c) => c.path === '/api/credits' || c.path === '/api/taxes')
-        .length,
+      fetchPaths.filter((path) => path === '/api/obligations').length,
+      2,
+    )
+    assert.equal(
+      fetchPaths.filter(
+        (path) => path === '/api/credits' || path === '/api/taxes',
+      ).length,
       0,
     )
     assert.match(await root.innerText(), /Solde global reste non documenté/i)
