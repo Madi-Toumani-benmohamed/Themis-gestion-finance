@@ -489,15 +489,11 @@ async function main() {
   await page
     .getByRole('heading', { name: 'Transactions', exact: true })
     .waitFor()
-  await tagSource
-  assert.ok(
-    requests.some(
-      (x) =>
-        x.startsWith('/api/transactions') &&
-        x.includes('tag=projet+test') &&
-        x.includes('type=debit'),
-    ),
-  )
+  // The request event can arrive before the route handler records it.
+  const tagRequest = await tagSource
+  const tagQuery = new URL(tagRequest.url()).searchParams
+  assert.equal(tagQuery.get('tag'), 'projet test')
+  assert.equal(tagQuery.get('type'), 'debit')
   await open()
   await family('Pilotage').click()
   await detail('Analyse par tag').click()
