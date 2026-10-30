@@ -4,6 +4,7 @@
 const P = { width: 17, height: 17, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round' }
 
 export const ICONS = {
+  laboratory: <svg {...P}><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M7 7h10M7 12h3m4 0h3M7 17h3m4 0h3"/></svg>,
   // Tableau de bord — grille de widgets
   dashboard: (
     <svg {...P}><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></svg>
