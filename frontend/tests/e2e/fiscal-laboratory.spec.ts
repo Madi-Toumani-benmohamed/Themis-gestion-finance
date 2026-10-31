@@ -13,7 +13,7 @@ test('Fiscalité et Laboratoire fonctionnent sans IA et isolent les documents', 
       exact: true,
     }),
   ).toBeVisible()
-  await page.getByRole('tab', { name: 'Simulation', exact: true }).click()
+  await page.getByRole('tab', { name: 'Simulation budgétaire', exact: true }).click()
   await expect(page.locator('.scenario-heading')).toBeVisible()
   await page.getByLabel('Mode de simulation').selectOption('fiscal')
   await page.getByLabel('Base de revenu').selectOption('final_taxable')

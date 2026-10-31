@@ -109,6 +109,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 
 ## Frontend — Structure
 
+- Navigation `App.jsx` : trois familles Finances / Prévisions et outils / Intelligence, intitulé Simulation budgétaire et palette filtrée selon disponibilité IA/rôle. Le pied garde Admin (bouton avec aria-current), Calcul rapide libellé, thème et compte. `cockpit.css` compacte les espacements, borne la hauteur à 100dvh et permet le défilement du menu sur écran bas ; focus visible et rail mobile conservés.
 - `PageLoader.jsx` charge les pages à la demande avec Suspense et une récupération en cas d’échec ; `App.jsx` précharge la destination au survol/focus. Auth reste immédiat. `tests/loading.browser.cjs` vérifie le build réel.
 - `IntelligenceHighlights.jsx` suspend le polling des jobs dans les onglets masqués et le reprend au retour sans chevauchement. Mesures et limites : `docs/PERFORMANCE_OPTIMIZATION.md`.
 
