@@ -4,6 +4,7 @@ import { useLaboratory } from './LaboratoryProvider'
 import { useCalculationWorker } from './useCalculationWorker'
 import './laboratory.css'
 import { api } from '../../api'
+import { documentKey } from '../../lib/laboratory/documentKey.mjs'
 import { safeClipboardText } from '../../lib/laboratory/workbookModel.mjs'
 function Content({ onClose }) {
   const lab = useLaboratory(),
@@ -12,7 +13,7 @@ function Content({ onClose }) {
     [result, setResult] = useState(null),
     [error, setError] = useState(''),
     [copied, setCopied] = useState(false)
-  const saveKey = useRef(crypto.randomUUID()),
+  const saveKey = useRef(null),
     [saving, setSaving] = useState(false),
     [saved, setSaved] = useState(false)
   const input = useRef(null),
@@ -86,10 +87,7 @@ function Content({ onClose }) {
           Point décimal ; arguments séparés par ;. Le pourcentage suit mathjs :
           10 % = 0.1 et 100 + 10 % = 110.
         </p>
-        <button
-          className="btn"
-          disabled={engine.running || !expression.trim()}
-        >
+        <button className="btn" disabled={engine.running || !expression.trim()}>
           Calculer
         </button>
       </form>
@@ -140,6 +138,7 @@ function Content({ onClose }) {
           setError('')
           const content = { ...lab.state.quick, expression }
           try {
+            if (!saveKey.current) saveKey.current = documentKey()
             const savedDocument = await api.laboratorySave(null, {
               client_key: saveKey.current,
               title: 'Calcul rapide',
@@ -153,7 +152,7 @@ function Content({ onClose }) {
               setError(
                 'Une première copie existe déjà. Le brouillon courant reste à enregistrer.',
               )
-            saveKey.current = crypto.randomUUID()
+            saveKey.current = null
             lab.setState((s) => ({
               ...s,
               listRevision: s.listRevision + 1,

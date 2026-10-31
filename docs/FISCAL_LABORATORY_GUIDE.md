@@ -2,7 +2,7 @@
 
 ## Fiscalité
 
-Dans **Simulation**, choisir **Fiscalité** dans l’en-tête. Le mode Budget conserve son scénario pendant le changement de mode. Les données fiscales sont saisies explicitement : aucune ligne bancaire n’est assimilée automatiquement à un salaire ou à un PAS.
+Ouvrir **Impôts** dans la navigation pour accéder directement au simulateur fiscal. Il reste également accessible dans **Simulation**, via **Fiscalité** dans l’en-tête. Le mode Budget conserve son scénario pendant le changement de mode. Les données fiscales sont saisies explicitement : aucune ligne bancaire n’est assimilée automatiquement à un salaire ou à un PAS.
 
 Choisir l’année des revenus (2024 ou2025), le foyer, les enfants à charge exclusive et la base de revenu. **Salaire net fiscal** signifie avant déduction des frais professionnels ; **revenu net imposable final** signifie déjà après déductions. Ne pas saisir un salaire brut, un net social ou un net versé dans ces champs. En mode salaire, pour un couple, renseigner aussi le conjoint, y compris un zéro explicite. En mode revenu net imposable final, saisir la base du **foyer entier**, conjoint déjà compris : aucun second revenu du conjoint n’est ajouté. Les frais réels doivent être annuels, qualifiés et justifiés ; la V1 applique le même régime de déduction aux deux déclarants. Le forfait est calculé séparément sur chacun de leurs salaires.
 
