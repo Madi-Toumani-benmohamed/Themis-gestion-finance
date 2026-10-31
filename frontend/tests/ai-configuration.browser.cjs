@@ -198,7 +198,7 @@ async function main() {
       );
     };
     await page.goto(process.env.THEMIS_UI_URL || "http://127.0.0.1:5176");
-    await page.getByRole("tab", { name: "Admin", exact: true }).click();
+    await page.getByRole("button", { name: "Admin", exact: true }).click();
     await root.getByRole("alert").waitFor();
     failLoad = false;
     await root
