@@ -160,7 +160,7 @@ async function main() {
       })
     })
     metrics.navigation = await measure(page, async () => {
-      await page.getByRole('tab', { name: 'Simulation', exact: true }).click()
+      await page.getByRole('tab', { name: 'Simulation budgétaire', exact: true }).click()
       await expect(page.locator('.scenario-verdict strong')).toContainText('882,29')
     })
     await settle(page)
@@ -191,7 +191,7 @@ async function main() {
       await expect(page.locator('.financial-summary-amount')).toContainText('882,29')
       await expect(page.locator('.motion-number-reel')).toHaveCount(0)
       await page.evaluate(() => { document.startViewTransition = undefined })
-      await page.getByRole('tab', { name: 'Simulation', exact: true }).click()
+      await page.getByRole('tab', { name: 'Simulation budgétaire', exact: true }).click()
       await expect(page.locator('main')).toHaveAttribute('data-page', 'simulate')
       await page.getByRole('tab', { name: 'Tableau de bord', exact: true }).click()
       await expect(page.locator('.financial-summary-amount')).toContainText('882,29')
