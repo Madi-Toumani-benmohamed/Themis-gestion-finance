@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -86,108 +85,35 @@ func (c *Client) IsReady(ctx context.Context) bool {
 
 // ────────────────────────── Learn ────────────────────────────
 
-type learnIn struct {
-	GroupID string   `json:"group_id"`
-	Facts   []factIn `json:"facts"`
-	Source  string   `json:"source"`
+// Result is a scoped Graphiti relation, not financial evidence or a model score.
+type Result struct {
+	Sources    []Source `json:"sources"`
+	ID         string   `json:"id"`
+	GroupID    string   `json:"group_id"`
+	Fact       string   `json:"fact"`
+	Source     string   `json:"source"`
+	Target     string   `json:"target"`
+	Type       string   `json:"type"`
+	Score      *float64 `json:"score"`
+	CreatedAt  *string  `json:"created_at"`
+	ValidAt    *string  `json:"valid_at"`
+	InvalidAt  *string  `json:"invalid_at"`
+	ExpiredAt  *string  `json:"expired_at"`
+	EpisodeIDs []string `json:"episode_ids"`
+	Truncated  bool     `json:"truncated"`
 }
 
-type factIn struct {
-	Fact  string `json:"fact"`
-	Type_ string `json:"type"` // merchant | habit | preference
-}
-
-type learnOut struct {
-	EntitiesAdded int `json:"entities_added"`
-	EdgesAdded    int `json:"edges_added"`
-}
-
-// Learn ingère des faits financiers dans le graphe.
-// Les faits sont formatés par l'appelant avant d'être envoyés.
 func (c *Client) Learn(ctx context.Context, groupID, source string, facts []string) (int, int, error) {
-	if !c.cfg.Enabled || c.cfg.URL == "" {
-		return 0, 0, nil
-	}
-	factList := make([]factIn, 0, len(facts))
-	for _, f := range facts {
-		factList = append(factList, factIn{Fact: f, Type_: "habit"})
-	}
-	body := learnIn{GroupID: groupID, Facts: factList, Source: source}
-	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL+"/kg/learn", bytes.NewReader(b))
-	if err != nil {
-		return 0, 0, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		log.Printf("KG Learn failed: %v", err)
-		return 0, 0, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return 0, 0, nil
-	}
-	var out learnOut
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return 0, 0, err
-	}
-	return out.EntitiesAdded, out.EdgesAdded, nil
+	return c.LearnSource(ctx, groupID, source, "manual", facts)
 }
-
-// ────────────────────────── Query ────────────────────────────
-
-type queryIn struct {
-	Query   string `json:"query"`
-	GroupID string `json:"group_id"`
-	TopK    int    `json:"top_k"`
-}
-
-type kgResult struct {
-	Fact   string  `json:"fact"`
-	Source string  `json:"source"`
-	Target string  `json:"target"`
-	Type_  string  `json:"type"`
-	Score  float64 `json:"score"`
-}
-
-type queryOut struct {
-	Results []kgResult `json:"results"`
-	Count   int        `json:"count"`
-}
-
-// Query cherche des faits pertinents dans le graphe.
-func (c *Client) Query(ctx context.Context, groupID, query string, topK int) ([]kgResult, error) {
-	if !c.cfg.Enabled || c.cfg.URL == "" {
-		return nil, nil
-	}
-	body := queryIn{Query: query, GroupID: groupID, TopK: topK}
-	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.URL+"/kg/query", bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
-	if err != nil {
-		log.Printf("KG Query failed: %v", err)
-		return nil, nil
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, nil
-	}
-	var out queryOut
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	return out.Results, nil
+func (c *Client) Query(ctx context.Context, groupID, query string, topK int) ([]Result, error) {
+	return c.query(ctx, groupID, query, topK)
 }
 
 // ────────────────────────── Formatage prompt ─────────────────
 
 // FactsToString formatte les résultats pour injection dans un prompt.
-func FactsToString(results []kgResult) string {
+func FactsToString(results []Result) string {
 	if len(results) == 0 {
 		return ""
 	}

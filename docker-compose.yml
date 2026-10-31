@@ -48,7 +48,7 @@ services:
       falkordb:
         condition: service_healthy
     ports:
-      - "8100:8100"
+      - "127.0.0.1:8100:8100"
 
   # Le contexte de build est la racine du repo pour inclure backend/ ET frontend/
   app:

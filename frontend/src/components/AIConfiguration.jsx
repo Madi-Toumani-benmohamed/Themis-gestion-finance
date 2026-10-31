@@ -1,5 +1,5 @@
 import { AnimatedTabs, TabIndicator } from '../motion'
-import { useEffect, useId, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useRef, useState } from "react";
 import { api } from "../api";
 import { useToast } from "../Toast";
 import {
@@ -14,6 +14,8 @@ import {
   aiCheckedAt,
 } from "./aiConfigurationModel.mjs";
 import "./AIConfiguration.css";
+
+const KnowledgeActivity = lazy(() => import("./KnowledgeActivity"));
 
 const panels = [
   ["connection", "Fournisseur et connexion"],
@@ -644,6 +646,7 @@ export default function AIConfiguration({ onApplied }) {
               les faits du graphe. La configuration et l’activation de la
               mémoire restent gérées côté serveur.
             </p>
+            <Suspense fallback={<p role="status">Chargement de l’activité mémoire…</p>}><KnowledgeActivity /></Suspense>
           </>
         )}
       </div>

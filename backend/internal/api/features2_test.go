@@ -376,6 +376,16 @@ func TestEngagementExportOwnerIsolationPostgres(t *testing.T) {
 	if _, err = db.Exec(string(labSchema)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(`ALTER TABLE statements ADD PRIMARY KEY(id);CREATE TABLE chat_conversations(id bigint PRIMARY KEY,owner_id bigint)`); err != nil {
+		t.Fatal(err)
+	}
+	knowledgeSchema, err := os.ReadFile("../db/migrations/033_knowledge_activity.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(knowledgeSchema)); err != nil {
+		t.Fatal(err)
+	}
 	for _, owner := range []int64{1, 2} {
 		w := engagementRequest(t, s, s.createCredit, "POST", "/api/credits", fmt.Sprintf(`{"name":"CONFIDENTIAL_OWNER_%d","monthly_amount":"33.33","months_total":3,"start_month":"2020-01","opening_paid":"0.00"}`, owner), owner, 201)
 		var c creditView

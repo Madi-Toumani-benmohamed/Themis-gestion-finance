@@ -26,6 +26,8 @@ const scopedG = (path, params = {}, options = {}) => {
 }
 
 export const api = {
+  knowledgeOverview: (before = 0, options = {}) => scopedG('/api/knowledge/overview', {before_id:before}, options),
+  knowledgeSearch: (query, options = {}) => fetch('/api/knowledge/search', {method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({query}),signal:options.signal}).then(json),
   fiscalRules: (options = {}) => scopedG('/api/fiscal/rules', {}, options),
   fiscalSimulate: input => J('/api/fiscal/simulate', 'POST', input),
   laboratoryList: (offset = 0, options = {}) => scopedG('/api/laboratory', { offset }, options),
