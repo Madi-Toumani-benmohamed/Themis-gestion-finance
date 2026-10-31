@@ -24,10 +24,9 @@ const preparePage = name => { preloadPage(name).catch(() => {}) }
 
 // Familles de navigation. `admin` est rendu séparément, dans le pied.
 const NAV_BASE = [
-  ['Pilotage',   [['dashboard', 'Tableau de bord']]],
-  ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
-  ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation'], ['fiscal', 'Impôts'], ['laboratory', 'Laboratoire']]],
-  ['Sources',    [['statements', 'Relevés'], ['knowledge', 'Mémoire'], ['advice', 'Conseils IA']]],
+  ['Finances', [['dashboard', 'Tableau de bord'], ['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets'], ['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['statements', 'Relevés']]],
+  ['Prévisions et outils', [['simulate', 'Simulation budgétaire'], ['fiscal', 'Impôts'], ['laboratory', 'Laboratoire']]],
+  ['Intelligence', [['assistant', 'Assistant'], ['advice', 'Conseils IA'], ['knowledge', 'Mémoire']]],
 ]
 // Liste à plat (titre de page, recherche) — inclut admin.
 const TABS_BASE = [
@@ -291,11 +290,11 @@ export default function App() {
           <Logo size={24} className="brand-logo" animate />
           <div className="sidebar-wordmark"><h1>thémis<span className="tick">.</span></h1><span className="sidebar-tagline">Finances personnelles</span></div>
         </div>
-        <nav className="sidebar-nav" role="tablist">
-          {[...NAV_BASE, aiEnabled && ['Intelligence', [['assistant', 'Assistant']]]].filter(Boolean).map(([group, items]) => (
+        <nav className="sidebar-nav" role="tablist" aria-label="Navigation principale" aria-orientation="vertical">
+          {NAV_BASE.map(([group, items]) => (
             <Fragment key={group}>
               <div className="nav-group-label">{group}</div>
-              {items.map(([id, label]) => (
+              {items.filter(([id]) => id !== 'assistant' || aiEnabled).map(([id, label]) => (
                 <button
                   key={id}
                   role="tab"
@@ -321,11 +320,10 @@ export default function App() {
         <div className="sidebar-footer">
           {me?.role === 'admin' && (
             <button
-              role="tab"
               aria-label="Admin"
               title="Admin"
-              aria-selected={tab === 'admin'}
-              className={tab === 'admin' ? 'active' : ''}
+              aria-current={tab === 'admin' ? 'page' : undefined}
+              className={tab === 'admin' ? 'admin-navigation active' : 'admin-navigation'}
               onPointerEnter={() => preparePage('admin')}
               onFocus={() => preparePage('admin')}
               onClick={() => navigateScene(() => setTab('admin'))}
@@ -350,7 +348,7 @@ export default function App() {
             <span>{theme === 'dark' ? 'Clair' : 'Sombre'}</span>
           </button>
           <div className="session">
-            <span className="session-user">{me.username}{me.role === 'admin' && <span className="session-role">admin</span>}</span>
+            <span className="session-user"><span className="session-name" title={me.username}>{me.username}</span>{me.role === 'admin' && <span className="session-role">admin</span>}</span>
             <button className="link" onClick={logout}>déconnexion</button>
           </div>
         </div>
@@ -358,7 +356,7 @@ export default function App() {
 
       <div className="app-main">
       <header className="topbar">
-        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>{tab === 'simulate' && <select className="simulation-mode" aria-label="Mode de simulation" value={simulationMode} onChange={e => setSimulationMode(e.target.value)}><option value="budget">Budget</option><option value="fiscal">Fiscalité</option></select>}</div>
+        <div className="topbar-breadcrumb"><span className="topbar-home">Espace personnel</span><span aria-hidden="true">/</span><span className="topbar-title">{tab === 'simulate' ? 'Simulation' : tab === 'assistant' ? 'Assistant' : (TABS_BASE.find(([id]) => id === tab) || [])[1]}</span>{tab === 'simulate' && <select className="simulation-mode" aria-label="Mode de simulation" value={simulationMode} onChange={e => setSimulationMode(e.target.value)}><option value="budget">Budget</option><option value="fiscal">Fiscalité</option></select>}</div>
         <div className="topbar-right">
           <button className="topbar-search" title="Rechercher · Cmd/Ctrl+K" onClick={() => setCmdOpen(true)}>
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
@@ -454,7 +452,7 @@ export default function App() {
       <CommandPalette
         open={cmdOpen}
         onClose={() => setCmdOpen(false)}
-        tabs={TABS_BASE}
+        tabs={TABS_BASE.filter(([id]) => (id !== 'assistant' || aiEnabled) && (id !== 'admin' || me?.role === 'admin'))}
         onNavigate={navigateTo}
         onUpload={() => fileRef.current?.click()}
       />

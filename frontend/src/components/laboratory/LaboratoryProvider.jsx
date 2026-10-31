@@ -254,6 +254,7 @@ export function LaboratoryTrigger() {
         <rect x="4" y="3" width="16" height="18" rx="2" />
         <path d="M7 7h10M7 12h3m4 0h3M7 17h3m4 0h3" />
       </svg>
+      <span className="nav-label">Calcul rapide</span>
     </button>
   )
 }
