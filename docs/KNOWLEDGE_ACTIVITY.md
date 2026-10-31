@@ -44,3 +44,5 @@ Tests Go avec PostgreSQL dédié : `THEMIS_TEST_DATABASE_URL=… go test -race .
 Frontend : tests Node, `npm run build`, `npm run test:browser` et `npm run test:e2e` avec une base exclusivement nommée `themis_e2e`. Les tests couvrent erreurs, zéro/inconnu, groupes propriétaires, provenance, recherche, journal, réponses obsolètes, assistant et Axe clair/sombre sur mobile/tablette/desktop.
 
 Les essais locaux utilisent des données synthétiques. Ils ne valident pas la configuration Ollama ni le contenu de la VM de production, qui restent à contrôler après déploiement.
+
+Les références visuelles Budgets utilisent un mois historique clôturé et vérifient les bornes des réponses API avant capture : figer seulement l’horloge du navigateur ne fige pas la date du serveur Go. Le seuil de comparaison reste inchangé.
