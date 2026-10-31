@@ -10,6 +10,7 @@ import (
 
 	"themis/internal/intelligence"
 	"themis/internal/llm"
+	"themis/internal/memory"
 )
 
 // ============================================================================
@@ -75,6 +76,7 @@ func toolVerifiedDiscoveries(ctx context.Context, db *sql.DB, owner int64) toolR
 
 // chatResult est le résultat final de l'orchestration.
 type chatResult struct {
+	Memory      *knowledgeTrace
 	Answer      string
 	Evidence    []any
 	DataQuality map[string]any
@@ -508,7 +510,7 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), llm.ChatTimeout())
 	defer cancel()
 
-	result, err := s.orchestrate(ctx, s.DB, owner, history, req.Messages[len(req.Messages)-1].Content)
+	result, err := s.orchestrate(ctx, s.DB, owner, history, req.Messages[len(req.Messages)-1].Content, convID)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
@@ -523,11 +525,12 @@ func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
 		"answer":          result.Answer,
 		"evidence":        result.Evidence,
 		"data_quality":    result.DataQuality,
+		"memory":          result.Memory,
 		"status":          result.Status,
 	})
 }
 
-func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, history []chatMsg, lastUser string) (*chatResult, error) {
+func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, history []chatMsg, lastUser string, conversationIDs ...int64) (*chatResult, error) {
 	client := s.getLLM()
 	if client == nil {
 		return nil, fmt.Errorf("IA non disponible")
@@ -536,10 +539,12 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	systemPrompt := buildSystemPrompt()
 
 	// Enrichir le prompt système avec les connaissances du graphe si dispo.
-	memCtx := ""
-	if mem := s.getMemory(); mem != nil && mem.IsReady(ctx) {
-		memCtx = mem.SearchFacts(ctx, fmt.Sprint(owner), lastUser, 5)
+	conversation := int64(0)
+	if len(conversationIDs) > 0 {
+		conversation = conversationIDs[0]
 	}
+	trace := s.retrieveKnowledge(ctx, owner, conversation, lastUser, "chat")
+	memCtx := memory.FactsToString(trace.Facts)
 	if memCtx != "" {
 		systemPrompt += "\nMémoire indicative, potentiellement périmée : ne constitue jamais une preuve de montant ou de complétude. Vérifier tout chiffre via les outils transactionnels, citer la période et la source ; en cas de contradiction les transactions PostgreSQL font référence.\n" + memCtx
 	}
@@ -561,10 +566,13 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	context := contextMsgs
 
 	for round := 0; round < 4; round++ {
+		if round == 0 && memCtx != "" {
+			s.knowledgeContextIncluded(owner, trace)
+		}
 		msgText := formatMessages(context)
 		resp, err := client.Complete(ctx, systemPrompt+string(toolsDef), msgText, 2000, true)
 		if err != nil {
-			return &chatResult{Answer: "Erreur de connexion au modèle IA. Vérifiez la configuration Ollama.", Status: "error"}, nil
+			return &chatResult{Answer: "Erreur de connexion au modèle IA. Vérifiez la configuration Ollama.", Status: "error", Memory: trace}, nil
 		}
 
 		decision := parseLLMDecision(resp)
@@ -627,6 +635,7 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	}
 
 	return &chatResult{
+		Memory:      trace,
 		Answer:      finalAnswer,
 		Evidence:    evidence,
 		DataQuality: map[string]any{"status": "unknown", "reason": "La réponse ne constitue pas une preuve de couverture documentaire"},

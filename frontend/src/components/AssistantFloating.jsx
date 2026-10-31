@@ -1,3 +1,4 @@
+import { KnowledgeTrace } from './KnowledgeFacts'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
 import './AssistantFloating.css'
@@ -44,7 +45,7 @@ export default function AssistantFloating({ aiEnabled }) {
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error || `Erreur ${res.status}`) }
       const data = await res.json()
       if (data.conversation_id) setConvId(data.conversation_id)
-      setMessages((m) => [...m, { role: 'assistant', content: data.answer, evidence: data.evidence, status: data.status }])
+      setMessages((m) => [...m, { role: 'assistant', content: data.answer, memory: data.memory, evidence: data.evidence, status: data.status }])
     } catch (e) {
       setMessages((m) => [...m, { role: 'assistant', content: `Erreur : ${e.message}`, error: true }])
     } finally { setLoading(false) }
@@ -89,6 +90,7 @@ export default function AssistantFloating({ aiEnabled }) {
                     <div className="assistant-panel-msg-avatar">{msg.role === 'user' ? 'V' : 'T'}</div>
                     <div className="assistant-panel-msg-body">
                       <div className="assistant-panel-msg-text">{msg.content}</div>
+                      <KnowledgeTrace trace={msg.memory}/>
                       {msg.evidence && msg.evidence.length > 0 && (
                         <details className="assistant-panel-evidence">
                           <summary>Détails</summary>

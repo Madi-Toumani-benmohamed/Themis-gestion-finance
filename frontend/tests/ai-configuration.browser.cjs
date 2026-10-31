@@ -1,4 +1,5 @@
 // Synthetic configuration and fully intercepted APIs. No external provider is contacted.
+const knowledgeFixture = require('./fixtures/knowledge.cjs');
 const { chromium } = require("playwright");
 const { AxeBuilder } = require("@axe-core/playwright");
 const assert = require("node:assert/strict");
@@ -82,6 +83,7 @@ async function main() {
       else if (path === "/api/journal") data = { events: [] };
       else if (path === "/api/admin/users" || path === "/api/accounts")
         data = [];
+      else if (path === "/api/knowledge/overview") data = knowledgeFixture.overview();
       else if (path === "/api/admin/config") {
         if (method === "GET") {
           if (failLoad) {

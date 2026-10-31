@@ -1,6 +1,7 @@
 import { Component, Suspense, lazy } from 'react'
 
 const modules = {
+  knowledge: () => import('./pages/Knowledge'),
   dashboard: () => import('./pages/Dashboard'),
   transactions: () => import('./pages/Transactions'),
   statements: () => import('./pages/Statements'),

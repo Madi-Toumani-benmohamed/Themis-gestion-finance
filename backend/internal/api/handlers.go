@@ -114,8 +114,10 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /api/chat", s.chatHandler)
 
 	// Knowledge Graph
-	mux.HandleFunc("GET /api/knowledge/health", s.kgHealth)
-	mux.HandleFunc("POST /api/knowledge/learn", s.kgLearn)
+	mux.HandleFunc("GET /api/knowledge/health", s.engagementAuthenticated(s.kgHealth))
+	mux.HandleFunc("GET /api/knowledge/overview", s.engagementAuthenticated(s.knowledgeOverview))
+	mux.HandleFunc("POST /api/knowledge/search", s.engagementAuthenticated(s.knowledgeSearch))
+	mux.HandleFunc("POST /api/knowledge/learn", s.engagementAuthenticated(s.knowledgeLearn))
 
 	// Authentification
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
@@ -235,36 +237,6 @@ func (s *Server) kgHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
-}
-
-func (s *Server) kgLearn(w http.ResponseWriter, r *http.Request) {
-	if s.getMemory() == nil || !s.getMemory().IsReady(r.Context()) {
-		writeErr(w, http.StatusServiceUnavailable, fmt.Errorf("service knowledge graph indisponible"))
-		return
-	}
-	var in struct {
-		Facts []string `json:"facts"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("corps JSON invalide"))
-		return
-	}
-	if len(in.Facts) == 0 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("au moins un fait requis"))
-		return
-	}
-	owner := s.ownerID(r)
-	groupID := fmt.Sprint(owner)
-	entities, edges, err := s.getMemory().Learn(r.Context(), groupID, "transaction_import", in.Facts)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"group_id":       groupID,
-		"entities_added": entities,
-		"edges_added":    edges,
-	})
 }
 
 // ---------- Relevés ----------
@@ -395,15 +367,17 @@ func (s *Server) finishStatementImport(w http.ResponseWriter, r *http.Request, f
 
 	setUploadProgress(progressToken, ownerForProgress, "Terminé", "", 100, true)
 
-	// Apprendre les habitudes financières dans le graphe de connaissances.
-	// Non bloquant : une erreur KG n'empêche pas l'import.
-	if s.getMemory() != nil && s.getMemory().IsReady(r.Context()) && inserted > 0 && res.Validated {
-		go func() {
+	// Optional memory never blocks importing bank data. Failures and skipped
+	// imports are journalled instead of being silently treated as zero results.
+	if inserted > 0 {
+		if !res.Validated {
+			s.skipKnowledgeImport(owner, stmtID)
+		} else {
 			facts := memory.BuildFinancialFacts(res, owner)
 			if len(facts) > 0 {
-				_, _, _ = s.getMemory().Learn(context.Background(), fmt.Sprint(owner), "transaction_import", facts)
+				go func() { _, _ = s.learnKnowledge(context.Background(), owner, stmtID, "statement", facts) }()
 			}
-		}()
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
