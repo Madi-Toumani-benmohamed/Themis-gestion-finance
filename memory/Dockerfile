@@ -9,7 +9,7 @@ RUN apt-get update \
 COPY memory/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY memory/main.py ./
+COPY --chmod=644 memory/main.py memory/inspection.py ./
 
 RUN groupadd --gid 10001 themis \
  && useradd --uid 10001 --gid themis --create-home themis

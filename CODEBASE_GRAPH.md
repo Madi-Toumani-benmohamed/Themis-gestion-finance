@@ -48,6 +48,7 @@ themis/
 | `import_preview.go`, `import_fidelity.go` | Aperçu privé, rejeu idempotent par empreinte source, traçabilité des occurrences, similitudes consultatives et rapprochement avant validation automatique | Aperçu/confirmation des imports |
 | `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
 | `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
+| `knowledge_activity.go` | Journal mémoire propriétaire, inspection FalkorDB bornée, recherche et trace des faits joints au modèle | `GET /api/knowledge/overview`, `POST /api/knowledge/search`, `POST /api/knowledge/learn` |
 | `chat.go` | Assistant conversationnel | `POST /api/chat` (orchestration outils) |
 | `pulse.go` | Synthèse rapide (mois demandé) | `GET /api/pulse?month=YYYY-MM` |
 | `hero.go` | Conclusion analyse (ton + points) | `GET /api/hero?month=YYYY-MM` |
@@ -88,12 +89,14 @@ Rule        { ID, Pattern, DomainID }
 
 ### Memory Client (`backend/internal/memory/memory.go`)
 ```go
-Client{Learn, Query, SearchFacts, BuildFinancialFacts}
+Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 ```
-- Appelé par `chat.go` (enrichit prompt) et `handlers.go` (apprend à l'import)
+- Appelé par `knowledge_activity.go` : contexte assistant et apprentissage après import confirmé/réconcilié. `inspection.go` valide les réponses, les limites et les groupes propriétaires ; erreur ≠ résultat vide.
+- `memory/inspection.py` lit le graphe nommé par le groupe via `GRAPH.RO_QUERY`, sans cloner le driver ni créer de graphe absent. Graphiti est fixé à 0.31.2.
+- UI : page `Knowledge`, `KnowledgeActivity` (également Admin → IA → Mémoire), `KnowledgeFacts` et validation `knowledgeModel.mjs`. Voir `docs/KNOWLEDGE_ACTIVITY.md`.
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `031_financial_projects.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+- `001_init.sql` → `033_knowledge_activity.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
 
 ### Remboursements manuels
 - `reimbursements.go` expose les routes authentifiées `/api/reimbursements*`; `reimbursement_service.go` porte les snapshots, allocations en centimes, verrous, statuts et historique.
