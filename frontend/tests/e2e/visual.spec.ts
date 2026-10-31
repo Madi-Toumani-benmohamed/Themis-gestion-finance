@@ -38,6 +38,7 @@ test.describe('références visuelles déterministes', () => {
     const reportResponse = page.waitForResponse(r => r.url().includes('/api/budgets/report?month=2026-09'))
     const recurringResponse = page.waitForResponse(r => r.url().includes('/api/recurring/review?month=2026-09'))
     await page.getByLabel('Mois consulté', { exact: true }).fill('2026-09')
+    await page.getByLabel('Mois consulté', { exact: true }).blur()
     const [report, recurring] = await Promise.all([reportResponse, recurringResponse])
     expect(report.ok()).toBe(true)
     expect(recurring.ok()).toBe(true)
