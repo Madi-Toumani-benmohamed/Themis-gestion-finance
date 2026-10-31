@@ -33,6 +33,19 @@ test.describe('références visuelles déterministes', () => {
 
   test('budgets', async ({ page }) => {
     await page.getByRole('tab', { name: 'Budgets' }).click()
+    // Browser clock mocking does not freeze Go's clock. Use a closed month so
+    // the real API's report/recurrence boundaries cannot drift each day.
+    const reportResponse = page.waitForResponse(r => r.url().includes('/api/budgets/report?month=2026-09'))
+    const recurringResponse = page.waitForResponse(r => r.url().includes('/api/recurring/review?month=2026-09'))
+    await page.getByLabel('Mois consulté', { exact: true }).fill('2026-09')
+    const [report, recurring] = await Promise.all([reportResponse, recurringResponse])
+    expect(report.ok()).toBe(true)
+    expect(recurring.ok()).toBe(true)
+    expect((await report.json()).query_to).toBe('2026-09-30')
+    expect((await recurring.json()).observation_end).toBe('2026-09-30')
+    await expect(page.locator('.budget-period')).toContainText('Mois historique')
+    await expect(page.locator('.budget-period')).toContainText('30 sept. 2026')
+    await expect(page.locator('.budget-observation-window')).toContainText('30 sept. 2026')
     await expect(page.locator('main')).toHaveScreenshot('budgets.png', { animations: 'disabled', caret: 'hide', maxDiffPixelRatio: 0.001 })
   })
 
