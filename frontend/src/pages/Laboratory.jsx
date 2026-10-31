@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api'
+import { documentKey } from '../lib/laboratory/documentKey.mjs'
 import { useAnalysisResource } from '../components/analysisResources'
 import { useLaboratory } from '../components/laboratory/LaboratoryProvider'
 import QuickScratchpad from '../components/laboratory/QuickScratchpad'
@@ -117,15 +118,17 @@ export default function Laboratory() {
     const original = current,
       key = original.client_key,
       snapshot = JSON.stringify(original.content)
-    const data = {
-      client_key: copy ? crypto.randomUUID() : key,
-      title: copy ? `${original.title.slice(0, 100)} (copie)` : original.title,
-      type: original.type,
-      schema_version: 1,
-      revision: copy ? 0 : original.id ? original.revision : 0,
-      content: original.content,
-    }
     try {
+      const data = {
+        client_key: copy ? documentKey() : key,
+        title: copy
+          ? `${original.title.slice(0, 100)} (copie)`
+          : original.title,
+        type: original.type,
+        schema_version: 1,
+        revision: copy ? 0 : original.id ? original.revision : 0,
+        content: original.content,
+      }
       const saved = readDocument(
         await api.laboratorySave(copy ? null : original.id, data),
       )
@@ -194,6 +197,7 @@ export default function Laboratory() {
     setBusy(true)
     setError('')
     try {
+      const replacementKey = documentKey()
       await api.laboratoryDelete(meta.id, meta.revision)
       setState((s) => {
         const drafts = { ...s.drafts }
@@ -203,7 +207,7 @@ export default function Laboratory() {
             ...d,
             id: undefined,
             revision: 0,
-            client_key: crypto.randomUUID(),
+            client_key: replacementKey,
             dirty: true,
           }
           const next = drafts[meta.client_key]

@@ -6,6 +6,13 @@ test('Fiscalité et Laboratoire fonctionnent sans IA et isolent les documents', 
   browser,
 }) => {
   await page.goto('/')
+  await page.getByRole('tab', { name: 'Impôts', exact: true }).click()
+  await expect(
+    page.getByRole('heading', {
+      name: 'Fiscalité · impôt sur le revenu',
+      exact: true,
+    }),
+  ).toBeVisible()
   await page.getByRole('tab', { name: 'Simulation', exact: true }).click()
   await expect(page.locator('.scenario-heading')).toBeVisible()
   await page.getByLabel('Mode de simulation').selectOption('fiscal')
