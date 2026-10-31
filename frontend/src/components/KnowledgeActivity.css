@@ -1,0 +1,170 @@
+.knowledge-activity {
+  color: var(--ink);
+  max-width: 1150px;
+  overflow-wrap: anywhere;
+}
+.kg-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.knowledge-activity p,
+.kg-trace p {
+  line-height: 1.6;
+  margin-block: 0.65rem;
+}
+.knowledge-activity h3 {
+  margin-block: 1rem;
+}
+.knowledge-activity label {
+  display: grid;
+  gap: 0.45rem;
+  margin-block: 1rem;
+}
+.knowledge-activity :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  color: var(--ink);
+  background: var(--paper);
+  padding: 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font: inherit;
+  transition: box-shadow 0.16s ease;
+}
+.kg-health,
+.kg-search,
+.kg-graph,
+.kg-history {
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-block: 1rem;
+  background: var(--paper);
+}
+.knowledge-activity .kg-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 1rem;
+}
+.kg-metrics > div {
+  padding: 1rem;
+  background: var(--paper-2);
+  border-radius: 12px;
+}
+.knowledge-activity .kg-metrics dd {
+  font-size: 1.3rem;
+  font-weight: 650;
+  margin: 0.6rem 0;
+}
+.knowledge-activity .kg-metrics dt,
+.knowledge-activity small,
+.kg-trace small {
+  color: var(--body);
+}
+.kg-warning {
+  color: var(--ink);
+  border-left: 3px solid var(--warn);
+  padding: 0.5rem 0.75rem;
+  background: var(--paper-2);
+}
+.kg-facts {
+  list-style: none;
+  margin-block: 0.75rem;
+}
+.kg-facts > li {
+  border-left: 2px solid var(--accent);
+  padding: 0.5rem 0.8rem;
+  margin-block: 0.75rem;
+  background: var(--paper-2);
+}
+.kg-facts ul {
+  margin-left: 1rem;
+}
+.kg-history ol {
+  list-style: none;
+  padding: 0;
+}
+.kg-history li > details {
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.kg-history summary,
+.kg-trace summary {
+  cursor: pointer;
+  color: var(--ink);
+}
+.kg-network {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: var(--paper-2);
+  border-radius: 10px;
+}
+.kg-network marker {
+  color: var(--body);
+}
+.kg-edge {
+  stroke: var(--body);
+  stroke-width: 1.5;
+  opacity: 0.65;
+}
+.kg-edge.dim {
+  opacity: 0.12;
+}
+.kg-node {
+  cursor: pointer;
+}
+.kg-node circle {
+  fill: var(--paper);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.kg-node text {
+  fill: var(--ink);
+  font: 14px system-ui;
+}
+.kg-node.selected circle,
+.kg-node:focus circle {
+  fill: var(--accent-soft);
+  stroke-width: 4;
+}
+.kg-node:focus {
+  outline: none;
+}
+.kg-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-block: 1rem;
+}
+.kg-note {
+  color: var(--body);
+  font-size: 0.9rem;
+}
+.kg-trace {
+  font-size: 0.88rem;
+  margin-top: 0.75rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.knowledge-activity .kg-metrics dd small {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 400;
+  margin-top: 0.5rem;
+}
+
+.kg-network-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.kg-network {
+  min-width: 700px;
+}

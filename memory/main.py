@@ -26,7 +26,8 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+from inspection import owner_group, serialize_edge, inspect_graph, relation_sources, failure_detail
 
 from graphiti_core import Graphiti
 from graphiti_core.llm_client.openai_generic_client import OpenAIGenericClient
@@ -50,17 +51,25 @@ log = logging.getLogger("knowledge-graph")
 
 # ────────────────────────── Models ──────────────────────────
 
-class LearnFactsInput(BaseModel):
-    """Ingérer des faits financiers à partir d'un épisode structuré."""
-    group_id: str                      # owner_id
-    facts: list[dict]                  # [{"fact": "...", "type": "merchant"|"habit"|"preference"}]
-    source: str = "transaction_import" # source du fait
-
-class QueryInput(BaseModel):
-    """Requête de recherche dans le graphe de connaissances."""
-    query: str
+class OwnedInput(BaseModel):
     group_id: str
-    top_k: int = 5
+
+    @field_validator("group_id")
+    @classmethod
+    def valid_group(cls, value):
+        return owner_group(value)
+
+
+class LearnFactsInput(OwnedInput):
+    """Ingérer des faits financiers à partir d'un épisode structuré."""
+    facts: list[dict]                  # [{"fact": "...", "type": "merchant"|"habit"|"preference"}]
+    source: str = Field(default="transaction_import", max_length=80)
+    source_ref: str = Field(default="manual", pattern=r"^(manual|statement:[1-9][0-9]{0,18})$")
+
+class QueryInput(OwnedInput):
+    """Requête de recherche dans le graphe de connaissances."""
+    query: str = Field(min_length=1, max_length=500)
+    top_k: int = Field(default=5, ge=1, le=5)
 
 class KGStatus(BaseModel):
     ok: bool
@@ -71,6 +80,7 @@ class KGStatus(BaseModel):
 
 graphiti: Optional[Graphiti] = None
 _start_time: Optional[datetime] = None
+_init_lock = asyncio.Lock()
 
 
 def _build_clients():
@@ -89,7 +99,7 @@ def _build_clients():
         base_url=OLLAMA_URL,
     ))
     llm_client = OpenAIGenericClient(config=llm_config)
-    reranker = OpenAIRerankerClient(client=llm_client, config=llm_config)
+    reranker = OpenAIRerankerClient(config=llm_config)
     return llm_client, embedder, reranker
 
 
@@ -103,16 +113,22 @@ def init_graphiti() -> Graphiti:
 
 async def _ensure_init():
     global graphiti, _start_time
-    if graphiti is None:
+    if graphiti is not None:
+        return
+    async with _init_lock:
+        if graphiti is not None:
+            return
         log.info("initialisation KG (%s)", OLLAMA_MODEL)
+        candidate = init_graphiti()
         try:
-            graphiti = init_graphiti()
-            await graphiti.build_indices_and_constraints()
-            _start_time = datetime.now(timezone.utc)
-            log.info("KG prêt")
-        except Exception as e:
-            log.error("échec init KG: %s", e)
+            await asyncio.wait_for(candidate.build_indices_and_constraints(), timeout=15)
+        except Exception as exc:
+            log.error("échec init KG: %s", type(exc).__name__)
+            await candidate.close()
             raise
+        graphiti = candidate
+        _start_time = datetime.now(timezone.utc)
+        log.info("KG prêt")
 
 # ────────────────────────── FastAPI ──────────────────────────
 
@@ -132,7 +148,7 @@ async def health():
         await _ensure_init()
         return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=503, detail="Knowledge Graph indisponible")
 
 
 @app.post("/kg/learn")
@@ -142,6 +158,8 @@ async def learn_facts(inp: LearnFactsInput) -> dict:
     Chaque fait devient une relation extraite dans le graphe.
     """
     await _ensure_init()
+    if not 1 <= len(inp.facts) <= 1000 or any(not isinstance(f.get("fact"), str) or not 1 <= len(f["fact"]) <= 4096 for f in inp.facts):
+        raise HTTPException(status_code=422, detail="Faits invalides ou trop volumineux")
     try:
         # Construire un body textuel à partir des faits
         fact_lines = "\n".join(f"- {f['fact']}" for f in inp.facts)
@@ -150,7 +168,7 @@ async def learn_facts(inp: LearnFactsInput) -> dict:
         result = await graphiti.add_episode(
             name=f"Financial facts from {inp.source}",
             episode_body=body,
-            source_description=inp.source,
+            source_description=inp.source_ref if inp.source_ref != "manual" else inp.source,
             reference_time=datetime.now(timezone.utc),
             group_id=inp.group_id,
             update_communities=True,
@@ -161,8 +179,8 @@ async def learn_facts(inp: LearnFactsInput) -> dict:
             "edges_added": len(result.edges),
         }
     except Exception as e:
-        log.error("learn error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        log.error("learn error: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail=failure_detail(e))
 
 
 @app.post("/kg/query")
@@ -170,55 +188,57 @@ async def query_kg(inp: QueryInput) -> dict:
     """Recherche hybride (vectoriel + texte) dans le graphe de connaissances."""
     await _ensure_init()
     try:
+        if inp.group_id not in await graphiti.driver.client.list_graphs():
+            return {"results": [], "count": 0}
         edges = await graphiti.search(
             query=inp.query,
             group_ids=[inp.group_id],
             num_results=inp.top_k,
         )
-        results = []
-        for edge in edges:
-            results.append({
-                "fact": edge.fact,
-                "source": edge.source_node_uuid,
-                "target": edge.target_node_uuid,
-                "type": edge.relationship,
-                "score": edge.relevance_score,
-            })
+        results = [serialize_edge(edge, inp.group_id) for edge in edges]
+        sources = await relation_sources(graphiti.driver, inp.group_id, [item for result in results for item in result["episode_ids"]])
+        for result in results:
+            result["sources"] = [source for source in sources if source["id"] in result["episode_ids"]]
         return {"results": results, "count": len(results)}
     except Exception as e:
-        log.error("query error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        log.error("query error: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail=failure_detail(e))
+
+
+@app.get("/kg/inspect/{group_id}")
+async def kg_inspect(group_id: str):
+    try:
+        owner_group(group_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Utilisateur invalide")
+    await _ensure_init()
+    try:
+        return await asyncio.wait_for(inspect_graph(graphiti.driver, group_id), timeout=4)
+    except Exception as exc:
+        log.error("inspection error: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Lecture du graphe indisponible")
 
 
 @app.get("/kg/status/{group_id}")
-async def kg_status(group_id: str) -> dict:
-    """Statut du graphe pour un utilisateur."""
-    await _ensure_init()
-    try:
-        from falkordb import FalkorDB
-        client = FalkorDB(host=FALKORDB_HOST, port=FALKORDB_PORT)
-        graph = client.select_graph("graphiti")
-        count_result = graph.query(f"MATCH (n {{group_id: '{group_id}'}}) RETURN count(n) AS cnt")
-        rows = list(count_result.rows)
-        node_count = int(rows[0][0]) if rows else 0
-        return {"ok": True, "node_count": node_count, "group_id": group_id}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "node_count": 0}
+async def kg_status(group_id: str):
+    inspected = await kg_inspect(group_id)
+    return {"ok": True, "group_id": group_id, "node_count": inspected["node_count"], "edge_count": inspected["edge_count"]}
 
 
 @app.post("/kg/clear/{group_id}")
-async def clear_kg(group_id: str) -> dict:
-    """Supprime toutes les connaissances d'un utilisateur."""
+async def clear_kg(group_id: str):
+    try:
+        owner_group(group_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Utilisateur invalide")
     await _ensure_init()
     try:
-        from falkordb import FalkorDB
-        client = FalkorDB(host=FALKORDB_HOST, port=FALKORDB_PORT)
-        graph = client.select_graph("graphiti")
-        graph.query(f"MATCH (n {{group_id: '{group_id}'}}) DETACH DELETE n")
+        driver = graphiti.driver.clone(database=group_id)
+        await driver.execute_query("MATCH (n {group_id:$gid}) DETACH DELETE n", gid=group_id)
         return {"cleared": True}
-    except Exception as e:
-        log.error("clear error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        log.error("clear error: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Suppression indisponible")
 
 
 if __name__ == "__main__":

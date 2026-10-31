@@ -18,7 +18,7 @@ import { ActiveNavigation, NavigationMotion, PageTransition, usePageNavigation, 
 const {
   dashboard: Dashboard, transactions: Transactions, statements: Statements,
   advice: Advice, budgets: Budgets, admin: Admin, accounts: Accounts,
-  credits: Credits, analyse: Analyse, simulate: Simulate, fiscal: FiscalSimulation, laboratory: Laboratory, assistant: Assistant,
+  credits: Credits, analyse: Analyse, simulate: Simulate, fiscal: FiscalSimulation, knowledge: Knowledge, laboratory: Laboratory, assistant: Assistant,
 } = Pages
 const preparePage = name => { preloadPage(name).catch(() => {}) }
 
@@ -27,7 +27,7 @@ const NAV_BASE = [
   ['Pilotage',   [['dashboard', 'Tableau de bord']]],
   ['Argent',     [['transactions', 'Transactions'], ['analyse', 'Analyse'], ['budgets', 'Budgets']]],
   ['Patrimoine', [['accounts', 'Comptes'], ['credits', 'Crédits & taxes'], ['simulate', 'Simulation'], ['fiscal', 'Impôts'], ['laboratory', 'Laboratoire']]],
-  ['Sources',    [['statements', 'Relevés'], ['advice', 'Conseils IA']]],
+  ['Sources',    [['statements', 'Relevés'], ['knowledge', 'Mémoire'], ['advice', 'Conseils IA']]],
 ]
 // Liste à plat (titre de page, recherche) — inclut admin.
 const TABS_BASE = [
@@ -424,6 +424,7 @@ export default function App() {
           {tab === 'credits' && <Credits />}
           {tab === 'simulate' && <Simulate mode={simulationMode} />}
           {tab === 'fiscal' && <FiscalSimulation />}
+          {tab === 'knowledge' && <Knowledge />}
           {tab === 'laboratory' && <Laboratory />}
           {tab === 'accounts' && <Accounts />}
           {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}

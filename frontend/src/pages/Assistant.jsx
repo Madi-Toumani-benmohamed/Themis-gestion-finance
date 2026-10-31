@@ -1,3 +1,4 @@
+import { KnowledgeTrace } from '../components/KnowledgeFacts'
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
 import '../components/Assistant.css'
@@ -39,7 +40,7 @@ export default function Assistant() {
         credentials: 'same-origin',
         body: JSON.stringify({
           conversation_id: conversationId,
-          messages: [...messages, userMsg],
+          messages: [...messages, userMsg].map(({role,content})=>({role,content})),
         }),
       })
       if (!res.ok) {
@@ -51,7 +52,7 @@ export default function Assistant() {
       setMessages((m) => [...m, {
         role: 'assistant',
         content: data.answer,
-        evidence: data.evidence,
+        memory: data.memory, evidence: data.evidence,
         status: data.status,
       }])
     } catch (e) {
@@ -96,6 +97,7 @@ export default function Assistant() {
               <div className="assistant-msg-avatar">{msg.role === 'user' ? 'V' : 'T'}</div>
               <div className="assistant-msg-body">
                 <div className="assistant-msg-text">{msg.content}</div>
+                <KnowledgeTrace trace={msg.memory}/>
                 {msg.evidence && msg.evidence.length > 0 && (
                   <details className="assistant-evidence">
                     <summary>Voir les données sources</summary>

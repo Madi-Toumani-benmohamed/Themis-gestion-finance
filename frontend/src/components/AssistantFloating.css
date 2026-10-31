@@ -78,7 +78,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  background: var(--accent);
+  background: #5B5BD6;
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -89,7 +89,7 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: rgba(255,255,255,.7);
+  color: #fff;
   font-size: 16px;
   padding: 2px 4px;
   border-radius: 4px;
