@@ -24,7 +24,8 @@ Le panneau lit un journal PostgreSQL propriétaire et un aperçu borné de Falko
 -16 tests Python, dont contrats FastAPI/Graphiti réels et inspection d’un FalkorDB jetable à deux groupes : réussis. Aucun modèle de production sollicité.
 -83 tests Node : réussis. Build frontend : réussi.
 - Suite navigateur complète réussie : nouveau panneau, assistants, configuration IA, parcours financiers existants, Axe clair/sombre et chargement production HTTP sans randomUUID.
-- E2E :11 parcours fonctionnels réussis, dont import/API/PostgreSQL/journal mémoire et isolation.4 références visuelles existantes échouent localement ; reproduites sur main inchangé, les4 captures obtenues sont identiques octet pour octet entre main et cette branche. Aucun seuil ni référence modifié. La CI vérifiera son navigateur de référence.
+- E2E :11 parcours fonctionnels réussis, dont import/API/PostgreSQL/journal mémoire et isolation. Les4 références visuelles initiales échouent localement ; reproduites sur main inchangé, les4 captures obtenues sont identiques octet pour octet entre main et cette branche.
+- Première CI : tous les tests navigateur/Axe et14 E2E passent ; seule la référence Budgets échoue car elle attend une borne au26 octobre tandis que le serveur est au31. Figer l’horloge du navigateur ne fige pas celle de Go. Le test utilise désormais septembre2026 et vérifie les bornes30septembre des deux vraies réponses API ; la référence Budgets est renouvelée avec le navigateur CI après revue. Aucun seuil assoupli. Les assertions historiques passent localement ; les autres références restent inchangées.
 - Image Python construite ; conteneur non-root démarré, `/health` et `/kg/inspect/90003` testés via HTTP contre FalkorDB réel : succès, absence confirmée sans création de groupe.
 
 ## Limites et livraison
