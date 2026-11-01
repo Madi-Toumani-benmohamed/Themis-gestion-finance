@@ -1,5 +1,36 @@
-**/node_modules
-**/dist
-**/.git
-*.zip
-frontend/.vite
+# Environnements et secrets
+.env
+.env.*
+!.env.example
+!example.env
+*.pem
+*.key
+*.p12
+
+# Sauvegardes et données privées
+*.sql
+*.dump
+*.backup
+backups/
+*.sqlite
+*.sqlite3
+
+# Dépendances et builds
+node_modules/
+dist/
+build/
+frontend/.vite/
+
+# Logs et fichiers temporaires
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# Tests et rapports
+frontend/test-results/
+frontend/playwright-report/
+coverage/
+
+# Fichiers locaux
+equipe/
