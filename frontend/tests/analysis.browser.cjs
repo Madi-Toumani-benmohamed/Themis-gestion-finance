@@ -568,17 +568,25 @@ async function main() {
   await history.screenshot({
     path: `${historyArtifacts}/tags-history-24-months.png`,
   })
-  const gapTick = await history
-    .locator('.recharts-xAxis .recharts-cartesian-axis-tick text')
-    .first()
-    .boundingBox()
-  const plot = await history.locator('.recharts-wrapper').boundingBox()
-  await page.mouse.move(gapTick.x + gapTick.width / 2, plot.y + 100)
-  await history
-    .locator('.recharts-tooltip-wrapper')
-    .getByText('Non observé', { exact: true })
-    .first()
-    .waitFor()
+  // The fixture's second bucket is missing for both series. Axis labels can
+  // be skipped or shifted by Recharts; their centres are not data coordinates.
+  await history.locator('.analysis-tag-history-chart').scrollIntoViewIfNeeded()
+  const rows = history.locator('tbody tr')
+  const missingRow = rows.nth(1)
+  const missingPeriod = (await missingRow.locator('th').textContent()).trim()
+  assert.deepEqual(await missingRow.locator('td').allTextContents(), [
+    'Non observé',
+    'Non observé',
+  ])
+  const grid = await history.locator('.recharts-cartesian-grid').boundingBox()
+  assert.ok(grid && grid.width > 0 && grid.height > 0, 'tag history plot is laid out')
+  // The categorical axis spans the first to last bucket, with no X padding.
+  const step = grid.width / ((await rows.count()) - 1)
+  await page.mouse.move(grid.x + step, grid.y + grid.height / 2)
+  const tooltip = history.locator('.recharts-tooltip-wrapper')
+  await tooltip.getByText(missingPeriod, { exact: true }).waitFor()
+  await tooltip.getByText('Non observé', { exact: true }).first().waitFor()
+  assert.equal(await tooltip.getByText('Non observé', { exact: true }).count(), 2)
 
   const slider = history.getByRole('slider').first()
   await slider.focus()
