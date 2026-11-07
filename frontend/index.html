@@ -16,6 +16,16 @@
           document.documentElement.style.background = t === 'dark' ? '#10111B' : '#F4F4F9';
         } catch (e) {}
       })();
+      // Anti-flash motion : appliquer la préférence de mouvement AVANT le premier rendu.
+      // Évite un flash d'animations si prefers-reduced-motion est actif ou si l'utilisateur a choisi "reduced/off".
+      (function () {
+        try {
+          var m = localStorage.getItem('themis-motion') || 'auto';
+          var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          var mode = m === 'off' ? 'off' : m === 'reduced' || (m === 'auto' && reduced) ? 'reduced' : 'full';
+          document.documentElement.dataset.motion = mode;
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>

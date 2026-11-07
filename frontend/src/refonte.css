@@ -313,7 +313,7 @@ tr.tx-day .tx-day-total.pos { color: var(--pos); }
    6. BARRE D'OUTILS COLLANTE
    --------------------------------------------------------------------------- */
 .toolbar {
-  position: sticky; top: 0; z-index: 20;
+  position: sticky; top: 0; z-index: var(--z-sticky);
   background: var(--page); box-shadow: 0 1px 0 var(--line);
   padding: 12px 0 14px; margin-bottom: 0;
   border-radius: 0;

@@ -7,7 +7,7 @@
   position: fixed;
   right: 24px;
   bottom: 88px;  /* au-dessus du bouton scroll-to-top */
-  z-index: 90;
+  z-index: var(--z-float);
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -48,7 +48,7 @@
   position: fixed;
   right: 24px;
   bottom: 152px;  /* au-dessus du bouton */
-  z-index: 95;
+  z-index: var(--z-float-panel);
   width: min(420px, calc(100vw - 48px));
   height: min(580px, calc(100vh - 200px));
   background: var(--paper);
