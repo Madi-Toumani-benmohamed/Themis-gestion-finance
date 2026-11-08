@@ -315,7 +315,7 @@ select { cursor: pointer; }
 .top-label { font-size: 13.5px; color: var(--body); }
 .top-amount { font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .top-bar { grid-column: 1 / -1; height: 6px; background: var(--sunken); border-radius: var(--r-full); overflow: hidden; }
-.top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); transition: width .5s cubic-bezier(.2,.7,.2,1); }
+.top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); transform-origin: left; transition: transform .5s cubic-bezier(.2,.7,.2,1); }
 
 /* mini-budgets dans widget */
 .mini-budgets { display: flex; flex-direction: column; gap: 14px; }
@@ -331,7 +331,7 @@ select { cursor: pointer; }
 
 /* jauges (budgets) */
 .gauge { height: 8px; background: var(--sunken); border-radius: var(--r-full); overflow: hidden; margin: 8px 0; }
-.gauge-fill { height: 100%; background: var(--accent); border-radius: var(--r-full); transition: width .6s cubic-bezier(.2,.7,.2,1); }
+.gauge-fill { height: 100%; background: var(--accent); border-radius: var(--r-full); transform-origin: left; transition: transform .6s cubic-bezier(.2,.7,.2,1); }
 .gauge-fill.warn { background: var(--warn); }
 .gauge-fill.over { background: var(--neg); }
 
@@ -691,7 +691,7 @@ td.num, .num { text-align: right; }
 .stack-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .stack-progress { font-size: 13px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .stack-progress-bar { height: 4px; background: var(--sunken); border-radius: var(--r-full); overflow: hidden; margin-bottom: 24px; }
-.stack-progress-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); transition: width .35s cubic-bezier(.2,.7,.2,1); }
+.stack-progress-bar > span { display: block; height: 100%; background: var(--accent); border-radius: var(--r-full); transform-origin: left; transition: transform .35s cubic-bezier(.2,.7,.2,1); }
 
 .stack-card {
   background: var(--paper-2); border-radius: var(--r-lg); padding: 28px 24px;
