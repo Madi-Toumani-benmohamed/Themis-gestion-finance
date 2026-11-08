@@ -49,9 +49,12 @@ for (const theme of ['light', 'dark']) {
         await page.getByRole('button', { name: "Ouvrir l'assistant" }).click()
         await expect(page.locator('.assistant-panel')).toBeVisible()
         if (version === 'after') {
-          await expect(page.locator('.assistant-float-btn')).toHaveCSS('background-color', 'rgb(74, 74, 196)')
+          // Hover over the floating button to trigger action-hover state
+          const btn = page.locator('.assistant-float-btn')
+          await btn.hover()
+          await expect(btn).toHaveCSS('background-color', 'rgb(74, 74, 196)')
           await page.mouse.move(0, 0)
-          await expect(page.locator('.assistant-float-btn')).toHaveCSS('background-color', 'rgb(91, 91, 214)')
+          await expect(btn).toHaveCSS('background-color', 'rgb(91, 91, 214)')
           await expect(page.locator('.assistant-panel')).toHaveCSS('animation-name', 'none')
           await expect(page.locator('.assistant-panel-send')).toBeDisabled()
         }
