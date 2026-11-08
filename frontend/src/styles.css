@@ -3,90 +3,7 @@
    Fond clair épuré · accent indigo unique · Inter · ombres douces, pas de filets
    ============================================================================ */
 
-:root {
-  --page:        #FBFBFD;
-  --paper:       #FFFFFF;
-  --paper-2:     #F5F5FA;
-  --sunken:      #F0F0F5;
 
-  --accent:      #5B5BD6;
-  /* Rampe indigo pour les graphiques catégoriels sans couleur propre :
-     dérivée de l'accent, du plus soutenu au plus clair. Unifie la palette. */
-  --viz-1: #5B5BD6;
-  --viz-2: #7C7CE0;
-  --viz-3: #9C9CEA;
-  --viz-4: #B9B9F1;
-  --viz-5: #D2D2F7;
-  --viz-6: #E9E9FB;
-  --accent-hover:#4A4AC4;
-  --accent-soft: #EEEEFB;
-  --accent-ring: rgba(91, 91, 214, 0.35);
-
-  --ink:         #16161D;
-  --body:        #3C3C46;
-  --muted:       #8A8A99;
-  --faint:       #B4B4C0;
-
-  --pos:         #21935B;
-  --pos-soft:    #E6F5EC;
-  --neg:         #D6455D;
-  --neg-soft:    #FCEBEE;
-  --warn:        #C77D2E;
-  --warn-soft:   #FBF1E4;
-
-  --green: var(--accent);
-  --red: var(--neg);
-  --gold: var(--warn);
-  --debit: var(--neg);
-  --credit: var(--pos);
-  --line:        #ECECF1;
-  --line-strong: #DEDEE6;
-
-  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px; --r-full: 999px;
-
-  --sh-xs: 0 1px 2px rgba(22,22,29,.05);
-  --sh-sm: 0 1px 3px rgba(22,22,29,.06), 0 1px 2px rgba(22,22,29,.04);
-  --sh-md: 0 4px 12px rgba(22,22,29,.07), 0 2px 4px rgba(22,22,29,.04);
-  --sh-lg: 0 12px 32px rgba(22,22,29,.10), 0 4px 8px rgba(22,22,29,.05);
-  --sh-xl: 0 24px 60px rgba(22,22,29,.14), 0 8px 16px rgba(22,22,29,.06);
-  --sh-accent: 0 6px 20px rgba(91,91,214,.28);
-
-  --font: 'Inter Variable','Inter',system-ui,-apple-system,sans-serif;
-  --mono: 'IBM Plex Mono',ui-monospace,monospace;
-  --maxw: 1180px;
-
-  /* ---- Système d'espacement (échelle 4px) ---- */
-  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
-  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
-
-  /* ---- Animation : durées et courbes ---- */
-  --t-fast: 140ms;                                /* hover, focus */
-  --t-base: 220ms;                                /* transitions standard */
-  --t-slow: 380ms;                                /* entrées, panneaux */
-  --ease:   cubic-bezier(.25,.46,.45,.94);        /* naturel, sortie douce */
-  --spring: cubic-bezier(.34,1.56,.64,1);          /* léger rebond, vivant */
-
-  /* ---- Profondeur & lumière ---- */
-  --glow-accent: 0 0 0 1px rgba(91,91,214,.08), 0 8px 32px -8px rgba(91,91,214,.35);
-  --ring: 0 0 0 3px var(--accent-ring);
-  --blur-glass: saturate(180%) blur(16px);
-
-  /* ---- Z-index layers (tokens) ---- */
-  --z-bg: 0;              /* arrière-plans, paths décoratifs */
-  --z-base: 1;            /* contexte d'empilement de base */
-  --z-dropdown: 30;       /* menus déroulants, suggestions */
-  --z-sticky: 40;         /* en-têtes sticky, barres d'outils */
-  --z-masthead: 50;       /* masthead principal */
-  --z-header: 60;         /* en-têtes de section importants */
-  --z-overlay: 70;        /* cartes flottantes (upcard, etc.) */
-  --z-float: 90;          /* boutons flottants (scroll-top, assistant) */
-  --z-float-panel: 95;    /* panneaux attachés aux flottants */
-  --z-veil: 100;          /* voiles plein écran (drag & drop) */
-  --z-modal-backdrop: 120; /* overlays modaux (stamp, etc.) */
-  --z-dialog: 150;        /* dialogues (stack, etc.) */
-  --z-toast: 200;         /* toasts, palette de commande */
-  --z-max: 2147483647;    /* maximum sûr (top layer natif <dialog>) */
-}
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { -webkit-text-size-adjust: 100%; }
@@ -879,45 +796,7 @@ td.num, .num { text-align: right; }
 /* ============================================================================
    THÈME SOMBRE — redéfinition des tokens (tout le reste suit automatiquement)
    ============================================================================ */
-[data-theme="dark"] {
-  --page:        #0F0F14;
-  --paper:       #17171F;
-  --paper-2:     #1E1E28;
-  --sunken:      #23232E;
 
-  --accent:      #7C7CF0;
-  --viz-1: #7C7CF0;
-  --viz-2: #6E6ED8;
-  --viz-3: #6161BE;
-  --viz-4: #5454A4;
-  --viz-5: #48488B;
-  --viz-6: #3C3C72;
-  --accent-hover:#9090F5;
-  --accent-soft: #21213A;
-  --accent-ring: rgba(124, 124, 240, 0.4);
-
-  --ink:         #F2F2F7;
-  --body:        #C4C4CF;
-  --muted:       #888896;
-  --faint:       #5A5A66;
-
-  --pos:         #3BC77E;
-  --pos-soft:    #16281F;
-  --neg:         #F06A7E;
-  --neg-soft:    #2C1820;
-  --warn:        #E0A048;
-  --warn-soft:   #2A2216;
-
-  --line:        #26262F;
-  --line-strong: #33333F;
-
-  --sh-xs: 0 1px 2px rgba(0,0,0,.3);
-  --sh-sm: 0 1px 3px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
-  --sh-md: 0 4px 12px rgba(0,0,0,.4), 0 2px 4px rgba(0,0,0,.3);
-  --sh-lg: 0 12px 32px rgba(0,0,0,.5), 0 4px 8px rgba(0,0,0,.35);
-  --sh-xl: 0 24px 60px rgba(0,0,0,.6), 0 8px 16px rgba(0,0,0,.4);
-  --sh-accent: 0 6px 20px rgba(124,124,240,.35);
-}
 
 /* Le masthead en verre dépoli doit s'adapter au fond sombre */
 [data-theme="dark"] .masthead { background: rgba(15,15,20,.8); }

@@ -1,41 +1,6 @@
 /* Direction « studio financier ». Composition commune, sur les tokens Thémis. */
-:root {
-  --page: #F4F4F9;
-  --paper-2: #F8F8FC;
-  --sunken: #EFEFF6;
-  --ink: #202037;
-  --body: #505064;
-  --muted: #6C6C82;
-  --faint: #75758A;
-  --line: #E7E7F0;
-  --line-strong: #D9D9E7;
-  --r-lg: 20px;
-  --r-xl: 26px;
-  --sh-sm: 0 2px 5px rgba(28, 27, 58, .025), 0 0 0 1px rgba(28, 27, 58, .035);
-  --sh-md: 0 12px 28px -18px rgba(38, 34, 80, .25), 0 0 0 1px rgba(28, 27, 58, .06);
-  --font-editorial: 'Fraunces', Georgia, serif;
-  --nav-bg: #1B1B2E;
-  --nav-text: #C0C0D4;
-  --nav-muted: #9B9BB8;
-}
-[data-theme="dark"] {
-  --page: #10111B;
-  --paper: #1A1B2B;
-  --paper-2: #202133;
-  --sunken: #26273B;
-  --ink: #F0F0FA;
-  --body: #C9CADA;
-  --muted: #ADB0C7;
-  --faint: #969AB4;
-  --line: #2A2C42;
-  --line-strong: #3B3D56;
-  --accent: #A2A2FF;
-  --accent-hover: #B7B7FF;
-  --accent-soft: #292944;
-  --sh-sm: 0 0 0 1px rgba(192, 195, 240, .065), 0 3px 10px rgba(0, 0, 0, .08);
-  --sh-md: 0 0 0 1px rgba(192, 195, 240, .1), 0 15px 30px -20px rgba(0, 0, 0, .5);
-  --nav-bg: #151622;
-}
+
+
 html { background: var(--page); }
 body::before, [data-theme="dark"] body::before {
   background: radial-gradient(ellipse at 85% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 52%);
