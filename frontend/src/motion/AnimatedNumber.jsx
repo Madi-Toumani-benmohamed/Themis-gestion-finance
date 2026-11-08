@@ -17,11 +17,13 @@ export function AnimatedNumber({ value, format = eur, missing = '—', className
   return <span className={`animated-number ${className}`} data-motion-number="true">
     <span className="motion-number-value">{formatted}</span>
     <span className="motion-number-reel" aria-hidden="true">
-      {characters.map((character, index) => <span className="motion-digit-slot" key={characters.length - index}>
-        <m.span className="motion-digit" data-character={character} key={character}
-          initial={{ y: `${direction * 85}%`, opacity: 0 }} animate={{ y: '0%', opacity: 1 }}
-          transition={{ duration: timing.number, ease, delay: Math.min(delay / 1000 + index * 0.016, 0.25) }} />
-      </span>)}
+      {characters.map((character, index) => (
+        <span className="motion-digit-slot" key={index}>
+          <m.span className="motion-digit" data-character={character}
+            initial={{ y: `${direction * 85}%`, opacity: 0 }} animate={{ y: '0%', opacity: 1 }}
+            transition={{ duration: timing.number, ease, delay: Math.min(delay / 1000 + index * 0.016, 0.25) }} />
+        </span>
+      ))}
     </span>
   </span>
 }
