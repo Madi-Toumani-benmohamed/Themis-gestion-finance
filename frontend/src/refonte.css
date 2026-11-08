@@ -1,15 +1,5 @@
-/* ============================================================================
-   thémis — refonte « outil premium »
-   Couche de surcharge : à charger APRÈS styles.css. Aucun jeton nouveau,
-   aucune couleur inventée — tout vient des variables de styles.css.
-
-     // main.jsx
-     import './styles.css'
-     import './refonte.css'   // ← ajouter cette ligne
-
-   Ce fichier ne réécrit pas le design system : il applique les décisions de
-   la refonte (voir PATCH.md pour les 5 changements de markup nécessaires).
-   ============================================================================ */
+/* Composition historique, après styles.css. Tokens : design-tokens.css.
+   Les variantes du shell et du Dashboard sont dans cockpit.css. */
 
 /* ---------------------------------------------------------------------------
    1. NAVIGATION LATÉRALE GROUPÉE
@@ -105,15 +95,14 @@
   margin-bottom: 14px;
 }
 .hero-tone::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.hero-tone.tone-positive  { background: var(--pos-soft);  color: #17663f; }
+.hero-tone.tone-positive  { background: var(--pos-soft);  color: var(--pos-ink); }
 .hero-tone.tone-neutral   { background: var(--sunken);    color: var(--muted); }
-.hero-tone.tone-attention { background: var(--warn-soft); color: #8a5a1b; }
-.hero-tone.tone-alert     { background: var(--neg-soft);  color: #a52d42; }
+.hero-tone.tone-attention { background: var(--warn-soft); color: var(--warn-ink); }
+.hero-tone.tone-alert     { background: var(--neg-soft);  color: var(--neg-ink); }
 /* En sombre, les couleurs de texte foncées ci-dessus sont illisibles sur les
    fonds soft. On utilise les teintes vives (déjà éclaircies en dark) et un fond
    plus marqué pour que le ton du mois saute aux yeux — surtout « sous tension ». */
 [data-theme="dark"] .hero-tone.tone-positive  { background: color-mix(in srgb, var(--pos) 22%, transparent);  color: var(--pos); }
-[data-theme="dark"] .hero-tone.tone-neutral   { background: var(--sunken); color: var(--muted); }
 [data-theme="dark"] .hero-tone.tone-attention { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
 [data-theme="dark"] .hero-tone.tone-alert     { background: color-mix(in srgb, var(--neg) 26%, transparent);  color: var(--neg); }
 
@@ -268,7 +257,7 @@ tr.tx-day .tx-day-total.pos { color: var(--pos); }
   padding: 3px 6px; border-radius: 4px;
   background: var(--accent-soft); color: var(--accent-hover);
 }
-.tx-flag.warn { background: var(--warn-soft); color: #8a5a1b; }
+.tx-flag.warn { background: var(--warn-soft); color: var(--warn-ink); }
 .tx-flag.mute { background: var(--sunken); color: var(--muted); }
 
 /* Domaine non renseigné : une invitation, pas une erreur. */
@@ -352,8 +341,8 @@ tr.tx-day .tx-day-total.pos { color: var(--pos); }
   padding: 4px 8px; border-radius: var(--r-full);
 }
 .stamp::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-.stamp.ok   { background: var(--pos-soft);  color: #17663f; }
-.stamp.warn { background: var(--warn-soft); color: #8a5a1b; }
+.stamp.ok   { background: var(--pos-soft);  color: var(--pos-ink); }
+.stamp.warn { background: var(--warn-soft); color: var(--warn-ink); }
 
 /* ---------------------------------------------------------------------------
    9. ANIMATIONS

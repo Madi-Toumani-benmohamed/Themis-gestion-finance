@@ -13,8 +13,8 @@
   border-radius: 50%;
   cursor: pointer;
   border: none;
-  background: var(--accent);
-  color: #fff;
+  background: var(--action);
+  color: var(--on-action);
   display: grid;
   place-items: center;
   box-shadow: var(--sh-lg);
@@ -22,16 +22,16 @@
   transition: background .16s ease, transform .12s ease, box-shadow .16s ease;
 }
 .assistant-float-btn:hover {
-  background: var(--accent-hover);
+  background: var(--action-hover);
   transform: translateY(-2px);
   box-shadow: var(--sh-xl);
 }
 .assistant-float-btn.open {
-  background: var(--neg);
+  background: var(--action);
   animation: none;
 }
 .assistant-float-btn.open:hover {
-  background: #c0392b;
+  background: var(--action-hover);
 }
 
 @keyframes float-in {
@@ -78,8 +78,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 14px 16px;
-  background: #5B5BD6;
-  color: #fff;
+  background: var(--action);
+  color: var(--on-action);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -.01em;
@@ -89,7 +89,7 @@
   background: none;
   border: none;
   cursor: pointer;
-  color: #fff;
+  color: var(--on-action);
   font-size: 16px;
   padding: 2px 4px;
   border-radius: 4px;
@@ -97,7 +97,7 @@
   line-height: 1;
 }
 .assistant-panel-close:hover {
-  color: #fff;
+  color: var(--on-action);
   background: rgba(255,255,255,.15);
 }
 
@@ -162,8 +162,8 @@
   place-items: center;
   font-size: 10px;
   font-weight: 700;
-  color: #fff;
-  background: var(--accent);
+  color: var(--on-action);
+  background: var(--action);
 }
 .assistant-panel-msg-user .assistant-panel-msg-avatar { background: var(--muted); }
 .assistant-panel-msg-body {
