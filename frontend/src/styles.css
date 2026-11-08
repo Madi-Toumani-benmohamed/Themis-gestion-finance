@@ -90,9 +90,9 @@ select { cursor: pointer; }
 .section { max-width: var(--maxw); margin: 0 auto; }
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  font-size: 11.5px; font-weight: 600; letter-spacing: .02em;
   padding: 3px 9px; border-radius: var(--r-full);
-  background: var(--accent-soft); color: var(--accent-hover);
+  background: var(--accent-soft); color: var(--accent);
 }
 .empty { text-align: center; color: var(--muted); font-size: 14px; padding: 56px 24px; background: var(--paper); border-radius: var(--r-lg); box-shadow: var(--sh-sm); }
 .muted { color: var(--muted); }
@@ -100,8 +100,8 @@ select { cursor: pointer; }
 .spinner { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 8px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .notice { padding: 12px 16px; border-radius: var(--r-md); font-size: 14px; margin-bottom: 18px; box-shadow: var(--sh-sm); }
-.notice.ok  { background: var(--pos-soft); color: #17663f; }
-.notice.err { background: var(--neg-soft); color: #a52d42; }
+.notice.ok  { background: var(--pos-soft); color: var(--pos-ink); }
+.notice.err { background: var(--neg-soft); color: var(--neg-ink); }
 
 /* ============================================================================
    LAYOUT : app, masthead, nav
@@ -516,8 +516,8 @@ td.num, .num { text-align: right; }
 .sim-table td { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .sim-unit { color: var(--muted); font-size: 12px; }
 .sim-verdict { font-size: 15px; font-weight: 600; margin-top: 18px; padding: 16px; border-radius: var(--r-md); text-align: center; }
-.sim-verdict.pos { background: var(--pos-soft); color: #17663f; }
-.sim-verdict.neg { background: var(--neg-soft); color: #a52d42; }
+.sim-verdict.pos { background: var(--pos-soft); color: var(--pos-ink); }
+.sim-verdict.neg { background: var(--neg-soft); color: var(--neg-ink); }
 
 @media (max-width: 860px) { .sim-layout { grid-template-columns: 1fr; } }
 
@@ -644,8 +644,8 @@ td.num, .num { text-align: right; }
   display: inline-flex; align-items: center; font-size: 11px; font-weight: 600;
   padding: 2px 9px; border-radius: var(--r-full); letter-spacing: .01em;
 }
-.stamp.ok { background: var(--pos-soft); color: #17663f; }
-.stamp.warn { background: var(--warn-soft); color: #8a5316; }
+.stamp.ok { background: var(--pos-soft); color: var(--pos-ink); }
+.stamp.warn { background: var(--warn-soft); color: var(--warn-ink); }
 
 /* ============================================================================
    PULSE — phrase de synthèse du mois (tête du dashboard)
