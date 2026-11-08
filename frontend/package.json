@@ -16,7 +16,10 @@
     "test:e2e:report": "playwright show-report",
     "test:e2e:local": "bash tests/e2e/run-local.sh",
     "test:loading": "npm run build -- --manifest && node tests/loading.browser.cjs",
-    "test:projects": "node tests/projects.browser.cjs"
+    "test:projects": "node tests/projects.browser.cjs",
+    "tokens:generate": "node scripts/motion-tokens.mjs",
+    "tokens:check": "node scripts/motion-tokens.mjs --check",
+    "prebuild": "npm run tokens:check"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",

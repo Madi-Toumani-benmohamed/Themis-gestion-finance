@@ -1,48 +1,13 @@
 /* Direction « studio financier ». Composition commune, sur les tokens Thémis. */
-:root {
-  --page: #F4F4F9;
-  --paper-2: #F8F8FC;
-  --sunken: #EFEFF6;
-  --ink: #202037;
-  --body: #505064;
-  --muted: #6C6C82;
-  --faint: #75758A;
-  --line: #E7E7F0;
-  --line-strong: #D9D9E7;
-  --r-lg: 20px;
-  --r-xl: 26px;
-  --sh-sm: 0 2px 5px rgba(28, 27, 58, .025), 0 0 0 1px rgba(28, 27, 58, .035);
-  --sh-md: 0 12px 28px -18px rgba(38, 34, 80, .25), 0 0 0 1px rgba(28, 27, 58, .06);
-  --font-editorial: 'Fraunces', Georgia, serif;
-  --nav-bg: #1B1B2E;
-  --nav-text: #C0C0D4;
-  --nav-muted: #9B9BB8;
-}
-[data-theme="dark"] {
-  --page: #10111B;
-  --paper: #1A1B2B;
-  --paper-2: #202133;
-  --sunken: #26273B;
-  --ink: #F0F0FA;
-  --body: #C9CADA;
-  --muted: #ADB0C7;
-  --faint: #969AB4;
-  --line: #2A2C42;
-  --line-strong: #3B3D56;
-  --accent: #A2A2FF;
-  --accent-hover: #B7B7FF;
-  --accent-soft: #292944;
-  --sh-sm: 0 0 0 1px rgba(192, 195, 240, .065), 0 3px 10px rgba(0, 0, 0, .08);
-  --sh-md: 0 0 0 1px rgba(192, 195, 240, .1), 0 15px 30px -20px rgba(0, 0, 0, .5);
-  --nav-bg: #151622;
-}
+
+
 html { background: var(--page); }
 body::before, [data-theme="dark"] body::before {
   background: radial-gradient(ellipse at 85% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 52%);
 }
 .app { isolation: isolate; }
 .app-shell { position: relative; z-index: var(--z-base); }
-.app-main .page { width: 100%; max-width: 1340px; padding: 38px 40px 64px; }
+.app-main .page { width: 100%; max-width: 1340px; padding: 38px var(--sp-10) 64px; }
 .app .sidebar, [data-theme="dark"] .app .sidebar {
   width: 228px;
   padding: 20px 14px 16px;
@@ -61,7 +26,7 @@ body::before, [data-theme="dark"] body::before {
 .app .nav-group-label { color: var(--nav-muted); font-size: 10px; font-weight: 600; letter-spacing: .1em; padding: 16px 10px 6px; flex-shrink: 0; }
 .app .sidebar-nav button { color: var(--nav-text); min-height: 40px; flex-shrink: 0; padding: 8px 10px; line-height: 1.35; border-radius: 10px; font-size: 13px; gap: 12px; box-shadow: none; }
 .app .nav-group-label:first-child { padding-top: 4px; }
-.app .sidebar :is(.sidebar-nav button, .sidebar-footer > button, .session button):focus-visible { outline: 2px solid #C1C1FF; outline-offset: -2px; }
+.app .sidebar :is(.sidebar-nav button, .sidebar-footer > button, .session button):focus-visible { outline: 2px solid var(--nav-focus); outline-offset: -2px; }
 .app .sidebar-nav button .nav-icon { opacity: .8; }
 .app .sidebar-nav button.active { background: #34334F; color: #F7F7FF; box-shadow: inset 0 0 0 1px rgba(187, 183, 255, .12); }
 .app .sidebar-nav button.active::before { width: 3px; height: 16px; top: 50%; bottom: auto; transform: translateY(-50%); background: #B2AFFF; box-shadow: none; }
@@ -79,7 +44,7 @@ body::before, [data-theme="dark"] body::before {
 .app .sidebar-footer .session-role { color: #CECBFF; background: #34334F; font-size: 9px; padding: 2px 5px; flex-shrink: 0; }
 .app .sidebar-footer .link { color: var(--nav-text); font-size: 11px; padding-block: 4px; flex-shrink: 0; }
 .app .topbar, [data-theme="dark"] .app .topbar {
-  min-height: 76px; padding: 15px 40px; gap: 18px;
+  min-height: 76px; padding: 15px var(--sp-10); gap: 18px;
   background: color-mix(in srgb, var(--page) 88%, transparent);
   box-shadow: 0 1px 0 var(--line);
 }
@@ -89,8 +54,8 @@ body::before, [data-theme="dark"] body::before {
 .topbar-search { display: flex; align-items: center; gap: 9px; background: none; border: 0; padding: 8px; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; border-radius: 8px; }
 .topbar-search:hover { background: var(--sunken); color: var(--ink); }
 .topbar-search kbd { font: inherit; font-size: 10px; padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 4px; }
-.app .slot { border-radius: 9px; padding: 10px 15px; font-size: 12px; background: #5B5BD6; color: white; box-shadow: 0 3px 8px rgba(75, 65, 160, .13); }
-.app .slot:hover { background: #4A4AC4; box-shadow: 0 5px 15px rgba(75, 65, 160, .2); }
+.app .slot { border-radius: 9px; padding: 10px 15px; font-size: 12px; background: var(--action); color: white; box-shadow: 0 3px 8px rgba(75, 65, 160, .13); }
+.app .slot:hover { background: var(--action-hover); box-shadow: 0 5px 15px rgba(75, 65, 160, .2); }
 .app .slot-account { max-width: 155px; font-size: 11px; }
 .app .slot-text::before { margin-right: 7px; }
 .app .btn-secondary { border: 0; }
@@ -144,7 +109,7 @@ body::before, [data-theme="dark"] body::before {
 .dashboard .gauge { height: 5px; margin: 10px 0; }
 .dashboard .subs-total { color: var(--ink); font-size: 27px; font-weight: 550; letter-spacing: -.04em; margin-bottom: 22px; }
 .dashboard .subs-total > span { font-size: 11px; letter-spacing: 0; }
-.app .colophon { width: 100%; padding: 24px 40px; font-size: 11px; color: var(--muted); }
+.app .colophon { width: 100%; padding: var(--sp-6) var(--sp-10); font-size: 11px; color: var(--muted); }
 .app .colophon > span:first-child { color: var(--body); }
 .app :is(button, [role="button"], summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 @media (max-width: 1100px) {
@@ -194,9 +159,6 @@ body::before, [data-theme="dark"] body::before {
   .app .colophon { padding: 20px 14px; flex-wrap: wrap; gap: 8px; }
   .app .colophon-rule { display: none; }
 }
-/* Une action primaire garde le violet de marque, y compris en thème sombre. */
-.btn, button[type="submit"] { background: #5B5BD6; color: #FFF; }
-.btn:hover:not(:disabled), button[type="submit"]:hover:not(:disabled) { background: #4A4AC4; }
 .category-overview { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; }
 .category-overview .donut-wrap { flex: 1 1 185px; min-width: 0; }
 .category-legend { flex: 1 1 140px; min-width: 0; max-height: 240px; overflow-y: auto; padding: 0; margin: 0; list-style: none; }
@@ -225,7 +187,7 @@ body::before, [data-theme="dark"] body::before {
   .auth-card { padding: 32px 24px; }
 }
 .app .sidebar-nav button.active .nav-count { background: #595578; color: #FFF; }
-.dashboard-heading .month-now-btn.active { background: #5B5BD6; color: #FFF; }
+.dashboard-heading .month-now-btn.active { background: var(--action); color: #FFF; }
 [data-theme="dark"] :is(.stamp.ok, .notice.ok) { color: var(--pos); }
 [data-theme="dark"] :is(.stamp.warn, .tx-flag.warn) { color: var(--warn); }
 [data-theme="dark"] .notice.err { color: var(--neg); }

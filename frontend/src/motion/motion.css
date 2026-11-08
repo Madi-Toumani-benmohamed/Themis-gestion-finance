@@ -1,18 +1,12 @@
 /* Thémis motion grammar: finite gestures, exact data, native scrolling. */
-:root {
-  --motion-ease: cubic-bezier(.22, 1, .36, 1);
-  --motion-press: 120ms;
-  --motion-feedback: 180ms;
-  --motion-scene: 360ms;
-}
 .motion-page { view-transition-name: themis-content; animation: motion-page-in var(--motion-scene) var(--motion-ease) both; }
 .motion-page[data-page-entrance="native"] { animation: none; }
 ::view-transition { pointer-events: none; }
 @keyframes motion-page-in { from { opacity: .3; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 ::view-transition-old(root), ::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
-::view-transition-group(themis-content) { animation-duration: 320ms; animation-timing-function: var(--motion-ease); }
-::view-transition-old(themis-content) { animation: motion-scene-out 180ms var(--motion-ease) both; }
-::view-transition-new(themis-content) { animation: motion-scene-in 320ms var(--motion-ease) both; }
+::view-transition-group(themis-content) { animation-duration: var(--motion-page); animation-timing-function: var(--motion-ease); }
+::view-transition-old(themis-content) { animation: motion-scene-out var(--motion-feedback) var(--motion-ease) both; }
+::view-transition-new(themis-content) { animation: motion-scene-in var(--motion-page) var(--motion-ease) both; }
 @keyframes motion-scene-out { to { opacity: 0; transform: translateY(-8px) scale(.995); } }
 @keyframes motion-scene-in { from { opacity: 0; transform: translateY(18px) scale(.995); } }
 .motion-page .section, .motion-page .widget, .motion-page .kpi-card, .motion-page .journal, .motion-page .section-head { animation: none; }

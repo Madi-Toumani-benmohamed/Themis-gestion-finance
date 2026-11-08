@@ -4,9 +4,9 @@
 .dashboard .chart-stage .recharts-bar-rectangle path { transform-box: fill-box; transform-origin: center bottom; }
 .dashboard .chart-stage .recharts-active-dot { filter: drop-shadow(0 0 5px var(--accent)); }
 .dashboard .chart-stage .recharts-bar-rectangle:hover { filter: brightness(1.16); }
-.dashboard .chart-tooltip { position: relative; border-top-color: var(--accent) !important; }
+.dashboard .chart-tooltip { position: relative; border-top-color: var(--accent); }
 .dashboard .chart-tooltip::before { content: ''; position: absolute; width: 20px; height: 1px; top: -1px; left: 14px; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
-[data-motion="full"] .dashboard .chart-tooltip { animation: chart-tooltip-arrive 180ms cubic-bezier(.22,1,.36,1); }
+[data-motion="full"] .dashboard .chart-tooltip { animation: chart-tooltip-arrive var(--motion-feedback) var(--motion-ease); }
 @keyframes chart-tooltip-arrive { from { transform: perspective(800px) translateY(5px) rotateX(-4deg); opacity: .7; } to { transform: perspective(800px) translateY(0) rotateX(0deg); opacity: 1; } }
 .dashboard .chart-exact-value { display: inline-block; font-variant-numeric: tabular-nums; }
 .dashboard .category-view-control { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; color: var(--muted); font-size: 10px; }
