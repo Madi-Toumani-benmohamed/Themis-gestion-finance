@@ -128,7 +128,7 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
     ).toBe(204)
   }
   await page.goto('/')
-  await page.getByRole('tab', { name: 'Transactions', exact: true }).click()
+  await page.getByRole('tab', { name: /^Transactions(?: \d+)?$/ }).click()
   await expect(
     page.getByRole('table', {
       name: 'Transactions regroupées par date, selon les filtres actifs',
