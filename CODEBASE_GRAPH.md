@@ -7,7 +7,7 @@
 
 ```
 themis/
-├── backend/                 # Go 1.23 — API REST + logique métier
+├── backend/                 # Go 1.26.11 — API REST + logique métier
 │   ├── cmd/server/main.go   # Entrée unique, wire up tout
 │   ├── internal/
 │   │   ├── api/             # Handlers HTTP (1 fichier = 1 domaine)
@@ -49,7 +49,8 @@ themis/
 | `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
 | `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
 | `knowledge_activity.go` | Journal mémoire propriétaire, inspection FalkorDB bornée, recherche et trace des faits joints au modèle | `GET /api/knowledge/overview`, `POST /api/knowledge/search`, `POST /api/knowledge/learn` |
-| `chat.go` | Assistant conversationnel | `POST /api/chat` (orchestration outils) |
+| `chat.go`, `agent_chat.go`, `agent_period.go`, `agent_tools.go` | Assistant contextualisé, horloge fiable, historique serveur et outils exacts | `POST /api/chat` (orchestration outils) |
+| `agent_workspace.go` | Missions suivies, préférences déclarées, briefing et actions préparées/validées atomiques | `/api/agent/missions*`, `/api/agent/memories*`, `/api/agent/briefing`, `/api/agent/conversations*`, `/api/agent/actions*` |
 | `pulse.go` | Synthèse rapide (mois demandé) | `GET /api/pulse?month=YYYY-MM` |
 | `hero.go` | Conclusion analyse (ton + points) | `GET /api/hero?month=YYYY-MM` |
 | `anomalies.go` | Détection signaux (abos, unusual) | `GET /api/anomalies?month=YYYY-MM` |
@@ -96,7 +97,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - UI : page `Knowledge`, `KnowledgeActivity` (également Admin → IA → Mémoire), `KnowledgeFacts` et validation `knowledgeModel.mjs`. Voir `docs/KNOWLEDGE_ACTIVITY.md`.
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `033_knowledge_activity.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+- `001_init.sql` → `034_agent_workspace.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
 
 ### Remboursements manuels
 - `reimbursements.go` expose les routes authentifiées `/api/reimbursements*`; `reimbursement_service.go` porte les snapshots, allocations en centimes, verrous, statuts et historique.
@@ -112,6 +113,8 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - Navigation `App.jsx` : trois familles Finances / Prévisions et outils / Intelligence, intitulé Simulation budgétaire et palette filtrée selon disponibilité IA/rôle. Le pied garde Admin (bouton avec aria-current), Calcul rapide libellé, thème et compte. `cockpit.css` compacte les espacements, borne la hauteur à 100dvh et permet le défilement du menu sur écran bas ; focus visible et rail mobile conservés.
 - `PageLoader.jsx` charge les pages à la demande avec Suspense et une récupération en cas d’échec ; `App.jsx` précharge la destination au survol/focus. Auth reste immédiat. `tests/loading.browser.cjs` vérifie le build réel.
 - `IntelligenceHighlights.jsx` suspend le polling des jobs dans les onglets masqués et le reprend au retour sans chevauchement. Mesures et limites : `docs/PERFORMANCE_OPTIMIZATION.md`.
+
+- `components/agent/AgentConsole.jsx` partage missions, historique, sources/outils et validation d’actions entre Assistant et le panneau flottant (chargé à l’ouverture). `App.jsx` transmet page/mois/sélection depuis les pages financières ; migration additive 034, export propriétaire et rollback gardé. Voir `docs/AGENT_WORKSPACE.md`.
 
 ### Mouvement et interactions (`frontend/src/motion/`)
 - `index.jsx` centralise le provider Motion, les transitions de navigation (View Transitions avec repli), les révélations au scroll, cartes, onglets, panneaux et jauges. `PresencePanel` rend les éléments sortants inertes.

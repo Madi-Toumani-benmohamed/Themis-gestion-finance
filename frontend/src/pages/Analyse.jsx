@@ -1,5 +1,5 @@
 import { AnimatedTabs, TabIndicator, AnimatedRegion } from '../motion'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import {
   Narrative,
@@ -304,8 +304,9 @@ function MonthContent({ month, family, section, onNavigate, onExplore }) {
     </>
   )
 }
-export default function Analyse({ onNavigate, initialMonth }) {
+export default function Analyse({ onNavigate, initialMonth, onMonthChange }) {
   const [month, setMonth] = useState(initialMonth || analysisMonth())
+  useEffect(() => { onMonthChange?.(month) }, [month, onMonthChange])
   const [family, setFamily] = useState('synthese')
   const [section, setSection] = useState('nature')
   const explore = (next, detail) => {

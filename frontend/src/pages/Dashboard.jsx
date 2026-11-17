@@ -226,7 +226,7 @@ function Journal({ onNavigate, selectedMonth }) {
   )
 }
 
-export default function Dashboard({ onGoUpload, onNavigate }) {
+export default function Dashboard({ onGoUpload, onNavigate, onMonthChange }) {
   const reduced = useMotionReduced()
   const [data, setData] = useState(null)
   const [err, setErr] = useState(null)
@@ -239,6 +239,7 @@ export default function Dashboard({ onGoUpload, onNavigate }) {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
 
+  useEffect(()=>{onMonthChange?.(selectedMonth)},[selectedMonth,onMonthChange])
   useEffect(() => {
     api.summary(24).then(setData).catch((e) => setErr(e.message))
     api.getSetting('dashboard')

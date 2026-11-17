@@ -10,7 +10,7 @@ import { transactionReportModel, transactionDayTotal, transactionMoney, transact
 import { TransactionDrawer, TransactionBulkDialog } from '../components/TransactionDetails'
 import './Transactions.css'
 
-export default function Transactions({ initialStatement = '', initialTag = '', initialType = '', initialMerchant = '', initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
+export default function Transactions({ onAgentFiltersChange, onMonthChange, onDiscussSelection, initialStatement = '', initialTag = '', initialType = '', initialMerchant = '', initialSearch = '', initialMonth = '', initialDomain = '', initialBudget = '', initialTransactionIds = [], initialFrom = '', initialTo = '' }) {
   const toast = useToast()
   const [compactTable, setCompactTable] = useState(() => window.matchMedia('(max-width: 760px)').matches)
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function Transactions({ initialStatement = '', initialTag = '', i
   }, [])
   const [txs, setTxs] = useState([])
   const [month, setMonth] = useState(initialMonth || (initialStatement || initialTag || initialType || initialMerchant || initialSearch || initialDomain || initialBudget || initialTransactionIds.length || initialFrom || initialTo ? '' : new Date().toISOString().slice(0, 7)))
+  useEffect(() => { onMonthChange?.(month) }, [month, onMonthChange])
   const [from, setFrom] = useState(initialFrom)
   const [to, setTo] = useState(initialTo)
   const [showDates, setShowDates] = useState(Boolean(initialFrom || initialTo))
@@ -43,6 +44,9 @@ export default function Transactions({ initialStatement = '', initialTag = '', i
   const [domains, setDomains] = useState([])
   const [tagFilter, setTagFilter] = useState(initialTag)
   const [merchantFilter, setMerchantFilter] = useState(initialMerchant)
+  useEffect(() => {
+    onAgentFiltersChange?.(Boolean(domainFilter || accountFilter || typeFilter || search || tagFilter || merchantFilter || from || to || sourceFilter.statement || sourceFilter.budget || sourceFilter.ids.length))
+  }, [domainFilter, accountFilter, typeFilter, search, tagFilter, merchantFilter, from, to, sourceFilter, onAgentFiltersChange])
   const [allTags, setAllTags] = useState([])
   const [manageDomains, setManageDomains] = useState(false)
   const [showAllDomains, setShowAllDomains] = useState(false)
@@ -513,7 +517,7 @@ export default function Transactions({ initialStatement = '', initialTag = '', i
         )}
       </div>
 
-      <div className="transaction-list-heading"><p aria-live="polite">{report ? `${report.total} opération${report.total > 1 ? 's' : ''} correspondant aux filtres · ${txs.length} sur cette page` : 'Nombre d’opérations indisponible'}</p>{selected.size > 0 && <div className="transaction-selection"><strong>{selected.size} sélectionnée(s)</strong><button className="btn-secondary" disabled={!txs.some(tx => selected.has(tx.id))} onClick={() => setBulk(txs.filter(tx => selected.has(tx.id)))}>Modifier la sélection</button><button className="link" onClick={() => setSelected(new Set())}>Désélectionner</button></div>}</div>
+      <div className="transaction-list-heading"><p aria-live="polite">{report ? `${report.total} opération${report.total > 1 ? 's' : ''} correspondant aux filtres · ${txs.length} sur cette page` : 'Nombre d’opérations indisponible'}</p>{selected.size > 0 && <div className="transaction-selection"><strong>{selected.size} sélectionnée(s)</strong><button className="btn-secondary" disabled={!txs.some(tx => selected.has(tx.id))} onClick={() => setBulk(txs.filter(tx => selected.has(tx.id)))}>Modifier la sélection</button><button className="link" onClick={() => setSelected(new Set())}>Désélectionner</button>{onDiscussSelection && <button className="btn-secondary" disabled={selected.size>100} title="100 opérations maximum" onClick={()=>onDiscussSelection(txs.filter(tx=>selected.has(tx.id)).map(tx=>tx.id))}>Discuter de la sélection</button>}</div>}</div>
       {err && <div className="notice err" role="alert">{err} <button className="link" onClick={reload}>Réessayer</button></div>}
       {fetching && <p role="status" className="notice">Chargement des transactions…</p>}
       {!fetching && !err && txs.length === 0 ? <div className="empty">Aucune transaction pour ces filtres.</div> : txs.length > 0 && <AnimatedRegion revision={report} className="transactions-table-wrap"><table className="transactions-table"><caption className="sr-only">Transactions regroupées par date, selon les filtres actifs</caption>

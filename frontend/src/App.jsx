@@ -61,7 +61,14 @@ function ScrollTop() {
 export default function App() {
   const toast = useToast()
   const reduced = useMotionReduced()
-  const [tab, setTab] = useState('dashboard')
+  const [tab, setTabState] = useState('dashboard')
+  const [agentMonth, setAgentMonth] = useState('')
+  const [agentSelection, setAgentSelection] = useState([])
+  const [agentFilters, setAgentFilters] = useState(false)
+  const setTab = id => {
+    if (id !== tab) { setAgentMonth(''); setAgentSelection([]); setAgentFilters(false) }
+    setTabState(id)
+  }
   const [simulationMode, setSimulationMode] = useState('budget')
   const navigateScene = usePageNavigation()
   const [cmdOpen, setCmdOpen] = useState(false)
@@ -103,6 +110,15 @@ export default function App() {
   }, [])
   const [uploadProg, setUploadProg] = useState(null)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [agentRefresh, setAgentRefresh] = useState(0)
+  useEffect(() => {
+    const applied = () => {
+      setAgentRefresh(k => k + 1)
+      if (tab !== 'assistant') setRefreshKey(k => k + 1)
+    }
+    window.addEventListener('themis:agent-applied', applied)
+    return () => window.removeEventListener('themis:agent-applied', applied)
+  }, [tab])
   const [aiEnabled, setAiEnabled] = useState(false)
   const [stamped, setStamped] = useState(false)
   const [me, setMe] = useState(undefined)      // undefined = en cours, null = déconnecté
@@ -415,10 +431,10 @@ export default function App() {
 
       <PageTransition page={tab} className={`page${tab === 'transactions' ? ' transactions-main' : tab === 'analyse' ? ' analysis-main' : tab === 'admin' ? ' admin-main' : ''}`} key={tab + ':' + refreshKey}>
         <PageLoader>
-          {tab === 'dashboard' && <Dashboard onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
-          {tab === 'transactions' && <Transactions initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
-          {tab === 'analyse' && <Analyse initialMonth={txMonth} onNavigate={navigateTo} />}
-          {tab === 'budgets' && <Budgets onNavigate={navigateTo} />}
+          {tab === 'dashboard' && <Dashboard onMonthChange={setAgentMonth} onGoUpload={() => fileRef.current?.click()} onNavigate={navigateTo} />}
+          {tab === 'transactions' && <Transactions onAgentFiltersChange={setAgentFilters} onMonthChange={setAgentMonth} onDiscussSelection={aiEnabled ? ids=>{setAgentSelection(ids);window.dispatchEvent(new Event('themis:agent-open'))}:undefined} initialStatement={txStatement} initialTag={txTag} initialType={txType} initialMerchant={txMerchant} initialSearch={txSearch} initialMonth={txMonth} initialDomain={txDomain} initialBudget={txBudget} initialTransactionIds={txIds} initialFrom={txFrom} initialTo={txTo} />}
+          {tab === 'analyse' && <Analyse onMonthChange={setAgentMonth} initialMonth={txMonth} onNavigate={navigateTo} />}
+          {tab === 'budgets' && <Budgets onMonthChange={setAgentMonth} onNavigate={navigateTo} />}
           {tab === 'credits' && <Credits />}
           {tab === 'simulate' && <Simulate mode={simulationMode} />}
           {tab === 'fiscal' && <FiscalSimulation />}
@@ -428,7 +444,7 @@ export default function App() {
           {tab === 'statements' && <Statements aiEnabled={aiEnabled} onNavigate={navigateTo} initialMonth={statementMonth} onMonthChange={setStatementMonth} onGoUpload={() => fileRef.current?.click()} onChanged={() => setRefreshKey((k) => k + 1)} />}
           {tab === 'admin' && <Admin isAdmin={me.role === 'admin'} onAIConfigSaved={config => setAiEnabled(Boolean(config.enabled))} />}
           {tab === "advice" && <Advice aiEnabled={aiEnabled} onNavigate={navigateTo} />}
-          {tab === 'assistant' && <Assistant />}
+          {tab === 'assistant' && <Assistant pageContext={{page:tab}} onNavigate={navigateTo} refreshKey={refreshKey+agentRefresh}/>}
         </PageLoader>
       </PageTransition>
 
@@ -458,7 +474,7 @@ export default function App() {
       />
 
       <ScrollTop />
-      {aiEnabled && <AssistantFloating aiEnabled={aiEnabled} />}
+      {aiEnabled && <AssistantFloating aiEnabled={aiEnabled} pageContext={{page:tab,month:agentMonth || (tab==='transactions'?txMonth:tab==='statements'?statementMonth:''),filters_require_selection:agentFilters,transaction_ids:agentSelection.length?agentSelection:(tab==='transactions'&&txIds.length<=100?txIds:[])}} onNavigate={navigateTo} refreshKey={refreshKey+agentRefresh}/>}
 
       {importPreview && <ImportPreview key={importPreview.token} preview={importPreview} onDecision={decideImport} />}
 
