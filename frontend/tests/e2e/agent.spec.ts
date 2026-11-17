@@ -12,6 +12,9 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
     (t: { label: string }) => t.label === 'ACHAT TEST 001',
   )
   expect(source).toBeTruthy()
+  const initialTagNames = (await (await page.request.get('/api/tags')).json())
+    .map((tag: { name: string }) => tag.name)
+    .sort()
   const originalTags = source.tags || []
   const originalAmount = source.amount
   const created = await page.request.post('/api/agent/missions', {
@@ -103,6 +106,19 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
         })
       ).ok(),
     ).toBe(true)
+    // Removing a transaction tag does not delete its vocabulary entry. Keep
+    // the global filter list identical for subsequent visual tests as well.
+    expect(
+      (
+        await page.request.delete(
+          '/api/tags/' + encodeURIComponent('agent e2e'),
+        )
+      ).ok(),
+    ).toBe(true)
+    const tagsAfter = await (await page.request.get('/api/tags')).json()
+    expect(tagsAfter.map((tag: { name: string }) => tag.name).sort()).toEqual(
+      initialTagNames,
+    )
     expect(
       (
         await page.request.patch(`/api/agent/missions/${mission.id}`, {
@@ -111,4 +127,14 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
       ).status(),
     ).toBe(204)
   }
+  await page.goto('/')
+  await page.getByRole('tab', { name: 'Transactions', exact: true }).click()
+  await expect(
+    page.getByRole('table', {
+      name: 'Transactions regroupées par date, selon les filtres actifs',
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('combobox', { name: 'Tag', exact: true }),
+  ).toHaveCount(initialTagNames.length ? 1 : 0)
 })
