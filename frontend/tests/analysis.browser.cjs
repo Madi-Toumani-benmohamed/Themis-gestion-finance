@@ -457,12 +457,17 @@ async function main() {
   assert.equal(await page.getByText('nouveau', { exact: true }).count(), 0)
   await detail('Repérages').click()
   await page.getByRole('heading', { name: 'RECURRENCE TEST' }).waitFor()
+  const recurringTransactions = page.waitForResponse((response) => {
+    const url = new URL(response.url())
+    return url.pathname === '/api/transactions' && url.searchParams.get('ids') === '3,2,1'
+  })
   await page
     .getByRole('button', { name: 'Vérifier les transactions →', exact: true })
     .click()
   await page
     .getByRole('heading', { name: 'Transactions', exact: true })
     .waitFor()
+  await recurringTransactions
   assert.ok(
     requests.some(
       (x) => x.startsWith('/api/transactions') && x.includes('ids=3%2C2%2C1'),

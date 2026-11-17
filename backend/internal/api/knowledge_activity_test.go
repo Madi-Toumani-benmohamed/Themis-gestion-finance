@@ -172,6 +172,14 @@ func TestKnowledgeMigrationAuthenticationAndRollbackPostgres(t *testing.T) {
 			t.Fatal(route.path, w.Code)
 		}
 	}
+	// Newer migrations must be unwound before dropping their referenced key.
+	workspaceRollback, e := os.ReadFile("../db/rollbacks/034_agent_workspace.sql")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if _, e = db.Exec(string(workspaceRollback)); e != nil {
+		t.Fatal(e)
+	}
 	rollback, e := os.ReadFile("../db/rollbacks/033_knowledge_activity.sql")
 	if e != nil {
 		t.Fatal(e)

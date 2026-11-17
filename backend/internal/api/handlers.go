@@ -111,8 +111,20 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("GET /api/transactions/export", s.exportTransactions)
 	mux.HandleFunc("GET /api/analyses/{month}", s.getAnalysis)
 	mux.HandleFunc("POST /api/analyses/{month}", s.createAnalysis)
-	mux.HandleFunc("POST /api/chat", s.chatHandler)
+	mux.HandleFunc("POST /api/chat", s.engagementAuthenticated(s.chatHandler))
 
+	// Existing assistant workspace: all records are scoped to the session owner.
+	mux.HandleFunc("GET /api/agent/missions", s.engagementAuthenticated(s.agentMissions))
+	mux.HandleFunc("POST /api/agent/missions", s.engagementAuthenticated(s.agentMissions))
+	mux.HandleFunc("PATCH /api/agent/missions/{id}", s.engagementAuthenticated(s.agentMissionUpdate))
+	mux.HandleFunc("GET /api/agent/memories", s.engagementAuthenticated(s.agentMemories))
+	mux.HandleFunc("DELETE /api/agent/memories/{id}", s.engagementAuthenticated(s.agentMemories))
+	mux.HandleFunc("GET /api/agent/briefing", s.engagementAuthenticated(s.agentBriefing))
+	mux.HandleFunc("GET /api/agent/conversations", s.engagementAuthenticated(s.agentConversations))
+	mux.HandleFunc("GET /api/agent/conversations/{id}", s.engagementAuthenticated(s.agentConversations))
+	mux.HandleFunc("GET /api/agent/actions", s.engagementAuthenticated(s.agentActions))
+	mux.HandleFunc("POST /api/agent/actions", s.engagementAuthenticated(s.agentActions))
+	mux.HandleFunc("POST /api/agent/actions/{id}/decision", s.engagementAuthenticated(s.agentActionDecision))
 	// Knowledge Graph
 	mux.HandleFunc("GET /api/knowledge/health", s.engagementAuthenticated(s.kgHealth))
 	mux.HandleFunc("GET /api/knowledge/overview", s.engagementAuthenticated(s.knowledgeOverview))

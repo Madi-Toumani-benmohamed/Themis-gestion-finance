@@ -482,7 +482,7 @@ function Recurrence({ item, onReview, onInspect }) {
     </details>
   )
 }
-export default function Budgets({ onNavigate }) {
+export default function Budgets({ onNavigate, onMonthChange }) {
   const toast = useToast()
   const [month, setMonth] = useState(() => budgetMonth()),
     [refresh, setRefresh] = useState(0)
@@ -500,6 +500,7 @@ export default function Budgets({ onNavigate }) {
   const [query, setQuery] = useState(''),
     [onlyOver, setOnlyOver] = useState(false),
     [showIgnored, setShowIgnored] = useState(false)
+  useEffect(() => { onMonthChange?.(month) }, [month, onMonthChange])
   const current = budgetMonth()
   useEffect(() => {
     let active = true

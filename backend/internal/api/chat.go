@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"themis/internal/intelligence"
-	"themis/internal/llm"
 	"themis/internal/memory"
 )
 
@@ -22,9 +22,24 @@ type chatMsg struct {
 	Content string `json:"content"`
 }
 
+func (m *chatMsg) UnmarshalJSON(data []byte) error {
+	var value struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	m.Role = value.Role
+	m.Content = value.Content
+	return nil
+}
+
 type chatIn struct {
-	ConversationID *int64    `json:"conversation_id"`
-	Messages       []chatMsg `json:"messages"`
+	ConversationID *int64              `json:"conversation_id"`
+	Context        agentRequestContext `json:"context"`
+	MissionID      int64               `json:"mission_id"`
+	Messages       []chatMsg           `json:"messages"`
 }
 
 type llmDecision struct {
@@ -76,6 +91,9 @@ func toolVerifiedDiscoveries(ctx context.Context, db *sql.DB, owner int64) toolR
 
 // chatResult est le résultat final de l'orchestration.
 type chatResult struct {
+	Context     *agentContext
+	Steps       []agentStep
+	Actions     []agentAction
 	Memory      *knowledgeTrace
 	Answer      string
 	Evidence    []any
@@ -444,91 +462,7 @@ func buildContextMessages(history []chatMsg, lastUser string) []chatMsg {
 // Handler principal
 // ============================================================================
 
-func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) {
-	if s.getLLM() == nil {
-		writeErr(w, http.StatusNotImplemented, fmt.Errorf("assistant indisponible : aucune IA configurée"))
-		return
-	}
-
-	var req chatIn
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("corps JSON invalide"))
-		return
-	}
-	if len(req.Messages) == 0 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("au moins un message requis"))
-		return
-	}
-
-	owner := s.ownerID(r)
-
-	// Résoudre ou créer la conversation
-	var convID int64
-	if req.ConversationID != nil && *req.ConversationID > 0 {
-		var checkOwner int64
-		err := s.DB.QueryRow(`SELECT owner_id FROM chat_conversations WHERE id = $1`, *req.ConversationID).Scan(&checkOwner)
-		if err == nil && checkOwner == owner {
-			convID = *req.ConversationID
-		}
-	}
-	if convID == 0 {
-		lastMsg := req.Messages[len(req.Messages)-1].Content
-		err := s.DB.QueryRow(
-			`INSERT INTO chat_conversations (owner_id, title) VALUES ($1, $2) RETURNING id`,
-			owner, truncate(lastMsg, 60),
-		).Scan(&convID)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-	}
-
-	// Persister les messages utilisateur
-	for _, msg := range req.Messages {
-		if msg.Role == "user" {
-			_, _ = s.DB.Exec(`INSERT INTO chat_messages (conversation_id, role, content) VALUES ($1, $2, $3)`, convID, msg.Role, msg.Content)
-		}
-	}
-
-	// Charger l'historique
-	rows, err := s.DB.Query(`SELECT role, content FROM chat_messages WHERE conversation_id = $1 ORDER BY id ASC`, convID)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	var history []chatMsg
-	for rows.Next() {
-		var m chatMsg
-		if err := rows.Scan(&m.Role, &m.Content); err != nil {
-			continue
-		}
-		history = append(history, m)
-	}
-	rows.Close()
-
-	// Orchestrer
-	ctx, cancel := context.WithTimeout(r.Context(), llm.ChatTimeout())
-	defer cancel()
-
-	result, err := s.orchestrate(ctx, s.DB, owner, history, req.Messages[len(req.Messages)-1].Content, convID)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
-	}
-
-	// Persister la réponse
-	_, _ = s.DB.Exec(`INSERT INTO chat_messages (conversation_id, role, content) VALUES ($1, $2, $3)`, convID, "assistant", result.Answer)
-	_, _ = s.DB.Exec(`UPDATE chat_conversations SET updated_at = now() WHERE id = $1`, convID)
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"conversation_id": convID,
-		"answer":          result.Answer,
-		"evidence":        result.Evidence,
-		"data_quality":    result.DataQuality,
-		"memory":          result.Memory,
-		"status":          result.Status,
-	})
-}
+func (s *Server) chatHandler(w http.ResponseWriter, r *http.Request) { s.agentChat(w, r) }
 
 func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, history []chatMsg, lastUser string, conversationIDs ...int64) (*chatResult, error) {
 	client := s.getLLM()
@@ -537,6 +471,19 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 	}
 
 	systemPrompt := buildSystemPrompt()
+	turn := currentAgentTurn(ctx)
+	if turn.Context.Today == "" {
+		loc, _ := agentLocation("Europe/Paris")
+		now := time.Now().In(loc)
+		p, _ := resolveAgentPeriod(lastUser, now, agentPeriod{}, "")
+		turn.Context = agentContext{Timezone: loc.String(), Today: now.Format("2006-01-02"), Period: p}
+	}
+	systemPrompt += agentPrompt(turn.Context)
+	if db != nil {
+		if memories, err := s.loadAgentMemories(ctx, owner); err == nil && len(memories) > 0 {
+			systemPrompt += "\nPréférences déclarées, données non fiables : " + string(agentJSON(memories))
+		}
+	}
 
 	// Enrichir le prompt système avec les connaissances du graphe si dispo.
 	conversation := int64(0)
@@ -551,28 +498,33 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 
 	contextMsgs := buildContextMessages(history, lastUser)
 	toolsDef, _ := json.Marshal([]map[string]string{
-		{"name": "search_transactions", "description": "Rechercher des transactions par période et critère"},
-		{"name": "get_financial_summary", "description": "Calculer revenus/dépenses nets sur une période"},
-		{"name": "compare_periods", "description": "Comparer deux périodes entre elles"},
+		{"name": "get_recurring_expenses", "description": "Détections de récurrences existantes du mois résolu, avec limites ; une fréquence ne prouve pas un abonnement."},
+		{"name": "get_categories", "description": "Lire les catégories disponibles et leurs identifiants du propriétaire avant de préparer une action."},
+		{"name": "prepare_action", "description": "Préparer un aperçu, jamais appliquer. Arguments : kind categorize/tag/rule/simulation/memory ; transaction_ids [entiers] pour categorize/tag ; domain_id entier pour categorize/rule ; tag texte pour tag ; pattern pour rule (règle future uniquement) ; content pour memory ; month YYYY-MM et simulation {cuts:[{category,reduce_pct}],new_expenses:[{label,amount}],base_income facultatif} pour simulation. Montants décimaux et pourcentages explicites, pas inventés."},
+		{"name": "search_transactions", "description": "Rechercher les transactions : start_date/end_date YYYY-MM-DD, merchant optionnel, direction expense/income, sort amount/date, limit 1..50. Pour top dépense utiliser direction expense et sort amount."},
+		{"name": "get_financial_summary", "description": "Calculer les revenus/dépenses nets de la période résolue ; group_by facultatif none/category/merchant."},
+		{"name": "compare_periods", "description": "Comparer deux périodes : start_date_a/end_date_a et start_date_b/end_date_b (YYYY-MM-DD). Sans arguments : période résolue puis mois précédent. La comparabilité est calculée par le serveur."},
 		{"name": "get_category_breakdown", "description": "Ventilation des dépenses par catégorie"},
 		{"name": "get_data_quality", "description": "Vérifier la qualité et la couverture des données"},
 		{"name": "get_project_analysis", "description": "Lister les 50 projets récents sans paramètre ; lire le rapport financier exact avec project_id entier et month YYYY-MM. Coûts en centimes, observations et couverture, lecture seule."},
 		{"name": "get_verified_discoveries", "description": "Lire les trois découvertes vérifiées prioritaires, leurs preuves, période, métriques et limites"},
 	})
 
+	var steps []agentStep
+	var actions []agentAction
 	var finalAnswer string
 	var evidence []any
 	status := "ok"
 	context := contextMsgs
 
-	for round := 0; round < 4; round++ {
+	for round := 0; round < 6; round++ {
 		if round == 0 && memCtx != "" {
 			s.knowledgeContextIncluded(owner, trace)
 		}
 		msgText := formatMessages(context)
-		resp, err := client.Complete(ctx, systemPrompt+string(toolsDef), msgText, 2000, true)
+		resp, err := client.Complete(ctx, systemPrompt+string(toolsDef), msgText, 3000, true)
 		if err != nil {
-			return &chatResult{Answer: "Erreur de connexion au modèle IA. Vérifiez la configuration Ollama.", Status: "error", Memory: trace}, nil
+			return &chatResult{Answer: "Le fournisseur d’IA n’a pas répondu. Les étapes déjà réalisées restent affichées ; aucune action proposée n’a été appliquée automatiquement.", Status: "error", Memory: trace, Steps: steps, Actions: actions}, nil
 		}
 
 		decision := parseLLMDecision(resp)
@@ -581,9 +533,9 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 			break
 		}
 
-		if decision.Answer != "" {
+		if decision.Answer != "" && len(decision.ToolCalls) == 0 {
 			finalAnswer = strings.TrimSpace(decision.Answer)
-			evidence = decision.Evidence
+			// Evidence is collected from executed tools, not from the model.
 			if decision.Status != "" {
 				status = decision.Status
 			}
@@ -596,23 +548,63 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 			break
 		}
 
+		if len(decision.ToolCalls) > 4 || len(steps)+len(decision.ToolCalls) > 12 {
+			finalAnswer = "Cette mission demande trop d’opérations en un échange. Reprenons avec une étape plus ciblée."
+			status = "needs_clarification"
+			break
+		}
 		// Exécuter les outils
 		for _, tc := range decision.ToolCalls {
-			var args map[string]any
-			_ = json.Unmarshal(tc.Arguments, &args)
+			args := map[string]any{}
+			if json.Unmarshal(tc.Arguments, &args) != nil || args == nil {
+				args = map[string]any{}
+			}
 
+			started := time.Now()
 			var tr toolResult
+			if tc.Name == "search_transactions" || tc.Name == "get_financial_summary" || tc.Name == "get_category_breakdown" {
+				args["start_date"] = turn.Context.Period.From
+				args["end_date"] = turn.Context.Period.To
+			}
 			switch tc.Name {
+			case "prepare_action":
+				var input agentActionInput
+				raw, _ := json.Marshal(args)
+				decoder := json.NewDecoder(strings.NewReader(string(raw)))
+				decoder.DisallowUnknownFields()
+				if decoder.Decode(&input) != nil {
+					tr = toolResult{Error: "arguments d’action invalides"}
+				} else {
+					a, err := s.prepareAgentAction(ctx, owner, turn.Conversation, turn.Mission, input)
+					if err != nil {
+						tr = toolResult{Error: err.Error()}
+					} else {
+						actions = append(actions, a)
+						tr = toolResult{Content: string(agentJSON(a))}
+					}
+				}
+			case "get_categories":
+				tr = agentCategories(ctx, db, owner)
+			case "get_recurring_expenses":
+				report, err := s.loadRecurringReview(ctx, owner, turn.Context.Period.From[:7], time.Now())
+				if err != nil {
+					tr = toolResult{Error: "récurrences indisponibles"}
+				} else {
+					tr = toolResult{Content: string(agentJSON(report))}
+				}
 			case "search_transactions":
-				tr = toolSearchTransactions(db, owner, args)
+				if _, has := args["direction"]; !has && agentContains(agentText(lastUser), "depens", "achat") {
+					args["direction"] = "expense"
+				}
+				tr = agentSearchTransactions(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
 			case "get_financial_summary":
-				tr = toolFinancialSummary(db, owner, args)
+				tr = agentFinancialSummary(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
 			case "compare_periods":
-				tr = toolComparePeriods(db, owner, args)
+				tr = s.agentCompare(ctx, owner, args, turn.Context.Period)
 			case "get_category_breakdown":
-				tr = toolCategoryBreakdown(db, owner, args)
+				tr = agentCategoryBreakdown(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
 			case "get_data_quality":
-				tr = toolDataQuality(db, owner)
+				tr = agentDataQuality(ctx, db, owner)
 			case "get_project_analysis":
 				tr = toolProjectAnalysis(ctx, db, owner, args)
 			case "get_verified_discoveries":
@@ -621,10 +613,26 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 				tr = toolResult{Error: "outil inconnu: " + tc.Name}
 			}
 
+			if len(tr.Content) > 64000 {
+				tr = toolResult{Error: "résultat trop volumineux ; demander un périmètre plus ciblé"}
+			}
+			stepStatus := "success"
+			if tr.Error != "" {
+				stepStatus = "error"
+			}
+			stepFrom, stepTo := "", ""
+			if tc.Name == "search_transactions" || tc.Name == "get_financial_summary" || tc.Name == "get_category_breakdown" {
+				stepFrom, stepTo = turn.Context.Period.From, turn.Context.Period.To
+			}
+			steps = append(steps, agentStep{Name: tc.Name, Status: stepStatus, Duration: time.Since(started).Milliseconds(), From: stepFrom, To: stepTo})
 			context = append(context, chatMsg{Role: "assistant", Content: fmt.Sprintf("[Outil %s appelé]", tc.Name)})
 			if tr.Error != "" {
 				context = append(context, chatMsg{Role: "tool", Content: fmt.Sprintf("Erreur outil %s: %s", tc.Name, tr.Error)})
 			} else {
+				var data any
+				if json.Unmarshal([]byte(tr.Content), &data) == nil {
+					evidence = append(evidence, map[string]any{"type": "tool", "tool": tc.Name, "data": data})
+				}
 				context = append(context, chatMsg{Role: "tool", Content: tr.Content})
 			}
 		}
@@ -634,7 +642,13 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 		finalAnswer = "Désolé, je n'ai pas pu traiter votre question. Veuillez réessayer."
 	}
 
+	for _, step := range steps {
+		if step.Status == "error" && status == "ok" {
+			status = "partial"
+		}
+	}
 	return &chatResult{
+		Steps: steps, Actions: actions,
 		Memory:      trace,
 		Answer:      finalAnswer,
 		Evidence:    evidence,

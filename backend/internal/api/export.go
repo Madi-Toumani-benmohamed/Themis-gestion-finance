@@ -19,6 +19,11 @@ func (s *Server) exportAll(w http.ResponseWriter, r *http.Request) {
 
 	owner := s.ownerID(r)
 	tables := map[string]string{
+		"agent_missions":               `SELECT * FROM agent_missions WHERE owner_id=$1 ORDER BY id`,
+		"agent_actions":                `SELECT * FROM agent_actions WHERE owner_id=$1 ORDER BY id`,
+		"agent_memories":               `SELECT * FROM agent_memories WHERE owner_id=$1 ORDER BY id`,
+		"chat_conversations":           `SELECT * FROM chat_conversations WHERE owner_id=$1 ORDER BY id`,
+		"chat_messages":                `SELECT m.* FROM chat_messages m JOIN chat_conversations c ON c.id=m.conversation_id WHERE c.owner_id=$1 ORDER BY m.id`,
 		"knowledge_activity":           `SELECT * FROM knowledge_activity WHERE owner_id=$1 ORDER BY id`,
 		"laboratory_documents":         `SELECT * FROM laboratory_documents WHERE owner_id=$1 ORDER BY id`,
 		"financial_projects":           `SELECT * FROM financial_projects WHERE owner_id=$1 ORDER BY id`,
