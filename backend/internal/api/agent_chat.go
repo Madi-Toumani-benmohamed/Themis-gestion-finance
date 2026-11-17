@@ -291,10 +291,10 @@ func agentScopedIDs(c agentContext, text string) []int64 {
 func (s *Server) agentTopExpense(ctx context.Context, owner int64, c agentContext, text string) (*chatResult, error) {
 	started := time.Now()
 	ids := agentScopedIDs(c, text)
-	const q = `SELECT t.id,t.tx_date::text,COALESCE(NULLIF(t.display_label,''),t.label),t.amount::text FROM transactions t WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND t.amount<0 AND ` + financialExpenseSQLT + ` AND (COALESCE(cardinality($4::bigint[]),0)=0 OR t.id=ANY($4)) ORDER BY t.amount ASC,t.tx_date DESC,t.id DESC LIMIT 1`
+
 	var id int64
 	var date, label, raw string
-	e := s.DB.QueryRowContext(ctx, q, owner, c.Period.From, c.Period.To, pq.Array(ids)).Scan(&id, &date, &label, &raw)
+	e := s.DB.QueryRowContext(ctx, `SELECT t.id,t.tx_date::text,COALESCE(NULLIF(t.display_label,''),t.label),t.amount::text FROM transactions t WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND t.amount<0 AND `+financialExpenseSQLT+` AND (COALESCE(cardinality($4::bigint[]),0)=0 OR t.id=ANY($4)) ORDER BY t.amount ASC,t.tx_date DESC,t.id DESC LIMIT 1`, owner, c.Period.From, c.Period.To, pq.Array(ids)).Scan(&id, &date, &label, &raw)
 	result := &chatResult{Status: "ok", Steps: []agentStep{{Name: "Plus grosse opération de dépense observée, virements et épargne exclus", Status: "success", Duration: time.Since(started).Milliseconds(), From: c.Period.From, To: c.Period.To}}, Evidence: []any{}}
 	var latest sql.NullString
 	if err := s.DB.QueryRowContext(ctx, `SELECT max(tx_date)::text FROM transactions WHERE owner_id=$1`, owner).Scan(&latest); err != nil {

@@ -47,3 +47,5 @@ Les aperçus de transactions sont empreintés avec leurs sources et leur catégo
 - `tests/e2e/agent.spec.ts` : sessions réelles, mission et proposition persistées, absence d’écriture implicite, validation/rejeu, isolation de deux propriétaires et maintien du montant.
 
 Les tests n’utilisent pas de données bancaires personnelles. Le fournisseur réel de la VM et le déploiement de la VM ne sont pas validés par ces tests ; reconstruire/redémarrer l’application déployée est nécessaire pour recevoir le code et appliquer la migration additive.
+
+Le contrôle de sécurité a identifié GO-2026-6859 dans la bibliothèque HTTP du Go du scan : les builds CI, le scan et le builder Docker sont alignés sur Go 1.26.11, version corrigée. Aucun contrôle de sécurité n’est ignoré.

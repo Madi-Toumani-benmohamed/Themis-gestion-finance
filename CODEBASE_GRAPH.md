@@ -7,7 +7,7 @@
 
 ```
 themis/
-├── backend/                 # Go 1.23 — API REST + logique métier
+├── backend/                 # Go 1.26.11 — API REST + logique métier
 │   ├── cmd/server/main.go   # Entrée unique, wire up tout
 │   ├── internal/
 │   │   ├── api/             # Handlers HTTP (1 fichier = 1 domaine)
