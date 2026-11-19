@@ -38,7 +38,7 @@ Les aperçus de transactions sont empreintés avec leurs sources et leur catégo
 
 ## Bornes et limites
 
-50 missions ouvertes et 50 préférences par utilisateur ; liste des 50 missions prioritaires (terminées en dernier), 30 conversations récentes, 100 messages affichés, 8 messages de contexte modèle, 100 opérations par action, 200 groupes par synthèse avec indicateur de troncature, 6 tours modèle et 12 outils maximum par échange. Pas de notifications hors application, planificateur autonome, paiement ni modification de montant. La qualité de planification générale dépend toujours du fournisseur configuré ; la demande simple de top dépense utilise directement PostgreSQL après vérification de sa formulation. La couverture inconnue n’est jamais convertie en couverture complète.
+50 missions ouvertes et 50 préférences par utilisateur ; liste des 50 missions prioritaires (terminées en dernier), 30 conversations récentes, 100 messages affichés, 8 messages de contexte modèle, 100 opérations par action, 200 groupes par synthèse avec indicateur de troncature, 6 tours modèle et 12 outils maximum par échange. Pas de notifications hors application, planificateur autonome, paiement ni modification de montant. La qualité de planification générale dépend toujours du fournisseur configuré ; les demandes simples de top dépense et de total des dépenses utilisent directement PostgreSQL après vérification de leur formulation. La couverture inconnue n’est jamais convertie en couverture complète.
 
 ## Vérifications
 
@@ -62,3 +62,14 @@ Une recherche affiche jusqu’à 50 opérations et indique s’il reste des rés
 Après la première ouverture, fermer le panneau flottant conserve la conversation, les propositions et le brouillon pendant la session. Le panneau fermé est masqué et n’est pas accessible au clavier. Sa réouverture ne relance pas le modèle. La première ouverture reste chargée à la demande ; ces données ne sont pas copiées dans le stockage du navigateur. La déconnexion démonte l’interface.
 
 Validation complémentaire : périodes françaises figées, sources PostgreSQL synthétiques, filtres combinés et limites, total exact d’une liste partielle, comparaison sur sélection, refus d’arguments mal formés sans requête, conservation du panneau/brouillon, affichage des filtres et Axe.
+
+
+## Totaux de dépenses sans solliciter le modèle
+
+Les questions simples « Combien ai-je dépensé ce mois ? », « Quel est le montant de mes dépenses du 1er au 10 décembre 2025 ? » et « Total des dépenses 2025 » reçoivent une réponse calculée directement par Thémis. Le même calcul exact, les exclusions des virements/épargne, la sélection explicite et les dates résolues sont utilisés. Le résultat est conservé dans la conversation avec l’étape réellement exécutée et la source de synthèse. « Et le mois précédent ? » reprend ce calcul dans la période précédente.
+
+Ces observations ne sollicitent pas le fournisseur, même s’il est momentanément indisponible ; l’Assistant doit toujours être activé/configuré. Une absence d’opérations de dépense produit un état de données insuffisantes, avec la dernière date connue, et non une dépense bancaire réelle nulle. La couverture complète n’est jamais affirmée.
+
+Une catégorie, un marchand, une condition de montant, une comparaison ou une demande de projection conservent le parcours de planification et ses outils. Une demande qualifiée ne devient jamais un total général pour contourner un fournisseur indisponible. Dans une mission, après une sélection d’opérations, après une demande qualifiée ou dans une conversation ancienne sans périmètre sûr enregistré, les suivis conservent le modèle afin de ne pas oublier les contraintes précédentes ; ouvrir un nouvel échange permet de revenir au parcours direct. Les outils et les tests d’orchestration restent vérifiés séparément de ce parcours déterministe.
+
+Les références « cette opération » et « cette transaction » utilisent l’unique opération sélectionnée (ou la dernière opération explicitement citée). Aucune sélection ou plusieurs opérations pour une référence singulière entraînent une clarification, sans interrogation financière générale. « Ces transactions » désigne la sélection entière. Les suivis temporels comme « et en novembre ? » conservent aussi l’année de la conversation et le calcul direct lorsque son périmètre est sûr.

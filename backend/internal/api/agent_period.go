@@ -23,20 +23,22 @@ type agentPage struct {
 	Tag                     string  `json:"tag,omitempty"`
 }
 type agentContext struct {
-	TargetMonth string      `json:"target_month,omitempty"`
-	FocusedIDs  []int64     `json:"focused_ids,omitempty"`
-	Timezone    string      `json:"timezone"`
-	Today       string      `json:"today"`
-	Period      agentPeriod `json:"period"`
-	Intent      string      `json:"intent,omitempty"`
-	Page        agentPage   `json:"page_context"`
+	DirectSpending bool        `json:"direct_spending,omitempty"`
+	TargetMonth    string      `json:"target_month,omitempty"`
+	FocusedIDs     []int64     `json:"focused_ids,omitempty"`
+	Timezone       string      `json:"timezone"`
+	Today          string      `json:"today"`
+	Period         agentPeriod `json:"period"`
+	Intent         string      `json:"intent,omitempty"`
+	Page           agentPage   `json:"page_context"`
 }
 
 var agentISODate = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
 var agentISOMonth = regexp.MustCompile(`\b\d{4}-\d{2}\b`)
 var agentYear = regexp.MustCompile(`\b(20\d{2}|19\d{2})\b`)
 var agentDays = regexp.MustCompile(`(?:ces|les|depuis(?: les)?) (\d+)(?: derniers?)? jours?|(\d+) derniers? jours?|derniers? (\d+) jours?`)
-var agentPriceQualifier = regexp.MustCompile(`[€$]|\b(?:euros?|eur)\b|\d+[.,]\d+`)
+var agentShortRangeNumberPrefix = regexp.MustCompile(strings.TrimSuffix(agentShortRangeStart.String(), "$"))
+var agentPriceQualifier = regexp.MustCompile(`[€$]|\b(?:euros?|eur)\b|\d+[.,]\d+|\b(?:plus|moins)\s+de\s+\d|[<>≤≥]`)
 var agentMonths = regexp.MustCompile(`(\d+) derniers mois`)
 
 func agentText(s string) string {
@@ -246,13 +248,13 @@ func agentIntent(text, previous string) string {
 		}
 		return ""
 	}
-	if agentContains(s, "combien", "total") && agentContains(s, "depens", "sorties") {
+	if agentContains(s, "combien", "total", "montant", "somme") && agentContains(s, "depens", "sorties") {
 		return "expenses"
 	}
 	if agentContains(s, "categorie", "ou je depense", "ou va mon argent") {
 		return "categories"
 	}
-	if agentContains(s, "et le mois", "et avant", "meme periode", "sans les virements", "detaille celle", "et pour") {
+	if agentContains(s, "et le mois", "et avant", "et en", "et hier", "et aujourd", "et cette semaine", "et cette annee", "et ce mois", "meme periode", "sans les virements", "detaille celle", "et pour") {
 		if previous == "top_expense" && !agentSimpleTop(s) {
 			return ""
 		}
@@ -269,11 +271,24 @@ func agentPeriodValid(p agentPeriod) bool {
 // A qualified request (merchant, category, amount, etc.) must use the tools
 // planner rather than silently discarding a qualifier in the fast path.
 func agentSimpleTop(text string) bool {
+	text = agentTemporalText(agentText(text))
 	if agentPriceQualifier.MatchString(text) {
 		return false
 	}
+	// Numbers are accepted only in recognized calendar expressions. A bare
+	// amount or ranking constraint must stay with the planner.
+	residue := text
+	for _, pattern := range []*regexp.Regexp{agentISODate, agentNumericDate, agentISOMonth, agentNamedDate, agentYear, agentDays, agentMonths, agentRollingWeeks, agentRollingYears} {
+		residue = pattern.ReplaceAllString(residue, " ")
+	}
+	if agentNamedDate.MatchString(text) {
+		residue = agentShortRangeNumberPrefix.ReplaceAllString(residue, " ")
+	}
+	if regexp.MustCompile(`\d`).MatchString(residue) {
+		return false
+	}
 	allowed := map[string]bool{}
-	for _, word := range strings.Fields("donne moi ma mon mes la le les un une top plus grosse gros grande depense importante operation achat du de des ce mois ci en pour au aux et dernier derniers precedent precedente cette semaine annee aujourd hui aujourdhui hier avant quelle quel est sont s il te plait montre affiche peux tu pourrais janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre depuis jours ces ici selection operations celle meme sans virements") {
+	for _, word := range strings.Fields("donne moi ma mon mes la le les un une top plus grosse gros grande depense importante operation transaction transactions achat du de des ce mois ci en pour au aux et dernier derniers precedent precedente cette semaine annee aujourd hui aujourdhui hier avant er quelle quel est sont s il te plait montre affiche peux tu pourrais janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre depuis jours ces ici selection operations celle meme sans virements") {
 		allowed[word] = true
 	}
 	for _, word := range regexp.MustCompile(`[a-z]+`).FindAllString(text, -1) {
