@@ -9,8 +9,12 @@ export default function AssistantFloating({
   refreshKey,
 }) {
   const [open, setOpen] = useState(false)
+  const [hasOpened, setHasOpened] = useState(false)
   useEffect(() => {
-    const show = () => setOpen(true)
+    const show = () => {
+      setHasOpened(true)
+      setOpen(true)
+    }
     window.addEventListener('themis:agent-open', show)
     return () => window.removeEventListener('themis:agent-open', show)
   }, [])
@@ -29,7 +33,10 @@ export default function AssistantFloating({
         aria-label="Ouvrir l'assistant"
         aria-expanded={open}
         title="Assistant thémis"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setHasOpened(true)
+          setOpen((v) => !v)
+        }}
       >
         <svg
           aria-hidden="true"
@@ -43,9 +50,11 @@ export default function AssistantFloating({
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
         </svg>
       </button>
-      {open && (
+      {(hasOpened || open) && (
         <div
           className="assistant-panel"
+          hidden={!open}
+          style={open ? undefined : { display: 'none' }}
           role="region"
           aria-label="Assistant thémis"
         >
