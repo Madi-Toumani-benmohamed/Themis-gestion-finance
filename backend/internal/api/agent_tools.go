@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/lib/pq"
-	"themis/internal/money"
 	"time"
+
+	"themis/internal/money"
 )
 
 func agentToolDates(args map[string]any) (agentPeriod, error) {
@@ -24,31 +24,23 @@ func agentSearchTransactions(ctx context.Context, db *sql.DB, owner int64, args 
 	if e != nil {
 		return toolResult{Error: e.Error()}
 	}
-	merchant, _ := args["merchant"].(string)
-	if len(merchant) > 200 {
-		return toolResult{Error: "critère marchand trop long"}
+	o, e := agentReadArguments(args, "search")
+	if e != nil {
+		return toolResult{Error: e.Error()}
 	}
-	direction, _ := args["direction"].(string)
-	if direction != "expense" && direction != "income" {
-		direction = "all"
+	if e = agentReadDomain(ctx, db, owner, &o); e != nil {
+		return toolResult{Error: e.Error()}
 	}
 	limit := 20
-	if n, ok := args["limit"].(float64); ok && n >= 1 && n <= 50 {
-		limit = int(n)
+	if o.Limit != nil {
+		limit = *o.Limit
 	}
 	order := "t.tx_date DESC,t.id DESC"
-	if args["sort"] == "amount" {
-		order = "t.amount ASC,t.id DESC"
-		if direction == "income" {
-			order = "t.amount DESC,t.id DESC"
-		}
+	if o.Sort == "amount" {
+		order = "abs(t.amount) DESC,t.id DESC"
 	}
-	const q = `SELECT t.id,t.tx_date::text,COALESCE(NULLIF(t.display_label,''),t.label),t.amount::text,COALESCE(d.name,'Sans catégorie') FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND ` + financialExpenseSQLT + ` AND ($4='' OR t.label ILIKE $4 OR t.merchant ILIKE $4 OR t.display_label ILIKE $4) AND ($5='all' OR ($5='expense' AND t.amount<0) OR ($5='income' AND t.amount>0)) AND (COALESCE(cardinality($6::bigint[]),0)=0 OR t.id=ANY($6)) ORDER BY `
-	pattern := ""
-	if merchant != "" {
-		pattern = "%" + merchant + "%"
-	}
-	rows, e := db.QueryContext(ctx, q+order+" LIMIT $7", owner, p.From, p.To, pattern, direction, pq.Array(ids), limit)
+	params := append(o.params(owner, p, ids), limit+1)
+	rows, e := db.QueryContext(ctx, `SELECT t.id,t.tx_date::text,COALESCE(NULLIF(t.display_label,''),t.label),t.amount::text,COALESCE(d.name,'Sans catégorie') FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id`+agentReadWhereSQL+` ORDER BY `+order+` LIMIT $11`, params...)
 	if e != nil {
 		return toolResult{Error: "transactions indisponibles"}
 	}
@@ -68,7 +60,11 @@ func agentSearchTransactions(ctx context.Context, db *sql.DB, owner int64, args 
 	if rows.Err() != nil {
 		return toolResult{Error: "lecture interrompue"}
 	}
-	return toolResult{Content: string(agentJSON(map[string]any{"transactions": out, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL du compte connecté, virements internes et épargne exclus"}))}
+	more := len(out) > limit
+	if more {
+		out = out[:limit]
+	}
+	return toolResult{Content: string(agentJSON(map[string]any{"transactions": out, "has_more": more, "limit": limit, "returned_count": len(out), "filters": o.metadata(), "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL du compte connecté, virements internes et épargne exclus"}))}
 }
 func agentCategories(ctx context.Context, db *sql.DB, owner int64) toolResult {
 	rows, e := db.QueryContext(ctx, `SELECT id,name FROM domains WHERE owner_id=$1 ORDER BY name,id LIMIT 200`, owner)
@@ -90,14 +86,10 @@ func agentCategories(ctx context.Context, db *sql.DB, owner int64) toolResult {
 	}
 	return toolResult{Content: string(agentJSON(out))}
 }
-func agentTotals(ctx context.Context, db analysisReader, owner int64, p agentPeriod, scope ...[]int64) (money.Cents, money.Cents, int, error) {
+func agentFilteredTotals(ctx context.Context, db analysisReader, owner int64, p agentPeriod, o agentReadOptions, ids []int64) (money.Cents, money.Cents, int, error) {
 	var income, expense string
-	var ids []int64
-	if len(scope) > 0 {
-		ids = scope[0]
-	}
 	var count int
-	err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0),0)::text,COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0)::text,count(*) FROM transactions t WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND `+financialExpenseSQLT+` AND (COALESCE(cardinality($4::bigint[]),0)=0 OR t.id=ANY($4))`, owner, p.From, p.To, pq.Array(ids)).Scan(&income, &expense, &count)
+	err := db.QueryRowContext(ctx, `SELECT COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0),0)::text,COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0)::text,count(*) FROM transactions t`+agentReadWhereSQL, o.params(owner, p, ids)...).Scan(&income, &expense, &count)
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -113,23 +105,27 @@ func agentFinancialSummary(ctx context.Context, db *sql.DB, owner int64, args ma
 	if e != nil {
 		return toolResult{Error: e.Error()}
 	}
-	if group, _ := args["group_by"].(string); group != "" && group != "none" {
-		if group != "category" && group != "merchant" {
-			return toolResult{Error: "regroupement invalide"}
-		}
+	o, e := agentReadArguments(args, "summary")
+	if e != nil {
+		return toolResult{Error: e.Error()}
+	}
+	if e = agentReadDomain(ctx, db, owner, &o); e != nil {
+		return toolResult{Error: e.Error()}
+	}
+	if o.Group != "" && o.Group != "none" {
 		return agentGroupedSummary(ctx, db, owner, args, scope...)
 	}
-	a, b, count, e := agentTotals(ctx, db, owner, p, scope...)
+	a, b, count, e := agentFilteredTotals(ctx, db, owner, p, o, agentScopeIDs(scope))
 	if e != nil {
 		return toolResult{Error: "synthèse financière indisponible"}
 	}
 	if count == 0 {
-		return toolResult{Content: string(agentJSON(map[string]any{"available": false, "income": nil, "expenses": nil, "net": nil, "transaction_count": 0, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "reason": "Aucune opération enregistrée : absence d’observation, pas zéro réel."}))}
+		return toolResult{Content: string(agentJSON(map[string]any{"filters": o.metadata(), "available": false, "income": nil, "expenses": nil, "net": nil, "transaction_count": 0, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "reason": "Aucune opération enregistrée : absence d’observation, pas zéro réel."}))}
 	}
 	if validateAnalysisAmounts(a-b) != nil {
 		return toolResult{Error: "montants hors limites exactes"}
 	}
-	return toolResult{Content: string(agentJSON(map[string]any{"available": true, "transaction_count": count, "income": simulationNumber(a), "expenses": simulationNumber(b), "net": simulationNumber(a - b), "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
+	return toolResult{Content: string(agentJSON(map[string]any{"filters": o.metadata(), "available": true, "transaction_count": count, "income": simulationNumber(a), "expenses": simulationNumber(b), "net": simulationNumber(a - b), "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
 }
 
 // Grouping uses the same exact amounts, owner and exclusions as the totals.
@@ -138,15 +134,18 @@ func agentGroupedSummary(ctx context.Context, db *sql.DB, owner int64, args map[
 	if e != nil {
 		return toolResult{Error: e.Error()}
 	}
-	var ids []int64
-	if len(scope) > 0 {
-		ids = scope[0]
+	o, e := agentReadArguments(args, "summary")
+	if e != nil {
+		return toolResult{Error: e.Error()}
+	}
+	if e = agentReadDomain(ctx, db, owner, &o); e != nil {
+		return toolResult{Error: e.Error()}
 	}
 	column := "COALESCE(d.name,'Sans catégorie')"
 	if args["group_by"] == "merchant" {
 		column = "COALESCE(NULLIF(t.merchant,''),NULLIF(t.display_label,''),t.label)"
 	}
-	rows, e := db.QueryContext(ctx, `SELECT `+column+`,COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0),0)::text,COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0)::text,count(*) FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND `+financialExpenseSQLT+` AND (COALESCE(cardinality($4::bigint[]),0)=0 OR t.id=ANY($4)) GROUP BY 1 ORDER BY COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0) DESC,1 LIMIT 201`, owner, p.From, p.To, pq.Array(ids))
+	rows, e := db.QueryContext(ctx, `SELECT `+column+`,COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0),0)::text,COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0)::text,count(*) FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id`+agentReadWhereSQL+` GROUP BY 1 ORDER BY CASE WHEN $10='income' THEN COALESCE(SUM(t.amount) FILTER(WHERE t.amount>0),0) ELSE COALESCE(-SUM(t.amount) FILTER(WHERE t.amount<0),0) END DESC,1 LIMIT 201`, o.params(owner, p, agentScopeIDs(scope))...)
 	if e != nil {
 		return toolResult{Error: "regroupement indisponible"}
 	}
@@ -175,18 +174,21 @@ func agentGroupedSummary(ctx context.Context, db *sql.DB, owner int64, args map[
 	if truncated {
 		out = out[:200]
 	}
-	return toolResult{Content: string(agentJSON(map[string]any{"groups": out, "truncated": truncated, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
+	return toolResult{Content: string(agentJSON(map[string]any{"filters": o.metadata(), "groups": out, "truncated": truncated, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
 }
 func agentCategoryBreakdown(ctx context.Context, db *sql.DB, owner int64, args map[string]any, scope ...[]int64) toolResult {
 	p, e := agentToolDates(args)
 	if e != nil {
 		return toolResult{Error: e.Error()}
 	}
-	var ids []int64
-	if len(scope) > 0 {
-		ids = scope[0]
+	o, e := agentReadArguments(args, "categories")
+	if e != nil {
+		return toolResult{Error: e.Error()}
 	}
-	rows, e := db.QueryContext(ctx, `SELECT COALESCE(d.name,'Sans catégorie'),COALESCE(-SUM(t.amount),0)::text,count(*) FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 AND t.tx_date BETWEEN $2::date AND $3::date AND t.amount<0 AND `+financialExpenseSQLT+` AND (COALESCE(cardinality($4::bigint[]),0)=0 OR t.id=ANY($4)) GROUP BY 1 ORDER BY SUM(t.amount),1 LIMIT 201`, owner, p.From, p.To, pq.Array(ids))
+	if e = agentReadDomain(ctx, db, owner, &o); e != nil {
+		return toolResult{Error: e.Error()}
+	}
+	rows, e := db.QueryContext(ctx, `SELECT COALESCE(d.name,'Sans catégorie'),COALESCE(SUM(abs(t.amount)),0)::text,count(*) FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id`+agentReadWhereSQL+` GROUP BY 1 ORDER BY SUM(abs(t.amount)) DESC,1 LIMIT 201`, o.params(owner, p, agentScopeIDs(scope))...)
 	if e != nil {
 		return toolResult{Error: "ventilation indisponible"}
 	}
@@ -210,9 +212,9 @@ func agentCategoryBreakdown(ctx context.Context, db *sql.DB, owner int64, args m
 	if truncated {
 		out = out[:200]
 	}
-	return toolResult{Content: string(agentJSON(map[string]any{"categories": out, "truncated": truncated, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
+	return toolResult{Content: string(agentJSON(map[string]any{"filters": o.metadata(), "categories": out, "truncated": truncated, "query_from": p.From, "query_to": p.To, "coverage": "unknown", "source": "transactions PostgreSQL, virements et épargne exclus"}))}
 }
-func (s *Server) agentCompare(ctx context.Context, owner int64, args map[string]any, p agentPeriod) toolResult {
+func (s *Server) agentCompare(ctx context.Context, owner int64, args map[string]any, p agentPeriod, scope ...[]int64) toolResult {
 	// Retain the earlier nested argument contract for stored model conversations.
 	for _, key := range []string{"a", "b"} {
 		if value, ok := args["period_"+key].(map[string]any); ok {
@@ -225,6 +227,21 @@ func (s *Server) agentCompare(ctx context.Context, owner int64, args map[string]
 		}
 	}
 
+	filters := map[string]any{}
+	for key, value := range args {
+		switch key {
+		case "period_a", "period_b", "start_date_a", "end_date_a", "start_date_b", "end_date_b", "metric":
+			continue
+		}
+		filters[key] = value
+	}
+	options, err := agentReadArguments(filters, "comparison")
+	if err != nil {
+		return toolResult{Error: err.Error()}
+	}
+	if err = agentReadDomain(ctx, s.DB, owner, &options); err != nil {
+		return toolResult{Error: err.Error()}
+	}
 	get := func(a, b string, fallback agentPeriod) (agentPeriod, error) {
 		from, _ := args[a].(string)
 		to, _ := args[b].(string)
@@ -252,11 +269,11 @@ func (s *Server) agentCompare(ctx context.Context, owner int64, args map[string]
 		return toolResult{Error: "comparaison indisponible"}
 	}
 	defer tx.Rollback()
-	ai, ae, na, e := agentTotals(ctx, tx, owner, a)
+	ai, ae, na, e := agentFilteredTotals(ctx, tx, owner, a, options, agentScopeIDs(scope))
 	if e != nil {
 		return toolResult{Error: "première période indisponible"}
 	}
-	bi, be, nb, e := agentTotals(ctx, tx, owner, b)
+	bi, be, nb, e := agentFilteredTotals(ctx, tx, owner, b, options, agentScopeIDs(scope))
 	if e != nil {
 		return toolResult{Error: "seconde période indisponible"}
 	}
@@ -266,7 +283,7 @@ func (s *Server) agentCompare(ctx context.Context, owner int64, args map[string]
 		}
 		return simulationNumber(v)
 	}
-	out := map[string]any{"period_a": a, "period_b": b, "income_a": nullable(na, ai), "expenses_a": nullable(na, ae), "income_b": nullable(nb, bi), "expenses_b": nullable(nb, be), "count_a": na, "count_b": nb, "comparable": false, "reason": "Couverture comparable non établie. Présenter les observations séparément, sans conclure à une hausse/baisse ni calculer un pourcentage."}
+	out := map[string]any{"filters": options.metadata(), "period_a": a, "period_b": b, "income_a": nullable(na, ai), "expenses_a": nullable(na, ae), "income_b": nullable(nb, bi), "expenses_b": nullable(nb, be), "count_a": na, "count_b": nb, "comparable": false, "reason": "Couverture comparable non établie. Présenter les observations séparément, sans conclure à une hausse/baisse ni calculer un pourcentage."}
 	fullMonth := func(p agentPeriod) bool {
 		first, e := time.Parse("2006-01-02", p.From)
 		return e == nil && first.Day() == 1 && first.AddDate(0, 1, -1).Format("2006-01-02") == p.To && p.To < time.Now().Format("2006-01-02")
