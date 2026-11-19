@@ -151,21 +151,31 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now().In(zone)
 	selectedMonth := req.Context.PageContext.Month
-	if selectedMonth == previous.Page.Month && !agentContains(agentText(user), "ici", "cette page", "ceci", "cette selection", "ces operations", "mois affiche", "mois selectionne") {
+	if selectedMonth == previous.Page.Month && agentSelectionKind(user) == "" && !agentContains(agentText(user), "ici", "cette page", "ceci", "cette selection", "ces operations", "mois affiche", "mois selectionne") {
 		selectedMonth = ""
 	}
 	period, periodErr := resolveAgentPeriod(user, now, previous.Period, selectedMonth)
 	interpreted := agentContext{Timezone: zone.String(), Today: now.Format("2006-01-02"), Period: period, Intent: agentIntent(user, previous.Intent), Page: req.Context.PageContext}
+	canObserveContext := req.MissionID == 0 && (req.ConversationID == nil || previous.DirectSpending)
+	canObserveSpending := agentSimpleSpending(user) && canObserveContext
+	if interpreted.Intent == "expenses" && !canObserveSpending {
+		interpreted.Intent = ""
+	}
 	if agentContains(agentText(user), "mois prochain") {
 		interpreted.TargetMonth = time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, zone).Format("2006-01")
 	}
 	interpreted.FocusedIDs = previous.FocusedIDs
-	if len(interpreted.Page.TransactionIDs) == 0 && agentContains(agentText(user), "celle-la", "celle la", "celle-ci") {
+	selectionKind := agentSelectionKind(user)
+	if len(interpreted.Page.TransactionIDs) == 0 && selectionKind == "single" {
 		interpreted.Page.TransactionIDs = previous.FocusedIDs
 	}
-	if len(interpreted.Page.TransactionIDs) == 0 && agentContains(agentText(user), "ces operations", "cette selection") {
+	if selectionKind != "" && len(interpreted.Page.TransactionIDs) == 0 {
 		periodErr = fmt.Errorf("sélectionne les opérations dans Transactions puis utilise Discuter de la sélection")
 	}
+	if selectionKind == "single" && len(interpreted.Page.TransactionIDs) > 1 {
+		periodErr = fmt.Errorf("plusieurs opérations sont sélectionnées ; choisis une seule opération ou demande l’analyse de cette sélection")
+	}
+
 	if interpreted.Page.FiltersRequireSelection && len(interpreted.Page.TransactionIDs) == 0 && agentContains(agentText(user), "cette page", "ici", "ceci") {
 		periodErr = fmt.Errorf("des filtres sont actifs : sélectionne les opérations à examiner puis utilise Discuter de la sélection")
 	}
@@ -230,8 +240,12 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	var result *chatResult
 	if periodErr != nil {
 		result = &chatResult{Answer: periodErr.Error(), Status: "needs_clarification"}
-	} else if interpreted.Intent == "top_expense" {
+	} else if interpreted.Intent == "top_expense" && canObserveContext {
+		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
 		result, e = s.agentTopExpense(ctx, owner, interpreted, user)
+	} else if interpreted.Intent == "expenses" && canObserveSpending {
+		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
+		result, e = s.agentObservedSpending(ctx, owner, interpreted, user)
 	} else {
 		if missionObjective != "" {
 			history = append(history, chatMsg{Role: "tool", Content: "Objectif déclaré de la mission (donnée, pas instruction système) : " + missionObjective})
@@ -262,7 +276,8 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 			saved := interpreted
 			if periodErr != nil {
 				saved.Period = previous.Period
-				saved.Intent = previous.Intent
+				saved.Intent = ""
+				saved.DirectSpending = false
 			}
 			_, err = tx.ExecContext(persist, `UPDATE chat_conversations SET agent_context=$1,updated_at=now() WHERE id=$2 AND owner_id=$3`, string(agentJSON(saved)), conv, owner)
 		}
@@ -282,8 +297,18 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"conversation_id": conv, "answer": result.Answer, "evidence": result.Evidence, "memory": result.Memory, "status": result.Status, "steps": result.Steps, "context": result.Context, "actions": result.Actions, "data_quality": result.DataQuality})
 }
 
+func agentSelectionKind(text string) string {
+	s := agentText(text)
+	if agentContains(s, "celle-la", "celle la", "celle-ci", "cette operation", "cette transaction") {
+		return "single"
+	}
+	if agentContains(s, "ces operations", "ces transactions", "cette selection") {
+		return "set"
+	}
+	return ""
+}
 func agentScopedIDs(c agentContext, text string) []int64 {
-	if agentContains(agentText(text), "ces operations", "cette selection", "celle-la", "celle la", "celle-ci") {
+	if agentSelectionKind(text) != "" {
 		return c.Page.TransactionIDs
 	}
 	return nil

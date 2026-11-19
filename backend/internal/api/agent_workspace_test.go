@@ -209,7 +209,7 @@ func TestAgentGroundedToolsMissionAndSelectionPostgres(t *testing.T) {
 	model := &agentPlanningModel{}
 	s := &Server{DB: db}
 	s.ai.client = model
-	req := `{"messages":[{"role":"user","content":"Combien ai-je dépensé en décembre 2025 ?"}],"context":{"timezone":"Europe/Paris"}}`
+	req := `{"messages":[{"role":"user","content":"Analyse ma situation en décembre 2025."}],"context":{"timezone":"Europe/Paris"}}`
 	w := agentReq(t, s, s.chatHandler, 1, "POST", "/", req, 0, 200)
 	response := agentBody[map[string]any](t, w)
 	if len(model.systems) != 2 || !strings.Contains(model.systems[0], `"today"`) || !strings.Contains(model.systems[0], `"from":"2025-12-01"`) {
