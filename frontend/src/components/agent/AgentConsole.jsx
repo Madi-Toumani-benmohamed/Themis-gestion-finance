@@ -78,6 +78,30 @@ function SourceData({ data, onNavigate }) {
           Du {data.query_from} au {data.query_to}.
         </p>
       )}
+      {data.filters && (
+        <p className="agent-read-filters">
+          Périmètre :{' '}
+          {data.filters.direction === 'expense'
+            ? 'dépenses'
+            : data.filters.direction === 'income'
+              ? 'revenus'
+              : 'revenus et dépenses'}
+          {data.filters.merchant && ` · marchand : ${data.filters.merchant}`}
+          {data.filters.category && ` · catégorie : ${data.filters.category}`}
+          {data.filters.tag && ` · tag : ${data.filters.tag}`}
+          {data.filters.min_amount != null &&
+            ` · à partir de ${money(data.filters.min_amount)}`}
+          {data.filters.max_amount != null &&
+            ` · jusqu’à ${money(data.filters.max_amount)}`}
+          .
+        </p>
+      )}
+      {data.has_more && (
+        <p>
+          Liste partielle ({data.returned_count} opérations affichées). Le total
+          complet doit être consulté avec la synthèse financière.
+        </p>
+      )}
       {data.reason && <p>{data.reason}</p>}
       {data.source && <p>Source : {data.source}</p>}
       <dl>

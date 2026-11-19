@@ -50,6 +50,26 @@ async function main() {
         amount: '-123.45',
       },
     ]
+    evidence.push({
+      type: 'tool',
+      tool: 'search_transactions',
+      data: {
+        transactions: [evidence[0]],
+        query_from: '2026-11-01',
+        query_to: '2026-11-17',
+        filters: {
+          direction: 'expense',
+          merchant: 'TEST',
+          category: 'Courses TEST',
+          tag: 'scope test',
+          min_amount: '60.00',
+          max_amount: '200.00',
+        },
+        has_more: true,
+        returned_count: 1,
+        coverage: 'unknown',
+      },
+    })
     const answer = {
       answer:
         'Du 2026-11-01 au 2026-11-17, ta plus grosse dépense enregistrée est ACHAT SYNTHETIQUE TEST : 123,45 €.',
@@ -249,6 +269,18 @@ async function main() {
     )
     assert.equal(chatBodies[0].mission_id, 1)
     await consoleUI
+      .getByText('Voir les données sources', { exact: true })
+      .click()
+    await expect(consoleUI.locator('.agent-read-filters')).toContainText(
+      'catégorie : Courses TEST',
+    )
+    await expect(consoleUI.locator('.agent-read-filters')).toContainText(
+      'à partir de 60,00 €',
+    )
+    await expect(consoleUI.locator('.assistant-evidence')).toContainText(
+      'Liste partielle',
+    )
+    await consoleUI
       .getByText('Travail réalisé · 1 étape(s)', { exact: true })
       .click()
     await expect(consoleUI.locator('.agent-steps')).toContainText(
@@ -384,6 +416,26 @@ async function main() {
     await panel.getByRole('textbox', { name: 'Votre question' }).press('Enter')
     await expect(panel.locator('.assistant-panel-msg-assistant')).toContainText(
       '123,45 €',
+    )
+    await panel
+      .getByRole('textbox', { name: 'Votre question' })
+      .fill('BROUILLON CONSERVE TEST')
+    const floatingCalls = chatBodies.length
+    await panel.getByRole('button', { name: 'Fermer', exact: true }).click()
+    await expect(panel).not.toBeVisible()
+    await page
+      .getByRole('button', { name: "Ouvrir l'assistant", exact: true })
+      .click()
+    await expect(panel.locator('.assistant-panel-msg-assistant')).toContainText(
+      '123,45 €',
+    )
+    await expect(
+      panel.getByRole('textbox', { name: 'Votre question' }),
+    ).toHaveValue('BROUILLON CONSERVE TEST')
+    assert.equal(
+      chatBodies.length,
+      floatingCalls,
+      'Reopening preserves the exchange without a model call',
     )
     await settle(page)
     assert.deepEqual(

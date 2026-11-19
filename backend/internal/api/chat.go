@@ -501,10 +501,10 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 		{"name": "get_recurring_expenses", "description": "Détections de récurrences existantes du mois résolu, avec limites ; une fréquence ne prouve pas un abonnement."},
 		{"name": "get_categories", "description": "Lire les catégories disponibles et leurs identifiants du propriétaire avant de préparer une action."},
 		{"name": "prepare_action", "description": "Préparer un aperçu, jamais appliquer. Arguments : kind categorize/tag/rule/simulation/memory ; transaction_ids [entiers] pour categorize/tag ; domain_id entier pour categorize/rule ; tag texte pour tag ; pattern pour rule (règle future uniquement) ; content pour memory ; month YYYY-MM et simulation {cuts:[{category,reduce_pct}],new_expenses:[{label,amount}],base_income facultatif} pour simulation. Montants décimaux et pourcentages explicites, pas inventés."},
-		{"name": "search_transactions", "description": "Rechercher les transactions : start_date/end_date YYYY-MM-DD, merchant optionnel, direction expense/income, sort amount/date, limit 1..50. Pour top dépense utiliser direction expense et sort amount."},
-		{"name": "get_financial_summary", "description": "Calculer les revenus/dépenses nets de la période résolue ; group_by facultatif none/category/merchant."},
-		{"name": "compare_periods", "description": "Comparer deux périodes : start_date_a/end_date_a et start_date_b/end_date_b (YYYY-MM-DD). Sans arguments : période résolue puis mois précédent. La comparabilité est calculée par le serveur."},
-		{"name": "get_category_breakdown", "description": "Ventilation des dépenses par catégorie"},
+		{"name": "search_transactions", "description": "Rechercher les transactions : start_date/end_date YYYY-MM-DD, merchant optionnel, direction expense/income, sort amount/date, limit 1..50. Filtres facultatifs : domain_id (catégorie exacte obtenue avec get_categories), tag, min_amount/max_amount (montants absolus positifs au centime, bornes inclusives), merchant (texte littéral). has_more signale une liste partielle : ne pas la sommer comme un total. Pour top dépense utiliser direction expense et sort amount."},
+		{"name": "get_financial_summary", "description": "Calculer les revenus/dépenses nets de la période résolue ; group_by facultatif none/category/merchant. Mêmes filtres facultatifs merchant, domain_id exact, tag, min_amount/max_amount et direction all/expense/income que search_transactions ; le total porte sur TOUTES les opérations filtrées, sans limit."},
+		{"name": "compare_periods", "description": "Comparer deux périodes : start_date_a/end_date_a et start_date_b/end_date_b (YYYY-MM-DD). Sans arguments : période résolue puis mois précédent. La comparabilité est calculée par le serveur. Filtres facultatifs merchant, domain_id exact, tag, min_amount/max_amount et direction comme pour la synthèse financière."},
+		{"name": "get_category_breakdown", "description": "Ventilation exacte par catégorie : direction expense (défaut) ou income ; filtres merchant, domain_id exact, tag, min_amount/max_amount. Aucun limit, les listes tronquées sont signalées."},
 		{"name": "get_data_quality", "description": "Vérifier la qualité et la couverture des données"},
 		{"name": "get_project_analysis", "description": "Lister les 50 projets récents sans paramètre ; lire le rapport financier exact avec project_id entier et month YYYY-MM. Coûts en centimes, observations et couverture, lecture seule."},
 		{"name": "get_verified_discoveries", "description": "Lire les trois découvertes vérifiées prioritaires, leurs preuves, période, métriques et limites"},
@@ -556,61 +556,66 @@ func (s *Server) orchestrate(ctx context.Context, db *sql.DB, owner int64, histo
 		// Exécuter les outils
 		for _, tc := range decision.ToolCalls {
 			args := map[string]any{}
-			if json.Unmarshal(tc.Arguments, &args) != nil || args == nil {
-				args = map[string]any{}
-			}
+			decoder := json.NewDecoder(strings.NewReader(string(tc.Arguments)))
+			decoder.UseNumber()
+			invalidArguments := decoder.Decode(&args) != nil || args == nil
 
 			started := time.Now()
 			var tr toolResult
-			if tc.Name == "search_transactions" || tc.Name == "get_financial_summary" || tc.Name == "get_category_breakdown" {
+			if !invalidArguments && (tc.Name == "search_transactions" || tc.Name == "get_financial_summary" || tc.Name == "get_category_breakdown") {
 				args["start_date"] = turn.Context.Period.From
 				args["end_date"] = turn.Context.Period.To
 			}
-			switch tc.Name {
-			case "prepare_action":
-				var input agentActionInput
-				raw, _ := json.Marshal(args)
-				decoder := json.NewDecoder(strings.NewReader(string(raw)))
-				decoder.DisallowUnknownFields()
-				if decoder.Decode(&input) != nil {
-					tr = toolResult{Error: "arguments d’action invalides"}
-				} else {
-					a, err := s.prepareAgentAction(ctx, owner, turn.Conversation, turn.Mission, input)
-					if err != nil {
-						tr = toolResult{Error: err.Error()}
+			if invalidArguments {
+				tr = toolResult{Error: "arguments d’outil invalides ; renvoyer un objet JSON valide"}
+			} else {
+				switch tc.Name {
+				case "prepare_action":
+					var input agentActionInput
+					raw, _ := json.Marshal(args)
+					decoder := json.NewDecoder(strings.NewReader(string(raw)))
+					decoder.DisallowUnknownFields()
+					if decoder.Decode(&input) != nil {
+						tr = toolResult{Error: "arguments d’action invalides"}
 					} else {
-						actions = append(actions, a)
-						tr = toolResult{Content: string(agentJSON(a))}
+						a, err := s.prepareAgentAction(ctx, owner, turn.Conversation, turn.Mission, input)
+						if err != nil {
+							tr = toolResult{Error: err.Error()}
+						} else {
+							actions = append(actions, a)
+							tr = toolResult{Content: string(agentJSON(a))}
+						}
 					}
+				case "get_categories":
+					tr = agentCategories(ctx, db, owner)
+				case "get_recurring_expenses":
+					report, err := s.loadRecurringReview(ctx, owner, turn.Context.Period.From[:7], time.Now())
+					if err != nil {
+						tr = toolResult{Error: "récurrences indisponibles"}
+					} else {
+						tr = toolResult{Content: string(agentJSON(report))}
+					}
+				case "search_transactions":
+					if direction := args["direction"]; (direction == nil || direction == "") && agentContains(agentText(lastUser), "depens", "achat") {
+						args["direction"] = "expense"
+					}
+					tr = agentSearchTransactions(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
+				case "get_financial_summary":
+					tr = agentFinancialSummary(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
+				case "compare_periods":
+					tr = s.agentCompare(ctx, owner, args, turn.Context.Period, agentScopedIDs(turn.Context, lastUser))
+				case "get_category_breakdown":
+					tr = agentCategoryBreakdown(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
+				case "get_data_quality":
+					tr = agentDataQuality(ctx, db, owner)
+				case "get_project_analysis":
+					tr = toolProjectAnalysis(ctx, db, owner, args)
+				case "get_verified_discoveries":
+					tr = toolVerifiedDiscoveries(ctx, db, owner)
+				default:
+					tr = toolResult{Error: "outil inconnu: " + tc.Name}
 				}
-			case "get_categories":
-				tr = agentCategories(ctx, db, owner)
-			case "get_recurring_expenses":
-				report, err := s.loadRecurringReview(ctx, owner, turn.Context.Period.From[:7], time.Now())
-				if err != nil {
-					tr = toolResult{Error: "récurrences indisponibles"}
-				} else {
-					tr = toolResult{Content: string(agentJSON(report))}
-				}
-			case "search_transactions":
-				if _, has := args["direction"]; !has && agentContains(agentText(lastUser), "depens", "achat") {
-					args["direction"] = "expense"
-				}
-				tr = agentSearchTransactions(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
-			case "get_financial_summary":
-				tr = agentFinancialSummary(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
-			case "compare_periods":
-				tr = s.agentCompare(ctx, owner, args, turn.Context.Period)
-			case "get_category_breakdown":
-				tr = agentCategoryBreakdown(ctx, db, owner, args, agentScopedIDs(turn.Context, lastUser))
-			case "get_data_quality":
-				tr = agentDataQuality(ctx, db, owner)
-			case "get_project_analysis":
-				tr = toolProjectAnalysis(ctx, db, owner, args)
-			case "get_verified_discoveries":
-				tr = toolVerifiedDiscoveries(ctx, db, owner)
-			default:
-				tr = toolResult{Error: "outil inconnu: " + tc.Name}
+
 			}
 
 			if len(tr.Content) > 64000 {

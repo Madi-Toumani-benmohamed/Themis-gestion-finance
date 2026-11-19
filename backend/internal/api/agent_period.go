@@ -35,8 +35,9 @@ type agentContext struct {
 var agentISODate = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
 var agentISOMonth = regexp.MustCompile(`\b\d{4}-\d{2}\b`)
 var agentYear = regexp.MustCompile(`\b(20\d{2}|19\d{2})\b`)
-var agentDays = regexp.MustCompile(`(?:ces|les|depuis(?: les)?) (\d{1,3})(?: derniers?)? jours?|(\d{1,3}) derniers? jours?|derniers? (\d{1,3}) jours?`)
-var agentMonths = regexp.MustCompile(`(\d{1,3}) derniers mois`)
+var agentDays = regexp.MustCompile(`(?:ces|les|depuis(?: les)?) (\d+)(?: derniers?)? jours?|(\d+) derniers? jours?|derniers? (\d+) jours?`)
+var agentPriceQualifier = regexp.MustCompile(`[€$]|\b(?:euros?|eur)\b|\d+[.,]\d+`)
+var agentMonths = regexp.MustCompile(`(\d+) derniers mois`)
 
 func agentText(s string) string {
 	return strings.ToLower(strings.NewReplacer("é", "e", "è", "e", "ê", "e", "ë", "e", "à", "a", "â", "a", "î", "i", "ï", "i", "ô", "o", "ù", "u", "û", "u", "ç", "c", "’", "'").Replace(strings.ToLower(s)))
@@ -71,7 +72,7 @@ func agentMonthRange(t time.Time, now time.Time, origin string) agentPeriod {
 	return agentPeriod{a.Format("2006-01-02"), b.Format("2006-01-02"), a.Format("2006-01"), origin}
 }
 func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, selected string) (agentPeriod, error) {
-	s := agentText(text)
+	s := agentTemporalText(agentText(text))
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
 	makeRange := func(a, b time.Time, label, origin string) (agentPeriod, error) {
@@ -81,7 +82,17 @@ func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, select
 		if b.After(today) {
 			b = today
 		}
-		return agentPeriod{a.Format("2006-01-02"), b.Format("2006-01-02"), label, origin}, nil
+		p := agentPeriod{a.Format("2006-01-02"), b.Format("2006-01-02"), label, origin}
+		if !agentPeriodValid(p) {
+			return agentPeriod{}, fmt.Errorf("période trop large : dix ans maximum")
+		}
+		return p, nil
+	}
+	if p, matched, err := agentFrenchCalendar(s, now, previous); matched {
+		return p, err
+	}
+	if p, matched, err := agentContextualCalendar(s, now, previous); matched {
+		return p, err
 	}
 	if agentContains(s, "mois prochain") {
 		if agentContains(s, "budget", "prepar", "objectif", "mission") {
@@ -119,6 +130,9 @@ func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, select
 		t, e := time.ParseInLocation("2006-01", m, now.Location())
 		if e != nil {
 			return agentPeriod{}, fmt.Errorf("mois invalide")
+		}
+		if strings.Contains(s, "depuis") {
+			return makeRange(t, today, "Depuis le mois demandé", "explicit")
 		}
 		p := agentMonthRange(t, today, "explicit")
 		if p.From > p.To {
@@ -178,22 +192,10 @@ func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, select
 		}
 		return makeRange(a.AddDate(0, 0, day-1), today, "Mois glissants demandés", "relative")
 	}
-	if agentContains(s, "trois derniers mois") {
-		a := first.AddDate(0, -3, 0)
-		day := today.Day()
-		last := a.AddDate(0, 1, -1).Day()
-		if day > last {
-			day = last
-		}
-		return makeRange(a.AddDate(0, 0, day-1), today, "Trois mois glissants", "relative")
-	}
-	if agentContains(s, "compare", "comparaison") && agentContains(s, "mois dernier", "ce mois") {
-		if previous.From != "" {
-			previous.Origin = "conversation"
-			return previous, nil
-		}
+	if agentContains(s, "compare", "comparaison") && agentContains(s, "ce mois") {
 		return agentMonthRange(first, today, "relative"), nil
 	}
+
 	if agentContains(s, "mois dernier", "dernier mois") {
 		return agentMonthRange(first.AddDate(0, -1, 0), today, "relative"), nil
 	}
@@ -209,21 +211,8 @@ func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, select
 	if agentContains(s, "ce mois", "du mois", "mois en cours") {
 		return agentMonthRange(first, today, "relative"), nil
 	}
-	months := []string{"janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"}
-	for i, name := range months {
-		if regexp.MustCompile(`\b` + name + `\b`).MatchString(s) {
-			year := now.Year()
-			if y := agentYear.FindString(s); y != "" {
-				year, _ = strconv.Atoi(y)
-			}
-			p := agentMonthRange(time.Date(year, time.Month(i+1), 1, 0, 0, 0, 0, now.Location()), today, "explicit")
-			if p.From > p.To {
-				return agentPeriod{}, fmt.Errorf("la période demandée est future")
-			}
-			return p, nil
-		}
-	}
-	if y := agentYear.FindString(s); y != "" {
+
+	if y := agentRequestedYear(s); y != "" {
 		year, _ := strconv.Atoi(y)
 		a := time.Date(year, 1, 1, 0, 0, 0, 0, now.Location())
 		return makeRange(a, a.AddDate(1, 0, -1), y, "explicit")
@@ -280,6 +269,9 @@ func agentPeriodValid(p agentPeriod) bool {
 // A qualified request (merchant, category, amount, etc.) must use the tools
 // planner rather than silently discarding a qualifier in the fast path.
 func agentSimpleTop(text string) bool {
+	if agentPriceQualifier.MatchString(text) {
+		return false
+	}
 	allowed := map[string]bool{}
 	for _, word := range strings.Fields("donne moi ma mon mes la le les un une top plus grosse gros grande depense importante operation achat du de des ce mois ci en pour au aux et dernier derniers precedent precedente cette semaine annee aujourd hui aujourdhui hier avant quelle quel est sont s il te plait montre affiche peux tu pourrais janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre depuis jours ces ici selection operations celle meme sans virements") {
 		allowed[word] = true
