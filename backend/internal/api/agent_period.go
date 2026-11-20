@@ -248,7 +248,10 @@ func agentIntent(text, previous string) string {
 		}
 		return ""
 	}
-	if agentContains(s, "combien", "total", "montant", "somme") && agentContains(s, "depens", "sorties") {
+	if agentContains(s, "revenu", "entree", "recu", "encaisse", "percu") && agentSimpleIncome(text) {
+		return "income"
+	}
+	if agentContains(s, "depens", "sorties") && (agentContains(s, "combien", "total", "montant", "somme") || agentSimpleSpending(text)) {
 		return "expenses"
 	}
 	if agentContains(s, "categorie", "ou je depense", "ou va mon argent") {
