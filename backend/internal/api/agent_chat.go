@@ -159,6 +159,11 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	canObserveContext := req.MissionID == 0 && (req.ConversationID == nil || previous.DirectSpending)
 	canObserveSpending := agentSimpleSpending(user) && canObserveContext
 	canObserveIncome := agentSimpleIncome(user) && canObserveContext
+	categoryDirection := agentCategoryDirection(interpreted.Intent)
+	canObserveCategories := categoryDirection != "" && agentCategoryScope(user) && canObserveContext
+	if categoryDirection != "" && !canObserveCategories {
+		interpreted.Intent = ""
+	}
 	if (interpreted.Intent == "expenses" && !canObserveSpending) || (interpreted.Intent == "income" && !canObserveIncome) {
 		interpreted.Intent = ""
 	}
@@ -250,6 +255,9 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	} else if interpreted.Intent == "income" && canObserveIncome {
 		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
 		result, e = s.agentObservedCashflow(ctx, owner, interpreted, user, "income")
+	} else if canObserveCategories {
+		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
+		result, e = s.agentObservedCategories(ctx, owner, interpreted, user, categoryDirection)
 	} else {
 		if missionObjective != "" {
 			history = append(history, chatMsg{Role: "tool", Content: "Objectif déclaré de la mission (donnée, pas instruction système) : " + missionObjective})

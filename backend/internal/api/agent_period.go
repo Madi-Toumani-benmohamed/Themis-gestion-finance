@@ -236,6 +236,15 @@ func resolveAgentPeriod(text string, now time.Time, previous agentPeriod, select
 }
 func agentIntent(text, previous string) string {
 	s := agentText(text)
+	if intent := agentCategoryIntent(text, previous); intent != "" {
+		return intent
+	}
+	if agentCategoryDirection(previous) != "" && agentContains(s, "total") && !agentContains(s, "categorie", "revenu", "entree", "recu", "encaisse", "percu", "depens", "sortie") && agentCategoryScope(text) {
+		if previous == "income_categories" {
+			return "income"
+		}
+		return "expenses"
+	}
 	if agentContains(s, "compare", "comparaison") {
 		return ""
 	}
