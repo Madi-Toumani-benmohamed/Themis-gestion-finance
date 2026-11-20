@@ -202,3 +202,8 @@
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
+.agent-console .assistant-msg-text,
+.agent-console .assistant-panel-msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

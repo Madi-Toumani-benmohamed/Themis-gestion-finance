@@ -105,3 +105,5 @@ Un marchand, une catégorie nommée, un seuil, un classement, une comparaison ou
 Lorsqu’une synthèse ou une comparaison porte uniquement sur les dépenses, ses zéros techniques de revenus et son solde directionnel ne sont pas affichés comme des observations de l’ensemble des flux. La même règle s’applique aux sources limitées aux revenus. Les regroupements suivent leur direction réelle ; une lecture de l’ensemble des flux conserve les deux directions et le solde observé. Le contenu des preuves et les calculs restent inchangés.
 
 Les catégories affichent le nombre d’opérations lorsque la source le fournit. Aucun compteur n’est inventé pour les anciens messages ou les scénarios qui n’en contiennent pas. Dans Transactions, un filtre issu d’identifiants est présenté comme une sélection de sources, et non systématiquement comme une récurrence. Les provenances relevé et enveloppe conservent leurs libellés.
+
+Les réponses textuelles conservent leurs sauts de ligne dans l’Assistant et le panneau flottant : les listes de catégories restent lisibles. Les textes restent échappés par React ; aucun interpréteur HTML ou Markdown n’est ajouté.
