@@ -496,6 +496,7 @@ export default function AgentConsole({
   const prefix = useId(),
     generation = useRef(0),
     bottom = useRef(null),
+    messageViewport = useRef(null),
     mounted = useRef(true),
     request = useRef(null),
     refreshGeneration = useRef(0)
@@ -503,9 +504,12 @@ export default function AgentConsole({
   const selectedMission = missions.find((m) => m.id === mission)
   const refresh = async () => {
     const token = ++refreshGeneration.current
+    setBriefing(null)
+    const briefingQuery = new URLSearchParams({ timezone: agentTimezone() })
+    if (pageContext.month) briefingQuery.set('month', pageContext.month)
     const results = await Promise.allSettled(
       ['missions', 'conversations', 'memories', 'briefing'].map((p) =>
-        agentRequest(p),
+        agentRequest(p === 'briefing' ? `${p}?${briefingQuery}` : p),
       ),
     )
     if (!mounted.current || token !== refreshGeneration.current) return
@@ -535,8 +539,12 @@ export default function AgentConsole({
   }, [])
   useEffect(() => {
     refresh()
-  }, [refreshKey])
+  }, [refreshKey, pageContext.month])
   useEffect(() => {
+    if (messages.length === 0) {
+      if (messageViewport.current) messageViewport.current.scrollTop = 0
+      return
+    }
     bottom.current?.scrollIntoView({
       behavior: matchMedia('(prefers-reduced-motion: reduce)').matches
         ? 'auto'
@@ -908,10 +916,101 @@ export default function AgentConsole({
           </aside>
         )}
       <div
+        ref={messageViewport}
         className={compact ? 'assistant-panel-messages' : 'assistant-messages'}
       >
         {messages.length === 0 && (
           <>
+            {briefing?.period_summary && (
+              <section
+                className="agent-initiatives"
+                aria-label="Point sur les données disponibles"
+              >
+                <h3>Un point de départ pour avancer</h3>
+                <p>
+                  Vue d’ensemble de la période, indépendante des filtres et de
+                  la sélection.
+                </p>
+                <p>
+                  Du {briefing.period_summary.period.from} au{' '}
+                  {briefing.period_summary.period.to} ·{' '}
+                  {briefing.period_summary.timezone}
+                </p>
+                {briefing.period_summary.available ? (
+                  <>
+                    <p>
+                      {briefing.period_summary.transaction_count} opération(s)
+                      enregistrée(s), dont{' '}
+                      {briefing.period_summary.expense_count} dépense(s). La
+                      couverture bancaire complète de la période n’est pas
+                      établie.
+                    </p>
+                    {briefing.period_summary.unclassified_expense_count > 0 && (
+                      <article>
+                        <strong>
+                          {briefing.period_summary.unclassified_expense_count}{' '}
+                          dépense(s) sans catégorie
+                        </strong>
+                        <p>
+                          Les examiner peut préciser les prochaines analyses.
+                          Aucune catégorie n’est appliquée automatiquement.
+                        </p>
+                        {briefing.period_summary.has_more && (
+                          <p>
+                            Les 100 opérations les plus récentes sont proposées
+                            ici ; la liste est partielle.
+                          </p>
+                        )}
+                        {onNavigate && (
+                          <button
+                            className="btn-secondary"
+                            disabled={locked}
+                            onClick={() =>
+                              onNavigate('transactions', {
+                                ids: briefing.period_summary
+                                  .unclassified_transaction_ids,
+                              })
+                            }
+                          >
+                            Examiner les dépenses sans catégorie
+                          </button>
+                        )}
+                      </article>
+                    )}
+                    <button
+                      className="btn-secondary"
+                      disabled={locked}
+                      onClick={() =>
+                        setInput(
+                          `Combien ai-je dépensé du ${briefing.period_summary.period.from} au ${briefing.period_summary.period.to} ?`,
+                        )
+                      }
+                    >
+                      Préparer une question sur cette période
+                    </button>
+                  </>
+                ) : (
+                  <article>
+                    <strong>
+                      Aucune opération enregistrée dans cette période
+                    </strong>
+                    <p>
+                      Cela ne signifie pas que tu n’as rien dépensé. Vérifie les
+                      relevés disponibles avant d’en tirer un bilan.
+                    </p>
+                    {onNavigate && (
+                      <button
+                        className="btn-secondary"
+                        disabled={locked}
+                        onClick={() => onNavigate('statements')}
+                      >
+                        Vérifier les relevés
+                      </button>
+                    )}
+                  </article>
+                )}
+              </section>
+            )}
             {initiatives.length > 0 && (
               <section
                 className="agent-initiatives"

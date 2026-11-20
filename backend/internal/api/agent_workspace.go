@@ -261,7 +261,27 @@ func (s *Server) loadAgentMemories(ctx context.Context, owner int64) ([]agentMem
 }
 func (s *Server) agentBriefing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	zone, err := agentLocation(r.URL.Query().Get("timezone"))
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
+	month := r.URL.Query().Get("month")
+	if month != "" && !validCalendarMonth(month) {
+		writeErr(w, 400, fmt.Errorf("mois du briefing invalide"))
+		return
+	}
+	period, err := resolveAgentPeriod("", time.Now().In(zone), agentPeriod{}, month)
+	if err != nil {
+		writeErr(w, 400, err)
+		return
+	}
 	owner := s.ownerID(r)
+	observations, err := agentReadPeriodBriefing(r.Context(), s.DB, owner, period, zone.String())
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("observations de période indisponibles"))
+		return
+	}
 	items, e := intelligence.Feed(r.Context(), s.DB, owner, 3)
 	if e != nil {
 		writeErr(w, 500, fmt.Errorf("initiatives indisponibles"))
@@ -274,7 +294,7 @@ func (s *Server) agentBriefing(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, fmt.Errorf("fraîcheur des sources indisponible"))
 		return
 	}
-	writeJSON(w, 200, map[string]any{"discoveries": items, "last_transaction_date": agentNullableString(latest), "last_import_at": agentNullableTime(imported), "checked_at": time.Now().UTC(), "coverage": "unknown"})
+	writeJSON(w, 200, map[string]any{"discoveries": items, "last_transaction_date": agentNullableString(latest), "last_import_at": agentNullableTime(imported), "checked_at": time.Now().UTC(), "coverage": "unknown", "period_summary": observations})
 }
 func (s *Server) agentConversations(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
