@@ -83,3 +83,11 @@ Le point distingue le nombre total d’opérations, les dépenses et les dépens
 « Préparer une question sur cette période » remplit le brouillon avec les dates exactes ; il ne lance pas le modèle. Une période sans opérations conduit à vérifier les relevés, sans conclure à une dépense nulle. La couverture bancaire reste inconnue. Une erreur du briefing ne se transforme pas en observation vide et les résultats d’une ancienne période ne sont pas présentés comme nouveaux.
 
 Contrat additif : `GET /api/agent/briefing?month=YYYY-MM&timezone=Europe%2FParis` renvoie `period_summary`. Un mois absent signifie le mois courant. Un mois invalide/futur ou un fuseau invalide est refusé. Les clients existants conservent les découvertes et les dates de fraîcheur. Ce point ne dépend pas d’un fournisseur IA et ne crée ni message, ni mission, ni action, ni catégorie.
+
+## Revenus et suivis de direction
+
+« Combien ai-je reçu en janvier 2026 ? », « Mes revenus ce mois ? » et « Et mes revenus ? » utilisent le calcul direct comme les dépenses. Le suivi temporel conserve la direction précédente ; « et mes dépenses ? » la change explicitement. Le périmètre sûr et la sélection sont soumis aux mêmes garde-fous que les dépenses. Aucun appel au fournisseur n’est nécessaire pour ces observations simples lorsque l’Assistant est configuré.
+
+La réponse porte sur les entrées d’argent enregistrées, hors virements internes et épargne. Elle précise que ces crédits peuvent inclure des remboursements et ne constituent pas un revenu fiscal calculé. La preuve n’affiche ni faux montant de dépenses ni solde global lorsque seule la direction revenus a été interrogée. L’absence de crédit est un manque d’observation, pas la preuve d’un revenu nul.
+
+Les questions sur le salaire, le revenu fiscal, un marchand, un seuil, un classement, un mélange de directions ou une projection conservent le planificateur ; leurs contraintes ne sont jamais supprimées pour répondre hors ligne.

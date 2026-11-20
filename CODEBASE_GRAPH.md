@@ -115,7 +115,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - `IntelligenceHighlights.jsx` suspend le polling des jobs dans les onglets masqués et le reprend au retour sans chevauchement. Mesures et limites : `docs/PERFORMANCE_OPTIMIZATION.md`.
 
 - `agent_briefing.go` fournit les observations du mois (opérations, dépenses et sources sans catégorie) dans un snapshot PostgreSQL propriétaire ; briefing contextualisé, sans modèle ni écriture et avec limite de navigation déclarée.
-- `agent_observation.go` répond aux demandes simples de total des dépenses par calcul exact sans appel modèle, avec preuve/étape et absence ≠ zéro ; les demandes qualifiées restent planifiées.
+- `agent_observation.go` répond aux demandes simples de total des dépenses ou des entrées d’argent par calcul exact sans appel modèle, avec preuve/étape et absence ≠ zéro ; les demandes qualifiées restent planifiées.
 - `agent_calendar.go` résout les intervalles français et les suivis annuels ; `agent_read_scope.go` fournit un périmètre SQL paramétré commun aux lectures de l’agent (filtres stricts, centimes exacts, résultats partiels déclarés).
 - `components/agent/AgentConsole.jsx` partage missions, historique, sources/outils et validation d’actions entre Assistant et le panneau flottant (chargé à l’ouverture). `App.jsx` transmet page/mois/sélection depuis les pages financières ; migration additive 034, export propriétaire et rollback gardé. Voir `docs/AGENT_WORKSPACE.md`.
 
