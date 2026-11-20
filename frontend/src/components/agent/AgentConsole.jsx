@@ -57,6 +57,14 @@ const money = (value) =>
   value == null ? 'Non observé' : `${String(value).replace('.', ',')} €`
 function SourceData({ data, onNavigate }) {
   if (!data || typeof data !== 'object') return null
+  const direction = data.filters?.direction
+  const excludedAmounts = new Set(
+    direction === 'expense'
+      ? ['income', 'income_a', 'income_b', 'net']
+      : direction === 'income'
+        ? ['expenses', 'expenses_a', 'expenses_b', 'expense_change', 'net']
+        : [],
+  )
   const amounts = {
     income: 'Revenus observés',
     expenses: 'Dépenses observées',
@@ -106,7 +114,9 @@ function SourceData({ data, onNavigate }) {
       {data.source && <p>Source : {data.source}</p>}
       <dl>
         {Object.entries(amounts)
-          .filter(([key]) => Object.hasOwn(data, key))
+          .filter(
+            ([key]) => Object.hasOwn(data, key) && !excludedAmounts.has(key),
+          )
           .map(([key, label]) => (
             <div key={key}>
               <dt>{label}</dt>
@@ -137,6 +147,8 @@ function SourceData({ data, onNavigate }) {
             <li key={i}>
               {c.category} : {money(c.amount ?? c.before)}
               {c.after != null && ` → ${money(c.after)} dans le scénario`}
+              {c.transaction_count != null &&
+                ` · ${c.transaction_count} opération(s)`}
             </li>
           ))}
         </ul>
@@ -145,8 +157,13 @@ function SourceData({ data, onNavigate }) {
         <ul>
           {data.groups.map((group, i) => (
             <li key={i}>
-              {group.key} : revenus {money(group.income)}, dépenses{' '}
-              {money(group.expenses)} ({group.transaction_count} opérations).
+              {group.key} :{' '}
+              {direction !== 'expense' && <>revenus {money(group.income)}</>}
+              {direction !== 'expense' && direction !== 'income' && ', '}
+              {direction !== 'income' && (
+                <>dépenses {money(group.expenses)}</>
+              )}{' '}
+              ({group.transaction_count} opérations).
             </li>
           ))}
         </ul>

@@ -99,3 +99,11 @@ Les questions sur le salaire, le revenu fiscal, un marchand, un seuil, un classe
 La réponse résume six catégories, avec les autres dans les données sources. L’outil expose au maximum 200 catégories et annonce toute troncature ; aucune somme de cette liste n’est présentée comme un total complet. Les entrées restent distinguées d’un revenu fiscal et peuvent inclure des remboursements. Virements internes et épargne restent exclus, la couverture demeure inconnue et l’absence d’observations reste distincte d’un zéro bancaire.
 
 Un marchand, une catégorie nommée, un seuil, un classement, une comparaison ou une question explicative conserve le planificateur. Les missions, anciens contextes sans périmètre sûr, suites de requêtes qualifiées et suivis après sélection d’opérations n’empruntent pas ce raccourci, pour ne pas oublier leurs contraintes. Les identifiants sélectionnés sont respectés et vérifiés pour la première demande explicite.
+
+## Lecture des preuves financières
+
+Lorsqu’une synthèse ou une comparaison porte uniquement sur les dépenses, ses zéros techniques de revenus et son solde directionnel ne sont pas affichés comme des observations de l’ensemble des flux. La même règle s’applique aux sources limitées aux revenus. Les regroupements suivent leur direction réelle ; une lecture de l’ensemble des flux conserve les deux directions et le solde observé. Le contenu des preuves et les calculs restent inchangés.
+
+Les catégories affichent le nombre d’opérations lorsque la source le fournit. Aucun compteur n’est inventé pour les anciens messages ou les scénarios qui n’en contiennent pas. Dans Transactions, un filtre issu d’identifiants est présenté comme une sélection de sources, et non systématiquement comme une récurrence. Les provenances relevé et enveloppe conservent leurs libellés.
+
+Les réponses textuelles conservent leurs sauts de ligne dans l’Assistant et le panneau flottant : les listes de catégories restent lisibles. Les textes restent échappés par React ; aucun interpréteur HTML ou Markdown n’est ajouté.

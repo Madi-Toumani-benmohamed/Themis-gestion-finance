@@ -118,6 +118,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - `agent_category_observation.go` résout les suivis simples « par catégorie » avec la période et la direction de conversation ; réutilise la ventilation exacte existante, avec sources et limites explicites, sans appel modèle ni écriture bancaire.
 - `agent_observation.go` répond aux demandes simples de total des dépenses ou des entrées d’argent par calcul exact sans appel modèle, avec preuve/étape et absence ≠ zéro ; les demandes qualifiées restent planifiées.
 - `agent_calendar.go` résout les intervalles français et les suivis annuels ; `agent_read_scope.go` fournit un périmètre SQL paramétré commun aux lectures de l’agent (filtres stricts, centimes exacts, résultats partiels déclarés).
+- Les preuves de `AgentConsole.jsx` affichent les montants et regroupements de la direction interrogée, ainsi que les compteurs de catégories disponibles ; `pages/Transactions.jsx` nomme les sélections d’identifiants sans leur attribuer une récurrence.
 - `components/agent/AgentConsole.jsx` partage missions, historique, sources/outils et validation d’actions entre Assistant et le panneau flottant (chargé à l’ouverture). `App.jsx` transmet page/mois/sélection depuis les pages financières ; migration additive 034, export propriétaire et rollback gardé. Voir `docs/AGENT_WORKSPACE.md`.
 
 ### Mouvement et interactions (`frontend/src/motion/`)
