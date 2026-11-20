@@ -71,6 +71,71 @@ async function main() {
         coverage: 'unknown',
       },
     })
+    evidence.push(
+      {
+        type: 'tool',
+        tool: 'get_financial_summary',
+        data: {
+          source: 'SOURCE SYNTHETIQUE DEPENSES',
+          filters: { direction: 'expense' },
+          income: 0,
+          expenses: 123.45,
+          net: -123.45,
+          groups: [
+            {
+              key: 'GROUPE DEPENSE TEST',
+              income: 0,
+              expenses: 123.45,
+              transaction_count: 3,
+            },
+          ],
+        },
+      },
+      {
+        type: 'tool',
+        tool: 'get_financial_summary',
+        data: {
+          source: 'SOURCE SYNTHETIQUE REVENUS',
+          filters: { direction: 'income' },
+          income: 200.01,
+          expenses: 0,
+          net: 200.01,
+          groups: [
+            {
+              key: 'GROUPE REVENU TEST',
+              income: 200.01,
+              expenses: 0,
+              transaction_count: 2,
+            },
+          ],
+        },
+      },
+      {
+        type: 'tool',
+        tool: 'get_financial_summary',
+        data: {
+          source: 'SOURCE SYNTHETIQUE ENSEMBLE',
+          filters: { direction: 'all' },
+          income: 0,
+          expenses: 70,
+          net: -70,
+        },
+      },
+      {
+        type: 'tool',
+        tool: 'get_category_breakdown',
+        data: {
+          categories: [
+            {
+              category: 'CATEGORIE PREUVE TEST',
+              amount: 123.45,
+              transaction_count: 3,
+            },
+          ],
+          filters: { direction: 'expense' },
+        },
+      },
+    )
     const answer = {
       answer:
         'Du 2026-11-01 au 2026-11-17, ta plus grosse dépense enregistrée est ACHAT SYNTHETIQUE TEST : 123,45 €.',
@@ -310,15 +375,40 @@ async function main() {
     await consoleUI
       .getByText('Voir les données sources', { exact: true })
       .click()
-    await expect(consoleUI.locator('.agent-read-filters')).toContainText(
-      'catégorie : Courses TEST',
-    )
-    await expect(consoleUI.locator('.agent-read-filters')).toContainText(
-      'à partir de 60,00 €',
-    )
+    await expect(
+      consoleUI.locator('.agent-read-filters').first(),
+    ).toContainText('catégorie : Courses TEST')
+    await expect(
+      consoleUI.locator('.agent-read-filters').first(),
+    ).toContainText('à partir de 60,00 €')
     await expect(consoleUI.locator('.assistant-evidence')).toContainText(
       'Liste partielle',
     )
+    const expenseProof = consoleUI
+      .locator('.agent-source-data')
+      .filter({ hasText: 'SOURCE SYNTHETIQUE DEPENSES' })
+    const incomeProof = consoleUI
+      .locator('.agent-source-data')
+      .filter({ hasText: 'SOURCE SYNTHETIQUE REVENUS' })
+    const allProof = consoleUI
+      .locator('.agent-source-data')
+      .filter({ hasText: 'SOURCE SYNTHETIQUE ENSEMBLE' })
+    await expect(expenseProof.locator('dt')).toHaveText(['Dépenses observées'])
+    await expect(incomeProof.locator('dt')).toHaveText(['Revenus observés'])
+    await expect(allProof.locator('dt')).toHaveText([
+      'Revenus observés',
+      'Dépenses observées',
+      'Solde des flux observés',
+    ])
+    await expect(allProof.locator('dd')).toHaveText(['0 €', '70 €', '-70 €'])
+    await expect(expenseProof.locator('li')).toContainText('dépenses 123,45 €')
+    await expect(expenseProof.locator('li')).not.toContainText('revenus')
+    await expect(incomeProof.locator('li')).toContainText('revenus 200,01 €')
+    await expect(incomeProof.locator('li')).not.toContainText('dépenses')
+    await expect(consoleUI.locator('.assistant-evidence')).toContainText(
+      'CATEGORIE PREUVE TEST : 123,45 € · 3 opération(s)',
+    )
+
     await consoleUI
       .getByText('Travail réalisé · 1 étape(s)', { exact: true })
       .click()
