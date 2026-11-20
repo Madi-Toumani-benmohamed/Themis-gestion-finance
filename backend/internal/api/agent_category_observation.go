@@ -12,14 +12,17 @@ import (
 
 var agentCategoryVocabulary = regexp.MustCompile(`\bpar categories?\b`)
 var agentNamedCategoryAfterGroup = regexp.MustCompile(`\bpar categories?\s+(?:revenus?|depenses?|entrees?)\b`)
-var agentCategoryQuestion = regexp.MustCompile(`\b(?:categories?|par|repartis|repartissent|repartir|repartition|ventile|ventilation|regroupe|detaille|comment|se)\b`)
+var agentCategoryQuestion = regexp.MustCompile(`^(?:(?:et|peux[- ]tu|pourrais[- ]tu)\s+)?(?:comment\s+se\s+repartissent|repartis|repartir|repartition|ventile|ventilation|regroupe|detailler?)\b`)
 
 func agentCategoryScope(text string) bool {
 	s := agentTemporalText(agentText(text))
 	if agentContains(s, "top", "gros", "grand", "important", "compare") || agentNamedCategoryAfterGroup.MatchString(s) {
 		return false
 	}
-	s = strings.ReplaceAll(s, "ou va mon argent", " ")
+	s = strings.TrimPrefix(s, "ou va mon argent")
+	// Remove only the grouping phrase. A second category or grouping remains
+	// a constraint for the planner, rather than disappearing from the query.
+	s = agentCategoryVocabulary.ReplaceAllString(s, " ")
 	s = agentCategoryQuestion.ReplaceAllString(s, " ")
 	return agentSimpleIncome(s) || agentSimpleSpending(s)
 }

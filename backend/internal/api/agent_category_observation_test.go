@@ -7,12 +7,12 @@ import (
 )
 
 func TestAgentCategoryQuestionScope(t *testing.T) {
-	for _, q := range []string{"Et par catégorie ?", "Répartis mes dépenses par catégorie ce mois", "Détaille mes revenus par catégorie en janvier 2026", "Où va mon argent ?"} {
+	for _, q := range []string{"Et par catégorie ?", "Répartis mes dépenses par catégorie ce mois", "Détaille mes revenus par catégorie en janvier 2026", "Où va mon argent ?", "Peux-tu détailler mes dépenses par catégorie ?", "Comment se répartissent mes dépenses par catégorie ?"} {
 		if agentCategoryIntent(q, "") == "" {
 			t.Errorf("simple category question missed: %s", q)
 		}
 	}
-	for _, q := range []string{"Mes revenus et mes dépenses par catégorie", "Répartis mes dépenses par catégorie chez TEST", "Mes dépenses de plus de 100 € par catégorie", "Mes dépenses par catégorie Alimentation", "Mes revenus fiscaux par catégorie", "Ma catégorie Revenus", "Mes opérations par catégorie Revenus", "Compare mes dépenses par catégorie", "Ma top catégorie", "Les 5 catégories de dépenses", "Pourquoi mes dépenses augmentent par catégorie"} {
+	for _, q := range []string{"Mes revenus et mes dépenses par catégorie", "Répartis mes dépenses par catégorie chez TEST", "Mes dépenses de plus de 100 € par catégorie", "Mes dépenses par catégorie Alimentation", "Mes revenus fiscaux par catégorie", "Mes dépenses sans catégorie par catégorie", "Mes dépenses par catégorie par mois", "Mes revenus par catégorie par marchand", "Mes dépenses dans la catégorie Revenus par catégorie", "Ma catégorie Revenus", "Mes dépenses par catégorie Où va mon argent", "Mes dépenses par catégorie Répartition", "Mes opérations par catégorie Revenus", "Compare mes dépenses par catégorie", "Ma top catégorie", "Les 5 catégories de dépenses", "Pourquoi mes dépenses augmentent par catégorie"} {
 		if agentCategoryIntent(q, "") != "" {
 			t.Errorf("constraint dropped: %s", q)
 		}
@@ -113,4 +113,14 @@ func TestAgentCategoryObservationsOfflinePostgres(t *testing.T) {
 	if source["truncated"] != true || len(source["categories"].([]any)) != 200 || !strings.Contains(partial["answer"].(string), "200 premières") || !strings.Contains(partial["answer"].(string), "six premières") {
 		t.Fatal(partial)
 	}
+	for _, question := range []string{"Mes dépenses sans catégorie par catégorie en décembre 2025 ?", "Mes dépenses par catégorie par mois en 2025 ?"} {
+		guarded := ask(1, question, 0, nil)
+		if guarded["status"] != "error" {
+			t.Fatalf("constraint ignored: %s: %+v", question, guarded)
+		}
+	}
+	if model.calls != 5 {
+		t.Fatalf("qualified observations bypassed planner: calls=%d", model.calls)
+	}
+
 }

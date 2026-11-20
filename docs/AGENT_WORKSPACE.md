@@ -107,3 +107,5 @@ Lorsqu’une synthèse ou une comparaison porte uniquement sur les dépenses, se
 Les catégories affichent le nombre d’opérations lorsque la source le fournit. Aucun compteur n’est inventé pour les anciens messages ou les scénarios qui n’en contiennent pas. Dans Transactions, un filtre issu d’identifiants est présenté comme une sélection de sources, et non systématiquement comme une récurrence. Les provenances relevé et enveloppe conservent leurs libellés.
 
 Les réponses textuelles conservent leurs sauts de ligne dans l’Assistant et le panneau flottant : les listes de catégories restent lisibles. Les textes restent échappés par React ; aucun interpréteur HTML ou Markdown n’est ajouté.
+
+Les contraintes « sans catégorie » et les doubles regroupements (« par catégorie par mois » ou « par marchand ») ne sont pas supprimés du raccourci de ventilation. Seule l’expression de regroupement reconnue est retirée pour valider la question ; les autres contraintes conservent le planificateur.
