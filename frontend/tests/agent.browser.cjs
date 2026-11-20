@@ -40,7 +40,8 @@ async function main() {
       nextConversation = 7,
       nextAction = 1,
       stale = false,
-      applied = 0
+      applied = 0,
+      briefingState = 'available'
     const evidence = [
       {
         type: 'transaction',
@@ -147,13 +148,35 @@ async function main() {
           (m) => m.id !== Number(path.split('/').pop()),
         )
         status = 204
-      } else if (path === '/api/agent/briefing')
+      } else if (path === '/api/agent/briefing') {
+        assert.ok(
+          url.searchParams.get('timezone'),
+          'Briefing uses browser timezone',
+        )
         body = {
           discoveries: [],
           last_transaction_date: '2026-11-05',
           last_import_at: '2026-11-06T10:00:00Z',
+          period_summary: {
+            period: { from: '2026-11-01', to: '2026-11-17' },
+            timezone: url.searchParams.get('timezone') || 'Europe/Paris',
+            available: briefingState === 'available',
+            transaction_count: 125,
+            expense_count: 120,
+            unclassified_expense_count: 101,
+            unclassified_transaction_ids: Array.from(
+              { length: 100 },
+              (_, i) => i + 101,
+            ),
+            has_more: true,
+            coverage: 'unknown',
+          },
         }
-      else if (path === '/api/chat') {
+        if (briefingState === 'failed') {
+          status = 503
+          body = { error: 'SYNTHETIC unavailable' }
+        }
+      } else if (path === '/api/chat') {
         const input = req.postDataJSON()
         chatBodies.push(input)
         assert.equal(input.messages.length, 1)
@@ -247,6 +270,22 @@ async function main() {
       calls.filter((c) => c.path === '/api/chat').length,
       0,
       'Opening an agent never calls a model or writes facts',
+    )
+    const briefingUI = consoleUI.getByRole('region', {
+      name: 'Point sur les données disponibles',
+    })
+    await expect(briefingUI).toContainText('101 dépense(s) sans catégorie')
+    await expect(briefingUI).toContainText('la liste est partielle')
+    await briefingUI
+      .getByRole('button', { name: 'Préparer une question sur cette période' })
+      .click()
+    await expect(
+      consoleUI.getByRole('textbox', { name: 'Votre question' }),
+    ).toHaveValue('Combien ai-je dépensé du 2026-11-01 au 2026-11-17 ?')
+    assert.equal(
+      chatBodies.length,
+      0,
+      'Preparing a question never invokes the model',
     )
     await consoleUI
       .getByText('Missions et préférences', { exact: true })
@@ -451,9 +490,69 @@ async function main() {
       [],
       'Floating agent Axe',
     )
+    // A new exchange shows observations without generating a model reply.
+    await page.getByRole('button', { name: 'Fermer', exact: true }).click()
+    await consoleUI
+      .getByRole('button', { name: 'Nouvel échange', exact: true })
+      .click()
+    assert.equal(
+      await consoleUI
+        .locator('.assistant-messages')
+        .evaluate((el) => el.scrollTop),
+      0,
+      'A new exchange starts at the briefing, not at the bottom',
+    )
+    for (const width of [360, 768, 1280])
+      for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height: 1100 })
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await settle(page, theme)
+        await expect(
+          consoleUI.getByRole('region', {
+            name: 'Point sur les données disponibles',
+          }),
+        ).toContainText('101 dépense(s) sans catégorie')
+        assert.equal(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth > innerWidth,
+          ),
+          false,
+        )
+        assert.deepEqual(
+          (
+            await new AxeBuilder({ page })
+              .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
+              .analyze()
+          ).violations.map((v) => v.id),
+          [],
+        )
+        await page.screenshot({
+          path: `${captures}/briefing-${width}-${theme}.png`,
+          fullPage: true,
+        })
+      }
+    briefingState = 'empty'
+    await page.reload()
+    await page.getByRole('tab', { name: 'Assistant', exact: true }).click()
+    await expect(
+      consoleUI.getByRole('region', {
+        name: 'Point sur les données disponibles',
+      }),
+    ).toContainText('Cela ne signifie pas que tu n’as rien dépensé')
+    briefingState = 'failed'
+    await page.reload()
+    await page.getByRole('tab', { name: 'Assistant', exact: true }).click()
+    await expect(consoleUI).toContainText(
+      'Une partie du suivi est indisponible',
+    )
+    await expect(
+      consoleUI.getByRole('region', {
+        name: 'Point sur les données disponibles',
+      }),
+    ).toHaveCount(0)
     assert.deepEqual(errors, [])
     console.log(
-      'Agent browser PASS: missions, persisted conversations, page context request, real-step display, source selection, preview without write, validation, stale action, preferences/forget, six layouts/themes and full/floating Axe.',
+      'Agent browser PASS: missions, persisted conversations, page context request, real-step display, source selection, preview without write, validation, stale action, preferences/forget, contextual briefing, partial lists, prepared question without model, empty/error states, six layouts/themes and full/floating Axe.',
     )
   } finally {
     await browser.close()
