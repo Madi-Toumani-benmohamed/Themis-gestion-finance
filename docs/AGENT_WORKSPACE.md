@@ -91,3 +91,11 @@ Contrat additif : `GET /api/agent/briefing?month=YYYY-MM&timezone=Europe%2FParis
 La réponse porte sur les entrées d’argent enregistrées, hors virements internes et épargne. Elle précise que ces crédits peuvent inclure des remboursements et ne constituent pas un revenu fiscal calculé. La preuve n’affiche ni faux montant de dépenses ni solde global lorsque seule la direction revenus a été interrogée. L’absence de crédit est un manque d’observation, pas la preuve d’un revenu nul.
 
 Les questions sur le salaire, le revenu fiscal, un marchand, un seuil, un classement, un mélange de directions ou une projection conservent le planificateur ; leurs contraintes ne sont jamais supprimées pour répondre hors ligne.
+
+## Suivis par catégorie
+
+« Et par catégorie ? » reprend la période et la direction d’un échange direct : dépenses après un total de dépenses, entrées après un total de revenus. « Répartis mes dépenses par catégorie » change explicitement de direction ; un suivi temporel reprend ensuite cette ventilation. « Et au total ? » revient au total de la même direction et de la même période. « Où va mon argent ? » démarre une ventilation de dépenses. Les montants et le nombre d’opérations de chaque catégorie proviennent de l’outil PostgreSQL existant, sans appel au modèle.
+
+La réponse résume six catégories, avec les autres dans les données sources. L’outil expose au maximum 200 catégories et annonce toute troncature ; aucune somme de cette liste n’est présentée comme un total complet. Les entrées restent distinguées d’un revenu fiscal et peuvent inclure des remboursements. Virements internes et épargne restent exclus, la couverture demeure inconnue et l’absence d’observations reste distincte d’un zéro bancaire.
+
+Un marchand, une catégorie nommée, un seuil, un classement, une comparaison ou une question explicative conserve le planificateur. Les missions, anciens contextes sans périmètre sûr, suites de requêtes qualifiées et suivis après sélection d’opérations n’empruntent pas ce raccourci, pour ne pas oublier leurs contraintes. Les identifiants sélectionnés sont respectés et vérifiés pour la première demande explicite.
