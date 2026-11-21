@@ -60,7 +60,7 @@ function SourceData({ data, onNavigate }) {
   const direction = data.filters?.direction
   const excludedAmounts = new Set(
     direction === 'expense'
-      ? ['income', 'income_a', 'income_b', 'net']
+      ? ['income', 'income_a', 'income_b', 'income_change', 'net']
       : direction === 'income'
         ? ['expenses', 'expenses_a', 'expenses_b', 'expense_change', 'net']
         : [],
@@ -74,6 +74,7 @@ function SourceData({ data, onNavigate }) {
     income_b: 'Revenus de la seconde période',
     expenses_b: 'Dépenses de la seconde période',
     expense_change: 'Écart des dépenses',
+    income_change: 'Écart des revenus',
     monthly_saved: 'Réduction simulée',
     base_spend: 'Dépenses de référence',
     simulated_spend: 'Dépenses simulées',
@@ -81,6 +82,12 @@ function SourceData({ data, onNavigate }) {
   }
   return (
     <div className="agent-source-data">
+      {data.period_a?.from && data.period_b?.from && (
+        <p className="agent-comparison-periods">
+          Première période : du {data.period_a.from} au {data.period_a.to}.
+          Seconde période : du {data.period_b.from} au {data.period_b.to}.
+        </p>
+      )}
       {data.query_from && (
         <p>
           Du {data.query_from} au {data.query_to}.
@@ -110,7 +117,13 @@ function SourceData({ data, onNavigate }) {
           complet doit être consulté avec la synthèse financière.
         </p>
       )}
-      {data.reason && <p>{data.reason}</p>}
+      {data.reason && (
+        <p>
+          {data.comparable === false && data.period_a && data.period_b
+            ? 'La couverture comparable des deux périodes n’est pas établie. Ces montants sont présentés séparément.'
+            : data.reason}
+        </p>
+      )}
       {data.source && <p>Source : {data.source}</p>}
       <dl>
         {Object.entries(amounts)
@@ -186,6 +199,12 @@ function SourceData({ data, onNavigate }) {
             </li>
           ))}
         </ul>
+      )}
+      {data.count_a != null && data.count_b != null && (
+        <p>
+          {data.count_a} opération(s) dans la première période ; {data.count_b}{' '}
+          dans la seconde.
+        </p>
       )}
       {data.transaction_count != null && (
         <p>{data.transaction_count} opération(s) observée(s).</p>

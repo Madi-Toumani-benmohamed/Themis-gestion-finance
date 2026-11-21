@@ -154,7 +154,15 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	if selectedMonth == previous.Page.Month && agentSelectionKind(user) == "" && !agentContains(agentText(user), "ici", "cette page", "ceci", "cette selection", "ces operations", "mois affiche", "mois selectionne") {
 		selectedMonth = ""
 	}
-	period, periodErr := resolveAgentPeriod(user, now, previous.Period, selectedMonth)
+	comparison, comparisonSyntax := parseAgentComparison(user, previous.Intent)
+	comparisonContext := req.MissionID == 0 && agentSelectionKind(user) == "" && len(req.Context.PageContext.TransactionIDs) == 0 && (req.ConversationID == nil || (previous.DirectSpending && (previous.Intent == "expenses" || previous.Intent == "income")))
+	periodText := user
+	if comparisonSyntax && comparisonContext {
+		periodText = comparison.Base
+	}
+	period, periodErr := resolveAgentPeriod(periodText, now, previous.Period, selectedMonth)
+	comparisonPrevious, comparisonMonthly := agentPreviousComparisonMonth(period, now, comparison.CalendarLast)
+	canObserveComparison := comparisonSyntax && comparisonContext && comparisonMonthly && periodErr == nil
 	interpreted := agentContext{Timezone: zone.String(), Today: now.Format("2006-01-02"), Period: period, Intent: agentIntent(user, previous.Intent), Page: req.Context.PageContext}
 	canObserveContext := req.MissionID == 0 && (req.ConversationID == nil || previous.DirectSpending)
 	canObserveSpending := agentSimpleSpending(user) && canObserveContext
@@ -246,6 +254,9 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	var result *chatResult
 	if periodErr != nil {
 		result = &chatResult{Answer: periodErr.Error(), Status: "needs_clarification"}
+	} else if canObserveComparison && len(interpreted.Page.TransactionIDs) == 0 {
+		interpreted.Intent = comparison.Direction + "_comparison"
+		result, e = s.agentObservedComparison(ctx, owner, period, comparisonPrevious, comparison.Direction, now)
 	} else if interpreted.Intent == "top_expense" && canObserveContext {
 		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
 		result, e = s.agentTopExpense(ctx, owner, interpreted, user)

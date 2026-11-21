@@ -109,3 +109,13 @@ Les catégories affichent le nombre d’opérations lorsque la source le fournit
 Les réponses textuelles conservent leurs sauts de ligne dans l’Assistant et le panneau flottant : les listes de catégories restent lisibles. Les textes restent échappés par React ; aucun interpréteur HTML ou Markdown n’est ajouté.
 
 Les contraintes « sans catégorie » et les doubles regroupements (« par catégorie par mois » ou « par marchand ») ne sont pas supprimés du raccourci de ventilation. Seule l’expression de regroupement reconnue est retirée pour valider la question ; les autres contraintes conservent le planificateur.
+
+## Comparaisons mensuelles contextualisées
+
+Après un total direct, « Compare avec le mois précédent » ou « Et par rapport au mois précédent ? » reprend sa période et sa direction. Une nouvelle demande peut préciser « Compare mes revenus de janvier 2026 avec le mois précédent ». La période de référence doit commencer le 1er et rester dans un seul mois. Les deux périodes exactes et leurs nombres d’opérations sont visibles dans les sources.
+
+« Le mois précédent » suit la période de référence de l’échange. « Le mois dernier » désigne le mois civil précédent à la date du jour, selon le fuseau du navigateur ; les dates utilisées sont annoncées. Les mois passés complets sont comparés à un mois complet. Pour un mois en cours ou une fenêtre partielle commençant le 1er, les numéros de jours sont alignés, avec un plafond au dernier jour du mois cible (y compris février et les années bissextiles). Une comparaison avec la même fenêtre n’emprunte pas le raccourci.
+
+L’agent réutilise `compare_periods`, qui lit les deux observations dans un snapshot PostgreSQL en lecture seule. Sans couverture documentaire comparable, il présente les observations séparément sans conclure à une hausse/baisse ni calculer un pourcentage. L’absence d’opération dans une fenêtre reste distincte d’un montant bancaire nul. Un écart exact est annoncé uniquement si l’outil confirme deux mois civils terminés et documentés. Les preuves ne présentent pas la direction exclue comme observée.
+
+Les marchands, catégories, seuils, classements, doubles regroupements ou plusieurs mois/années de référence restent au planificateur. Missions, sélections, contextes qualifiés ou anciens contextes sans périmètre sûr ne passent pas par ce raccourci. Après une comparaison, les autres suivis restent au planificateur pour ne pas oublier la seconde fenêtre ; un nouvel échange permet de revenir aux calculs directs. Le fournisseur doit toujours être configuré pour activer l’Assistant.

@@ -136,6 +136,25 @@ async function main() {
         },
       },
     )
+    evidence.push({
+      type: 'tool',
+      tool: 'compare_periods',
+      data: {
+        source: 'SOURCE SYNTHETIQUE COMPARAISON',
+        filters: { direction: 'income' },
+        period_a: { from: '2026-10-01', to: '2026-10-17' },
+        period_b: { from: '2026-09-01', to: '2026-09-17' },
+        income_a: 200.01,
+        income_b: null,
+        expenses_a: 0,
+        expenses_b: 0,
+        count_a: 2,
+        count_b: 0,
+        comparable: false,
+        reason:
+          'Couverture comparable non établie. Présenter les observations séparément, sans conclure à une hausse/baisse ni calculer un pourcentage.',
+      },
+    })
     const answer = {
       answer:
         'Du 2026-11-01 au 2026-11-17, ta plus grosse dépense enregistrée est ACHAT SYNTHETIQUE TEST : 123,45 €.',
@@ -383,6 +402,32 @@ async function main() {
     ).toContainText('à partir de 60,00 €')
     await expect(consoleUI.locator('.assistant-evidence')).toContainText(
       'Liste partielle',
+    )
+    const comparisonProof = consoleUI
+      .locator('.agent-source-data')
+      .filter({ hasText: 'SOURCE SYNTHETIQUE COMPARAISON' })
+    await expect(
+      comparisonProof.locator('.agent-comparison-periods'),
+    ).toContainText('2026-10-01 au 2026-10-17')
+    await expect(
+      comparisonProof.locator('.agent-comparison-periods'),
+    ).toContainText('2026-09-01 au 2026-09-17')
+    await expect(comparisonProof.locator('dt')).toHaveText([
+      'Revenus de la première période',
+      'Revenus de la seconde période',
+    ])
+    await expect(comparisonProof.locator('dd')).toHaveText([
+      '200,01 €',
+      'Non observé',
+    ])
+    await expect(comparisonProof).toContainText(
+      '2 opération(s) dans la première période ; 0 dans la seconde.',
+    )
+    await expect(comparisonProof).toContainText(
+      'Ces montants sont présentés séparément.',
+    )
+    await expect(comparisonProof).not.toContainText(
+      'Présenter les observations',
     )
     const expenseProof = consoleUI
       .locator('.agent-source-data')
