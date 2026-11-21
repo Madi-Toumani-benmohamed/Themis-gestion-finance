@@ -49,7 +49,7 @@ themis/
 | `transactions.go` | Filtres partagés, rapport exact paginé, édition atomique et provenance | `GET /api/transactions[?view=report]`, `PATCH /api/transactions/{id}` |
 | `transaction_rules.go` | Validation des règles et application atomique, périmètre d'import | Services des règles existantes |
 | `knowledge_activity.go` | Journal mémoire propriétaire, inspection FalkorDB bornée, recherche et trace des faits joints au modèle | `GET /api/knowledge/overview`, `POST /api/knowledge/search`, `POST /api/knowledge/learn` |
-| `chat.go`, `agent_chat.go`, `agent_period.go`, `agent_calendar.go`, `agent_observation.go`, `agent_category_observation.go`, `agent_tools.go`, `agent_read_scope.go` | Assistant contextualisé, horloge fiable, historique serveur et outils exacts | `POST /api/chat` (orchestration outils) |
+| `chat.go`, `agent_chat.go`, `agent_period.go`, `agent_calendar.go`, `agent_observation.go`, `agent_category_observation.go`, `agent_comparison_observation.go`, `agent_tools.go`, `agent_read_scope.go` | Assistant contextualisé, horloge fiable, historique serveur et outils exacts | `POST /api/chat` (orchestration outils) |
 | `agent_workspace.go`, `agent_briefing.go` | Missions suivies, préférences déclarées, briefing et actions préparées/validées atomiques | `/api/agent/missions*`, `/api/agent/memories*`, `/api/agent/briefing`, `/api/agent/conversations*`, `/api/agent/actions*` |
 | `pulse.go` | Synthèse rapide (mois demandé) | `GET /api/pulse?month=YYYY-MM` |
 | `hero.go` | Conclusion analyse (ton + points) | `GET /api/hero?month=YYYY-MM` |
@@ -115,6 +115,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - `IntelligenceHighlights.jsx` suspend le polling des jobs dans les onglets masqués et le reprend au retour sans chevauchement. Mesures et limites : `docs/PERFORMANCE_OPTIMIZATION.md`.
 
 - `agent_briefing.go` fournit les observations du mois (opérations, dépenses et sources sans catégorie) dans un snapshot PostgreSQL propriétaire ; briefing contextualisé, sans modèle ni écriture et avec limite de navigation déclarée.
+- `agent_comparison_observation.go` traite les comparaisons mensuelles simples après un total : périodes explicites, jours alignés et couverture documentaire avant tout écart, via le snapshot de `compare_periods`.
 - `agent_category_observation.go` résout les suivis simples « par catégorie » avec la période et la direction de conversation ; réutilise la ventilation exacte existante, avec sources et limites explicites, sans appel modèle ni écriture bancaire.
 - `agent_observation.go` répond aux demandes simples de total des dépenses ou des entrées d’argent par calcul exact sans appel modèle, avec preuve/étape et absence ≠ zéro ; les demandes qualifiées restent planifiées.
 - `agent_calendar.go` résout les intervalles français et les suivis annuels ; `agent_read_scope.go` fournit un périmètre SQL paramétré commun aux lectures de l’agent (filtres stricts, centimes exacts, résultats partiels déclarés).
