@@ -185,29 +185,30 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 }
 
 type transactionReportRow struct {
-	SourcePage           *int                   `json:"source_page,omitempty"`
-	SourceLine           *int                   `json:"source_line,omitempty"`
-	ValueDate            *string                `json:"value_date,omitempty"`
-	ID                   int64                  `json:"id"`
-	StatementID          *int64                 `json:"statement_id,omitempty"`
-	Date                 string                 `json:"date"`
-	Label                string                 `json:"label"`
-	Display              string                 `json:"display_label"`
-	Merchant             string                 `json:"merchant"`
-	Kind                 string                 `json:"kind,omitempty"`
-	Amount               json.Number            `json:"amount"`
-	AmountCents          money.Cents            `json:"amount_cents"`
-	DomainID             *int64                 `json:"domain_id"`
-	Tags                 []string               `json:"tags"`
-	AccountID            *int64                 `json:"account_id"`
-	AccountName          string                 `json:"account_name"`
-	StatementFilename    string                 `json:"statement_filename"`
-	StatementValidated   *bool                  `json:"statement_validated"`
-	StatementPeriodStart *string                `json:"statement_period_start"`
-	StatementPeriodEnd   *string                `json:"statement_period_end"`
-	FinancialType        string                 `json:"financial_type"`
-	ClassificationSource string                 `json:"classification_source"`
-	Suggestion           *transactionSuggestion `json:"suggestion"`
+	SourcePage            *int                   `json:"source_page,omitempty"`
+	SourceLine            *int                   `json:"source_line,omitempty"`
+	ValueDate             *string                `json:"value_date,omitempty"`
+	ID                    int64                  `json:"id"`
+	StatementID           *int64                 `json:"statement_id,omitempty"`
+	Date                  string                 `json:"date"`
+	Label                 string                 `json:"label"`
+	Display               string                 `json:"display_label"`
+	Merchant              string                 `json:"merchant"`
+	Kind                  string                 `json:"kind,omitempty"`
+	Amount                json.Number            `json:"amount"`
+	AmountCents           money.Cents            `json:"amount_cents"`
+	DomainID              *int64                 `json:"domain_id"`
+	Tags                  []string               `json:"tags"`
+	AccountID             *int64                 `json:"account_id"`
+	AccountName           string                 `json:"account_name"`
+	StatementFilename     string                 `json:"statement_filename"`
+	StatementValidated    *bool                  `json:"statement_validated"`
+	StatementPeriodStart  *string                `json:"statement_period_start"`
+	StatementPeriodEnd    *string                `json:"statement_period_end"`
+	FinancialType         string                 `json:"financial_type"`
+	ClassificationVersion string                 `json:"classification_version"`
+	ClassificationSource  string                 `json:"classification_source"`
+	Suggestion            *transactionSuggestion `json:"suggestion"`
 }
 type transactionSuggestion struct {
 	DomainID int64    `json:"domain_id"`
@@ -357,6 +358,7 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		t.Amount = json.Number(t.AmountCents.String())
+		t.ClassificationVersion = classificationVersion(s.ownerID(r), t.ID, t.DomainID, t.ClassificationSource, t.Tags)
 		if suggestionDomain != nil {
 			t.Suggestion = &transactionSuggestion{DomainID: *suggestionDomain, Tags: suggestionTags, Source: suggestionSource}
 		}
@@ -429,8 +431,14 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 	setTags := false
 	var addTags, removeTags []string
 	discardSuggestion := false
+	var expectedVersion string
 	for key, value := range raw {
 		switch key {
+		case "expected_classification_version":
+			if json.Unmarshal(value, &expectedVersion) != nil || len(expectedVersion) != 64 {
+				writeErr(w, 400, fmt.Errorf("référence de classification invalide"))
+				return
+			}
 		case "add_tags", "remove_tags":
 			var names []string
 			if string(value) == "null" || json.Unmarshal(value, &names) != nil || len(names) == 0 {
@@ -495,6 +503,24 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, fmt.Errorf("enregistrement impossible"))
 		return
 	}
+	if expectedVersion != "" {
+		var currentDomain *int64
+		var currentSource string
+		var currentTags []string
+		if err = tx.QueryRowContext(r.Context(), `SELECT t.domain_id,t.classification_source,COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.id=$1 AND t.owner_id=$2`, id, owner).Scan(&currentDomain, &currentSource, pq.Array(&currentTags)); err != nil {
+			writeErr(w, 500, fmt.Errorf("classification indisponible"))
+			return
+		}
+		if classificationVersion(owner, id, currentDomain, currentSource, currentTags) != expectedVersion {
+			writeErr(w, 409, fmt.Errorf("la classification a changé ; recharge les opérations avant d'enregistrer"))
+			return
+		}
+	}
+	if !setDomain && !setTags && len(addTags) == 0 && len(removeTags) == 0 && !discardSuggestion {
+		writeErr(w, 400, fmt.Errorf("aucune modification demandée"))
+		return
+	}
+
 	if setDomain {
 		if domain != nil {
 			var exists bool

@@ -234,41 +234,8 @@ func (s *Server) applyAllRules(ownerID int64) (int, error) {
 }
 
 func (s *Server) applyAllRulesForStatement(ownerID, statementID int64) (int, error) {
-	// On parcourt les règles de l'utilisateur (avec leurs tags) et on applique
-	// chacune : catégorie sur les transactions non classées + tags sur toutes
-	// celles qui correspondent. Une seule logique, partagée avec la création.
-	rows, err := s.DB.Query(`SELECT r.pattern,r.domain_id,r.tags FROM rules r JOIN domains d ON d.id=r.domain_id AND d.owner_id=r.owner_id WHERE r.owner_id=$1 ORDER BY length(r.pattern) DESC,r.id`, ownerID)
-	if err != nil {
-		return 0, err
-	}
-	type rule struct {
-		pattern string
-		dom     int64
-		tags    string
-	}
-	var rules []rule
-	for rows.Next() {
-		var rl rule
-		if err := rows.Scan(&rl.pattern, &rl.dom, &rl.tags); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		rules = append(rules, rl)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return 0, err
-	}
-	total := 0
-	for _, rl := range rules {
-		n, err := s.applyRuleToTransactionsScoped(ownerID, rl.pattern, rl.dom, rl.tags, statementID)
-		if err != nil {
-			return total, err
-		}
-		total += int(n)
-	}
-	return total, nil
+	n, err := s.applyClassificationRules(ownerID, statementID, 0)
+	return int(n), err
 }
 
 // applyRules : version accessible à tout utilisateur connecté (bouton UI).

@@ -171,18 +171,20 @@ func Analyze(data Dataset) (Report, error) {
 			r.DomainLexicalGroups++
 		}
 	}
-	matchers := make([]func(string) bool, len(rules))
+	eligible := []categorize.Rule{}
+	ruleIndex := map[int64]int{}
 	repeated := map[string]int{}
 	for i, ru := range rules {
 		if len(ru.Pattern) > 16384 || len(ru.Tags) > 16384 {
 			return r, fmt.Errorf("audit field limit")
 		}
-		m, e := categorize.CompilePattern(ru.Pattern)
+		_, e := categorize.CompilePattern(ru.Pattern)
 		_, valid := di[ru.Domain]
 		metric := RuleMetric{Ref: fmt.Sprintf("rule-%d", i+1), Domain: dref(ru.Domain), Priority: i + 1, Executable: e == nil && valid, InvalidPattern: e != nil, Regex: strings.HasPrefix(ru.Pattern, "re:")}
 		metric.LiteralSQLWildcard = !metric.Regex && strings.ContainsAny(ru.Pattern, "%_")
 		if metric.Executable {
-			matchers[i] = m
+			eligible = append(eligible, categorize.Rule{ID: ru.ID, Pattern: ru.Pattern, DomainID: ru.Domain, Tags: strings.Split(ru.Tags, ",")})
+			ruleIndex[ru.ID] = i
 			for tag := range ruleTags(ru.Tags) {
 				repeated[tag]++
 			}
@@ -198,6 +200,7 @@ func Analyze(data Dataset) (Report, error) {
 	tp := map[[2]int]int{}
 	pairWork := 0
 	var bank, unassigned, invalid sums
+	engine := categorize.New(eligible)
 	for _, t := range data.Transactions {
 		if len(t.Label) > 16384 || len(t.Merchant) > 16384 || len(t.Tags) > 1000 {
 			return r, fmt.Errorf("audit field limit")
@@ -286,10 +289,8 @@ func Analyze(data Dataset) (Report, error) {
 		domainSet := map[int64]bool{}
 		extra := false
 		winningTags := map[string]bool{}
-		for i, m := range matchers {
-			if m == nil || !m(t.Label) {
-				continue
-			}
+		for _, matchedRule := range engine.Evaluate(t.Label).Matching {
+			i := ruleIndex[matchedRule.ID]
 			r.Rules[i].Matches++
 			matched = append(matched, i)
 			domainSet[rules[i].Domain] = true

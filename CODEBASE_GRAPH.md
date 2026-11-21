@@ -1,6 +1,14 @@
 # Themis — Codebase Knowledge Graph
 *Graphe de référence pour navigation rapide. À mettre à jour à chaque changement significatif.*
 
+### Classification — sprint 1A
+
+- `internal/categorize/plan.go` fournit les règles ordonnées, leur évaluation et un plan propriétaire préparé avant application. Priorité inchangée (longueur Unicode décroissante puis ID), règle gagnante seule pour les tags ; motifs invalides explicites.
+- `api/transaction_rules.go` applique le plan sous verrou, en une transaction par périmètre demandé ; une règle individuelle ne contourne pas une règle gagnante concurrente. Les domaines existants et les choix manuels NULL sont préservés, les tags existants ne sont jamais retirés.
+- `api/coherence.go`, `handlers.go::listRules` et le diagnostic local `internal/classificationaudit` réutilisent le moteur Go. Le rapport de cohérence expose des sources par ID et des explications ; aucune regex SQL approximative.
+- `transactions.go` et `classification_version.go` ajoutent une précondition d’état facultative à l’API existante, envoyée par Transactions et ses opérations par lot. L’Agent inclut également la provenance dans ses empreintes ; les préconditions ne sont pas des révisions persistées.
+- `ai/enrich.go` respecte le NULL manuel, y compris après appel modèle. `ai/suggestion_identity.go` définit et teste l’identité future d’un rejet, sans la persister ni supprimer les nouvelles propositions. Verrous indépendants et tombstones de tags restent non représentables : aucune migration ajoutée. Détails, acceptation partielle et proposition 1B : `docs/financial-classification/SPRINT_1A_REPORT.md`.
+
 ---
 
 ## Architecture Globale

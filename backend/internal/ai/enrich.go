@@ -91,7 +91,7 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		Label  string
 		Amount string
 	}
-	q := `SELECT id, label, amount::text FROM transactions WHERE domain_id IS NULL AND owner_id = $1`
+	q := `SELECT id, label, amount::text FROM transactions WHERE domain_id IS NULL AND classification_source<>'manual' AND owner_id = $1`
 	args := []any{ownerID}
 	if statementID > 0 {
 		args = append(args, statementID)
@@ -192,7 +192,7 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 			// a concurrent manual edit always wins over this proposal.
 			result, err := db.ExecContext(ctx, `INSERT INTO transaction_suggestions(transaction_id,owner_id,domain_id,tags)
 			 SELECT t.id,t.owner_id,d.id,$4::text[] FROM transactions t JOIN domains d ON d.id=$3 AND d.owner_id=t.owner_id
-			 WHERE t.id=$1 AND t.owner_id=$2 AND t.domain_id IS NULL
+			 WHERE t.id=$1 AND t.owner_id=$2 AND t.domain_id IS NULL AND t.classification_source<>'manual'
 			 ON CONFLICT(transaction_id) DO UPDATE SET domain_id=EXCLUDED.domain_id,tags=EXCLUDED.tags,created_at=now()
 			 WHERE transaction_suggestions.owner_id=EXCLUDED.owner_id`, a.ID, ownerID, domID, pq.Array(tags))
 			if err != nil {

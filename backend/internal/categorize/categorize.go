@@ -1,6 +1,7 @@
 package categorize
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"regexp"
@@ -8,11 +9,14 @@ import (
 )
 
 type rule struct {
-	matches  func(string) bool
-	domainID int64
+	Rule
+	matches func(string) bool
 }
 
-type Engine struct{ rules []rule }
+type Engine struct {
+	rules   []rule
+	invalid []InvalidRule
+}
 
 // CompilePattern is shared by imports and explicit rule reapplication. Plain
 // patterns are literal substrings, including SQL wildcard characters % and _.
@@ -34,34 +38,40 @@ func CompilePattern(pattern string) (func(string) bool, error) {
 // Load charge les règles depuis la base. Les motifs préfixés "re:" sont des regex,
 // les autres des sous-chaînes insensibles à la casse.
 func Load(db *sql.DB, ownerID int64) (*Engine, error) {
-	rows, err := db.Query(`SELECT r.pattern, r.domain_id FROM rules r JOIN domains d ON d.id=r.domain_id AND d.owner_id=r.owner_id WHERE r.owner_id = $1 ORDER BY length(r.pattern) DESC,r.id`, ownerID)
+	return LoadFrom(context.Background(), db, ownerID)
+}
+
+type Reader interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func LoadFrom(ctx context.Context, db Reader, ownerID int64) (*Engine, error) {
+	rows, err := db.QueryContext(ctx, `SELECT r.id,r.pattern,r.domain_id,COALESCE(r.tags,'') FROM rules r JOIN domains d ON d.id=r.domain_id AND d.owner_id=r.owner_id WHERE r.owner_id = $1 ORDER BY length(r.pattern) DESC,r.id`, ownerID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	e := &Engine{}
+	var specs []Rule
 	for rows.Next() {
-		var p string
-		var cid int64
-		if err := rows.Scan(&p, &cid); err != nil {
+		var spec Rule
+		var tags string
+		if err := rows.Scan(&spec.ID, &spec.Pattern, &spec.DomainID, &tags); err != nil {
 			return nil, err
 		}
-		matches, err := CompilePattern(p)
-		// Old invalid expressions were inert; do not block unrelated imports.
-		// Rule editing/reapplication returns a validation error for correction.
-		if err != nil {
-			continue
-		}
-		e.rules = append(e.rules, rule{matches: matches, domainID: cid})
+		spec.Tags = NormalizeTags(strings.Split(tags, ","))
+		specs = append(specs, spec)
 	}
-	return e, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return New(specs), nil
 }
 
 // Match retourne le domaine du premier motif correspondant (les plus longs d'abord).
 func (e *Engine) Match(label string) (int64, bool) {
 	for _, r := range e.rules {
 		if r.matches(label) {
-			return r.domainID, true
+			return r.DomainID, true
 		}
 	}
 	return 0, false

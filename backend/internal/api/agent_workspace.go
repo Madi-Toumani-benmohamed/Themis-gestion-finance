@@ -53,6 +53,7 @@ type agentAction struct {
 	Created time.Time        `json:"created_at"`
 }
 type agentSnapshot struct {
+	Source string   `json:"classification_source"`
 	ID     int64    `json:"id"`
 	Date   string   `json:"date"`
 	Label  string   `json:"label"`
@@ -382,7 +383,7 @@ func agentSnapshots(ctx context.Context, reader agentReader, owner int64, ids []
 	if lock {
 		suffix = " FOR UPDATE OF t"
 	}
-	const q = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,t.domain_id,COALESCE((SELECT array_agg(g.name ORDER BY g.name) FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id AND g.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.owner_id=$1 AND t.id=ANY($2) ORDER BY t.id`
+	const q = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,t.domain_id,t.classification_source,COALESCE((SELECT array_agg(g.name ORDER BY g.name) FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id AND g.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.owner_id=$1 AND t.id=ANY($2) ORDER BY t.id`
 	rows, e := reader.QueryContext(ctx, q+suffix, owner, pq.Array(ids))
 	if e != nil {
 		return nil, e
@@ -391,7 +392,7 @@ func agentSnapshots(ctx context.Context, reader agentReader, owner int64, ids []
 	items := []agentSnapshot{}
 	for rows.Next() {
 		var x agentSnapshot
-		if e = rows.Scan(&x.ID, &x.Date, &x.Label, &x.Amount, &x.Domain, pq.Array(&x.Tags)); e != nil {
+		if e = rows.Scan(&x.ID, &x.Date, &x.Label, &x.Amount, &x.Domain, &x.Source, pq.Array(&x.Tags)); e != nil {
 			return nil, e
 		}
 		items = append(items, x)

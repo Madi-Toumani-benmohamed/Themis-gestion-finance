@@ -12,10 +12,16 @@ import (
 type proposalClient struct {
 	db         *sql.DB
 	concurrent bool
+	manualNull bool
 }
 
 func (c proposalClient) Name() string { return "isolated-test" }
 func (c proposalClient) Complete(context.Context, string, string, int, bool) (string, error) {
+	if c.manualNull {
+		if _, err := c.db.Exec(`UPDATE transactions SET domain_id=NULL,classification_source='manual' WHERE id=1`); err != nil {
+			return "", err
+		}
+	}
 	if c.concurrent {
 		if _, err := c.db.Exec(`UPDATE transactions SET domain_id=1,classification_source='manual' WHERE id=1`); err != nil {
 			return "", err
@@ -73,4 +79,32 @@ INSERT INTO tags VALUES(1,1,'existing');INSERT INTO transaction_tags VALUES(1,1)
 	if err != nil || result.Suggested != 0 {
 		t.Fatalf("manual edit during LLM call lost: %+v %v", result, err)
 	}
+	// Current schema limitation: deleting a rejected proposal loses its identity.
+	// This asserts the gap for sprint 1B, rather than claiming durable rejection.
+	if _, err = db.Exec(`UPDATE transactions SET domain_id=NULL,classification_source='unknown' WHERE id=1;DELETE FROM transaction_suggestions`); err != nil {
+		t.Fatal(err)
+	}
+	result, err = AutoEnrich(context.Background(), db, proposalClient{db: db}, 1, 0, "2020-01")
+	if err != nil || result.Suggested != 1 {
+		t.Fatal("baseline proposal", result, err)
+	}
+	if _, err = db.Exec(`DELETE FROM transaction_suggestions`); err != nil {
+		t.Fatal(err)
+	}
+	result, err = AutoEnrich(context.Background(), db, proposalClient{db: db}, 1, 0, "2020-01")
+	if err != nil || result.Suggested != 1 {
+		t.Fatal("persistence gap changed; implement/review rejection contract", result, err)
+	}
+	if _, err = db.Exec(`DELETE FROM transaction_suggestions`); err != nil {
+		t.Fatal(err)
+	}
+	result, err = AutoEnrich(context.Background(), db, proposalClient{db: db, manualNull: true}, 1, 0, "2020-01")
+	if err != nil || result.Suggested != 0 {
+		t.Fatal("late manual NULL ignored", result, err)
+	}
+	var manualNull bool
+	if err = db.QueryRow(`SELECT domain_id IS NULL AND classification_source='manual' FROM transactions WHERE id=1`).Scan(&manualNull); err != nil || !manualNull {
+		t.Fatal("manual NULL changed", err)
+	}
+
 }

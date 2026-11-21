@@ -48,13 +48,17 @@ INSERT INTO rules(owner_id,domain_id,pattern,tags) VALUES(1,1,'re:^PRLV EDF$','f
 	if err = s.validateRule(context.Background(), 1, 2, "EDF"); err == nil {
 		t.Fatal("foreign category accepted")
 	}
-	if _, err = s.applyRuleToTransactions(1, "EDF", 2, ""); err == nil {
+	if _, err = s.applyStoredRuleToTransactions(1, 2); err == nil {
 		t.Fatal("foreign rule applied")
 	}
-	if _, err = s.applyRuleToTransactions(1, "re:[", 1, ""); err == nil {
+	if err = s.validateRule(context.Background(), 1, 1, "re:["); err == nil {
 		t.Fatal("invalid regex accepted")
 	}
-	matched, err := s.applyRuleToTransactions(1, "A_B%", 1, "")
+	var literalRule int64
+	if err = db.QueryRow(`INSERT INTO rules(owner_id,domain_id,pattern,tags) VALUES(1,1,'A_B%','') RETURNING id`).Scan(&literalRule); err != nil {
+		t.Fatal(err)
+	}
+	matched, err := s.applyStoredRuleToTransactions(1, literalRule)
 	if err != nil || matched != 1 {
 		t.Fatalf("literal matching %d %v", matched, err)
 	}
@@ -75,7 +79,10 @@ INSERT INTO rules(owner_id,domain_id,pattern,tags) VALUES(1,1,'re:^PRLV EDF$','f
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.applyRuleToTransactions(1, "A_B%", 1, "test"); err == nil {
+	if _, err = db.Exec(`UPDATE rules SET tags='test' WHERE id=$1`, literalRule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.applyStoredRuleToTransactions(1, literalRule); err == nil {
 		t.Fatal("tag failure ignored")
 	}
 	var empty bool

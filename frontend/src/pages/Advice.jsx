@@ -80,7 +80,7 @@ function CoherenceSection({ aiEnabled, onNavigate }) {
                         <button
                           key={j}
                           className="coherence-ex"
-                          onClick={() => onNavigate?.('transactions', { q: ex.display })}
+                          onClick={() => onNavigate?.('transactions', ex.id ? { ids: [ex.id] } : { q: ex.display })}
                           title="Voir cette transaction"
                         >
                           <span className="coherence-ex-name">{ex.display}</span>
@@ -96,9 +96,9 @@ function CoherenceSection({ aiEnabled, onNavigate }) {
                       ))}
                     </div>
                   )}
-                  {f.query && (
-                    <button className="coherence-goto" onClick={() => onNavigate?.('transactions', { q: f.query })}>
-                      Voir les {f.count} transaction{f.count > 1 ? 's' : ''} →
+                  {(f.transaction_ids?.length > 0 || f.query) && (
+                    <button className="coherence-goto" onClick={() => onNavigate?.('transactions', f.transaction_ids?.length ? { ids: f.transaction_ids } : { q: f.query })}>
+                      Voir les {f.transaction_ids?.length || f.count} transaction{f.count > 1 ? 's' : ''} →
                     </button>
                   )}
                 </li>

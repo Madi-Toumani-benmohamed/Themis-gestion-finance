@@ -13,7 +13,7 @@ const row = (id, day, amount_cents, display_label, domain_id = 1, financial_type
   id, date: `${month}-${day}`, amount: amount_cents / 100, amount_cents, display_label, merchant: display_label,
   label: `LIBELLE BANCAIRE ORIGINAL ${display_label} REFERENCE ${id}`, domain_id, tags: [],
   account_id: 11, account_name: 'COURANT TEST', statement_id: 1, statement_filename: 'RELEVE TEST.csv', statement_validated: true,
-  statement_period_start: `${month}-01`, statement_period_end: `${month}-21`, classification_source: 'unknown', suggestion: null,
+  statement_period_start: `${month}-01`, statement_period_end: `${month}-21`, classification_source: 'unknown', classification_version: id.toString(16).padStart(64, '0'), suggestion: null,
   financial_type: financial_type || (amount_cents < 0 ? 'debit' : amount_cents > 0 ? 'credit' : 'neutral'),
 })
 let rows = [row(1, '09', -2200, 'TRANSFERT SORTANT TEST', 3, 'transfer'), row(2, '09', 2200, 'TRANSFERT ENTRANT TEST', 3, 'transfer'), row(3, '08', 324947, 'SALAIRE TEST'), row(4, '07', -418480, 'DEPENSE TEST'), row(5, '06', 0, 'A CLASSER TEST', null), row(7, '07', -1234, 'CAFE TEST')]
@@ -21,7 +21,7 @@ rows[1].account_id = 12; rows[1].account_name = 'LIVRET TEST'
 rows[5].tags = ['taxes']
 rows[4].suggestion = { domain_id: 2, tags: ['facture'], source: 'ai' }
 for (let i = 0; i < 101; i++) rows.push(row(1000 + i, '01', 0, `OPERATION TEST ${i}`))
-let failPatch = new Set(), failReport = false, requests = [], patches = [], empty = false, slow = false
+let conflictPatch = new Set(), failPatch = new Set(), failReport = false, requests = [], patches = [], empty = false, slow = false
 let reimbursement = null, reimbursementAllocations = [], reimbursementHistory = [], allocationRequests = [], failReimbursementRead = false, failNextAllocation = false
 const reimbursementView = () => {
   if (!reimbursement) return null
@@ -67,6 +67,8 @@ async function main() {
     if (path === '/api/auth/status') data = { setup_required: false }
     else if (path === '/api/auth/me') data = { id: 1, username: 'TRANSACTIONS TEST', role: 'user' }
     else if (path === '/api/health') data = { ai_enabled: true }
+    else if (path === '/api/coherence') data = { rules_checked: 2, findings: [{ rule: 're:^CAFE TEST$', kind: 'manual_choice', detail: 'Choix manuel conservé TEST', count: 1, transaction_ids: [7], examples: [{ id: 7, display: 'CAFE TEST', category: 'Courses TEST', tags: [] }] }] }
+    else if (path.startsWith('/api/analyses/')) { status = 404; data = { error: 'Aucune analyse synthétique' } }
     else if (path === '/api/accounts') data = accounts
     else if (path === '/api/domains' || path === '/api/categories') data = categories
     else if (path === '/api/tags') data = [{ name: 'taxes', count: 1 }, { name: 'facture', count: 1 }]
@@ -99,8 +101,9 @@ async function main() {
     } else if (/^\/api\/transactions\/\d+$/.test(path) && request.method() === 'PATCH') {
       const id = Number(path.split('/').at(-1)), patch = request.postDataJSON()
       patches.push({ id, patch })
-      if (failPatch.has(id)) { status = 500; data = { error: 'ERREUR SAUVEGARDE TEST' } }
-      else { rows = rows.map(t => t.id === id ? { ...t, ...patch, ...(Object.hasOwn(patch, 'domain_id') ? { classification_source: 'manual', financial_type: patch.domain_id === 3 ? 'transfer' : t.amount_cents < 0 ? 'debit' : t.amount_cents > 0 ? 'credit' : 'neutral', suggestion: null } : {}), ...(patch.discard_suggestion ? { suggestion: null } : {}), ...(patch.add_tags ? {tags:[...new Set([...t.tags,...patch.add_tags])]} : {}), ...(patch.remove_tags ? {tags:t.tags.filter(tag=>!patch.remove_tags.includes(tag))} : {}) } : t); status = 204 }
+      if (conflictPatch.has(id) || patch.expected_classification_version !== rows.find(t => t.id === id)?.classification_version) { status = 409; data = { error: 'CLASSIFICATION MODIFIÉE TEST' } }
+      else if (failPatch.has(id)) { status = 500; data = { error: 'ERREUR SAUVEGARDE TEST' } }
+      else { rows = rows.map(t => t.id === id ? { ...t, ...patch, classification_version: (BigInt('0x' + t.classification_version) + 1n).toString(16).padStart(64, '0'), ...(Object.hasOwn(patch, 'domain_id') ? { classification_source: 'manual', financial_type: patch.domain_id === 3 ? 'transfer' : t.amount_cents < 0 ? 'debit' : t.amount_cents > 0 ? 'credit' : 'neutral', suggestion: null } : {}), ...(patch.discard_suggestion ? { suggestion: null } : {}), ...(patch.add_tags ? {tags:[...new Set([...t.tags,...patch.add_tags])]} : {}), ...(patch.remove_tags ? {tags:t.tags.filter(tag=>!patch.remove_tags.includes(tag))} : {}) } : t); status = 204 }
     } else if (path === '/api/enrich/ai') data = { suggested: 1, domains_set: 0, tags_set: 0 }
     else if (path === '/api/rules' || path === '/api/merchants/aliases' || path === '/api/merchants/unrecognized') data = []
     return route.fulfill({ status, contentType: 'application/json', body: status === 204 ? undefined : JSON.stringify(data) }).catch(() => {})
@@ -167,12 +170,20 @@ async function main() {
   await page.keyboard.press('Escape'); await detail().waitFor({ state: 'detached' }); assert.equal(await opener.evaluate(el => el === document.activeElement), true)
   await opener.click()
   await detail().getByRole('textbox', { name: 'Tags', exact: true }).fill('taxes, nouveau')
+  const versionBeforeEdit = rows.find(t => t.id === 7).classification_version
   failPatch.add(7); await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await detail().getByRole('alert').filter({ hasText: 'ERREUR SAUVEGARDE TEST' }).waitFor()
   assert.equal(rows.find(t => t.id === 7).tags.includes('nouveau'), false)
-  failPatch.clear(); await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  failPatch.clear(); conflictPatch.add(7)
+  const patchesBeforeConflict = patches.length
+  await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
+  await detail().getByRole('alert').filter({ hasText: 'CLASSIFICATION MODIFIÉE TEST' }).waitFor()
+  assert.equal(patches.length, patchesBeforeConflict + 1)
+  assert.equal(await detail().getByRole('textbox', { name: 'Tags', exact: true }).inputValue(), 'taxes, nouveau')
+  assert.equal(patches.at(-1).patch.expected_classification_version, versionBeforeEdit)
+  conflictPatch.clear(); await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await detail().getByRole('status').filter({ hasText: 'enregistrés' }).waitFor()
-  assert.deepEqual(patches.at(-1).patch, { tags: ['taxes', 'nouveau'] })
+  assert.deepEqual(patches.at(-1).patch, { tags: ['taxes', 'nouveau'], expected_classification_version: versionBeforeEdit })
   await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
   await reset()
   // Manual category change must update whole-filter aggregates immediately.
@@ -286,6 +297,14 @@ async function main() {
   assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, 'reimbursement drawer fits mobile viewport')
   await page.keyboard.press('Escape')
   await page.setViewportSize({ width: 1920, height: 1080 })
+  await page.locator('.sidebar-nav button').filter({ hasText: 'Conseils IA' }).click()
+  await settle()
+  await page.getByRole('button', { name: 'Vérifier', exact: true }).click()
+  await page.getByText('Choix manuel conservé TEST', { exact: true }).waitFor()
+  await page.locator('.coherence-goto').click()
+  await page.getByRole('heading', { name: 'Transactions', exact: true }).waitFor()
+  assert.ok(requests.some(url => url.startsWith('/api/transactions?') && new URL(url, 'http://synthetic').searchParams.get('ids') === '7'))
+  await page.getByRole('button', { name: 'Retirer le filtre de provenance', exact: true }).click()
   const output = process.env.THEMIS_TRANSACTIONS_ARTIFACTS || '/tmp/themis-transactions-ui'
   fs.mkdirSync(output, { recursive: true })
   const viewports = [{width:1920,height:1080},{width:1280,height:800},{width:960,height:540},{width:768,height:1024},{width:390,height:844},{width:320,height:700}]

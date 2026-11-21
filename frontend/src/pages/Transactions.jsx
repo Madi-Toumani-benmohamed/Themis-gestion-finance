@@ -128,7 +128,7 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
     setSearch(''); setDomainFilter(''); setAccountFilter(''); setTypeFilter(''); setTagFilter(''); setMerchantFilter(''); setSourceFilter({ statement: '', budget: '', ids: [] }); setSourcePage(0); setPage(0)
   }
   const saveTransaction = async (tx, patch) => {
-    await api.setTransactionMeta(tx.id, patch)
+    await api.setTransactionMeta(tx.id, { ...patch, ...(tx.classification_version ? { expected_classification_version: tx.classification_version } : {}) })
     setDetail(current => current?.id === tx.id ? { ...current, ...patch, classification_source: Object.hasOwn(patch, 'domain_id') ? 'manual' : current.classification_source, financial_type: Object.hasOwn(patch, 'domain_id') ? undefined : current.financial_type, suggestion: Object.hasOwn(patch, 'domain_id') || patch.discard_suggestion ? null : current.suggestion } : current)
     await reload()
     api.tags().then(setAllTags).catch(() => {})
@@ -137,7 +137,7 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
     const failed = []; let succeeded = 0
     for (const tx of rows) {
       const patch = change.action === 'category' ? { domain_id: change.domain_id } : { [change.action]: change.tags }
-      try { await api.setTransactionMeta(tx.id, patch); succeeded++ }
+      try { await api.setTransactionMeta(tx.id, { ...patch, ...(tx.classification_version ? { expected_classification_version: tx.classification_version } : {}) }); succeeded++ }
       catch (error) { failed.push({ id: tx.id, error: error.message }) }
     }
     setSelected(new Set(failed.map(item => item.id)))
@@ -419,7 +419,7 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
                         onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
                       />
                     </td>
-                    <td className="num muted">{r.matches}</td>
+                    <td className="num muted">{r.invalid_pattern ? <span>Motif invalide</span> : <><span>{r.matches}</span>{Number.isInteger(r.winning_matches) && <small style={{ display: 'block' }}>{r.winning_matches} prioritaires aujourd’hui</small>}</>}</td>
                     <td className="rule-actions">
                       <button className="rule-del" onClick={() => removeRule(r)} title="Supprimer la règle" aria-label="Supprimer la règle">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6" /></svg>
