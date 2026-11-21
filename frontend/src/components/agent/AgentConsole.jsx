@@ -55,6 +55,18 @@ const pageLabels = {
 }
 const money = (value) =>
   value == null ? 'Non observé' : `${String(value).replace('.', ',')} €`
+function comparisonReference(comparison) {
+  const dates = [
+    comparison?.period_a?.from,
+    comparison?.period_a?.to,
+    comparison?.period_b?.from,
+    comparison?.period_b?.to,
+  ]
+  return comparison?.scope === 'unfiltered_months' &&
+    dates.every((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d))
+    ? dates.join('|')
+    : undefined
+}
 function SourceData({ data, onNavigate }) {
   if (!data || typeof data !== 'object') return null
   const direction = data.filters?.direction
@@ -532,6 +544,8 @@ export default function AgentConsole({
   const prefix = useId(),
     generation = useRef(0),
     bottom = useRef(null),
+    questionInput = useRef(null),
+    comparisonRetryReference = useRef(undefined),
     messageViewport = useRef(null),
     mounted = useRef(true),
     request = useRef(null),
@@ -610,6 +624,7 @@ export default function AgentConsole({
       if (token !== generation.current) return false
       if (!Array.isArray(data?.messages) || data.conversation_id !== Number(id))
         throw new Error('Historique de conversation incomplet')
+      comparisonRetryReference.current = undefined
       setConversation(Number(id))
       setMessages(data.messages)
       setActions(agentList(actionData?.actions))
@@ -629,6 +644,7 @@ export default function AgentConsole({
   const newConversation = () => {
     if (locked) return
     generation.current++
+    comparisonRetryReference.current = undefined
     setConversation(null)
     setMessages([])
     setActions([])
@@ -654,6 +670,12 @@ export default function AgentConsole({
   const send = async (text = input) => {
     if (!text.trim() || locked) return
     const token = ++generation.current
+    const lastMessage = messages[messages.length - 1]
+    const comparisonRef =
+      comparisonRetryReference.current ??
+      (lastMessage?.role === 'assistant'
+        ? comparisonReference(lastMessage.context?.comparison)
+        : undefined)
     setMessages((v) => [...v, { role: 'user', content: text }])
     setInput('')
     setBusy(true)
@@ -667,6 +689,7 @@ export default function AgentConsole({
         signal: request.current.signal,
         body: JSON.stringify({
           conversation_id: conversation,
+          comparison_ref: comparisonRef,
           mission_id: mission,
           messages: [{ role: 'user', content: text }],
           context: {
@@ -676,11 +699,15 @@ export default function AgentConsole({
         }),
       })
       const data = await response.json().catch(() => ({}))
-      if (!response.ok)
-        throw new Error(data.error || `Erreur ${response.status}`)
+      if (!response.ok) {
+        const error = new Error(data.error || `Erreur ${response.status}`)
+        error.status = response.status
+        throw error
+      }
       if (typeof data.answer !== 'string')
         throw new Error('Réponse assistant incomplète')
       if (!mounted.current || generation.current !== token) return
+      comparisonRetryReference.current = undefined
       setConversation(data.conversation_id || conversation)
       setMessages((v) => [
         ...v,
@@ -707,6 +734,10 @@ export default function AgentConsole({
         token === generation.current &&
         e.name !== 'AbortError'
       ) {
+        if (e.status === 409) {
+          setInput(text)
+          comparisonRetryReference.current = comparisonRef
+        }
         setError(e.message)
         setMessages((v) => [
           ...v,
@@ -1215,6 +1246,37 @@ export default function AgentConsole({
                   ))}
                 </details>
               )}
+              {i === messages.length - 1 &&
+                m.role === 'assistant' &&
+                !m.error &&
+                comparisonReference(m.context?.comparison) &&
+                ['income', 'expense'].includes(
+                  m.context.comparison.direction,
+                ) &&
+                mission === 0 &&
+                (!includeContext || currentSelection.length === 0) &&
+                !input.trim() && (
+                  <div className="agent-comparison-followup">
+                    <p>Continuer sur ces deux périodes</p>
+                    <button
+                      className="btn-secondary"
+                      disabled={locked}
+                      onClick={() => {
+                        setInput(
+                          m.context.comparison.direction === 'income'
+                            ? 'Et mes dépenses ?'
+                            : 'Et mes revenus ?',
+                        )
+                        questionInput.current?.focus()
+                      }}
+                    >
+                      Préparer la comparaison des{' '}
+                      {m.context.comparison.direction === 'income'
+                        ? 'dépenses'
+                        : 'revenus'}
+                    </button>
+                  </div>
+                )}
             </div>
           </div>
         ))}
@@ -1322,12 +1384,19 @@ export default function AgentConsole({
           {error}{' '}
           <button
             className="link"
+            disabled={locked}
             onClick={() => {
-              setError('')
-              refresh()
+              if (comparisonRetryReference.current && conversation)
+                loadConversation(conversation)
+              else {
+                setError('')
+                refresh()
+              }
             }}
           >
-            Actualiser le suivi
+            {comparisonRetryReference.current && conversation
+              ? 'Recharger cette conversation'
+              : 'Actualiser le suivi'}
           </button>
         </div>
       )}
@@ -1342,6 +1411,7 @@ export default function AgentConsole({
           className={
             compact ? 'assistant-panel-field' : 'assistant-input-field'
           }
+          ref={questionInput}
           aria-label="Votre question"
           placeholder="Une question, un objectif, une prochaine étape…"
           value={input}

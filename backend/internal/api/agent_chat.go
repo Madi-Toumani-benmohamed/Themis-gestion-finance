@@ -64,6 +64,10 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, fmt.Errorf("message requis, 8000 caractères maximum"))
 		return
 	}
+	if req.ComparisonRef != nil && (req.ConversationID == nil || len(*req.ComparisonRef) == 0 || len(*req.ComparisonRef) > 64) {
+		writeErr(w, 400, fmt.Errorf("référence de comparaison invalide"))
+		return
+	}
 	zone, e := agentLocation(req.Context.Timezone)
 	if e != nil {
 		writeErr(w, 400, e)
@@ -143,6 +147,23 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	comparisonRoleVerified := false
+	if req.ComparisonRef != nil {
+		if previous.Comparison == nil || *req.ComparisonRef != agentComparisonReference(previous.Comparison) {
+			writeErr(w, 409, fmt.Errorf("la comparaison a changé ; recharge cette conversation avant de poursuivre"))
+			return
+		}
+		complete, err := agentComparisonTurnComplete(ctx, conn, conv)
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("suivi de comparaison indisponible"))
+			return
+		}
+		if !complete {
+			writeErr(w, 409, fmt.Errorf("le dernier échange est incomplet ; recharge cette conversation avant de poursuivre"))
+			return
+		}
+		comparisonRoleVerified = true
+	}
 	if len(req.Context.PageContext.TransactionIDs) > 0 {
 		if _, e = agentSnapshots(ctx, conn, owner, req.Context.PageContext.TransactionIDs, false); e != nil {
 			writeErr(w, 400, fmt.Errorf("sélection indisponible pour ce compte"))
@@ -163,6 +184,29 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	period, periodErr := resolveAgentPeriod(periodText, now, previous.Period, selectedMonth)
 	comparisonPrevious, comparisonMonthly := agentPreviousComparisonMonth(period, now, comparison.CalendarLast)
 	canObserveComparison := comparisonSyntax && comparisonContext && comparisonMonthly && periodErr == nil
+	followDirection, followSyntax := agentComparisonFollowup(user, previous, now)
+	followComparison := followSyntax && req.ConversationID != nil && req.MissionID == 0 && len(req.Context.PageContext.TransactionIDs) == 0 && agentSelectionKind(user) == ""
+	if followComparison && !comparisonRoleVerified {
+		complete, err := agentComparisonTurnComplete(ctx, conn, conv)
+		if err != nil {
+			writeErr(w, 500, fmt.Errorf("suivi de comparaison indisponible"))
+			return
+		}
+		// An unanswered turn may have introduced a constraint.
+		followComparison = complete
+	}
+
+	if followComparison {
+		period = previous.Comparison.A
+		period.Origin = "conversation"
+		comparisonPrevious = previous.Comparison.B
+		comparisonPrevious.Origin = "conversation"
+		comparisonPrevious.Label = "Fenêtre de comparaison conservée"
+		comparison.Direction = followDirection
+		periodErr = nil
+		canObserveComparison = true
+	}
+
 	interpreted := agentContext{Timezone: zone.String(), Today: now.Format("2006-01-02"), Period: period, Intent: agentIntent(user, previous.Intent), Page: req.Context.PageContext}
 	canObserveContext := req.MissionID == 0 && (req.ConversationID == nil || previous.DirectSpending)
 	canObserveSpending := agentSimpleSpending(user) && canObserveContext
@@ -257,6 +301,12 @@ func (s *Server) agentChat(w http.ResponseWriter, r *http.Request) {
 	} else if canObserveComparison && len(interpreted.Page.TransactionIDs) == 0 {
 		interpreted.Intent = comparison.Direction + "_comparison"
 		result, e = s.agentObservedComparison(ctx, owner, period, comparisonPrevious, comparison.Direction, now)
+		if e == nil && result != nil && (result.Status == "ok" || result.Status == "insufficient_data") {
+			interpreted.Comparison = &agentComparisonContext{A: period, B: comparisonPrevious, Direction: comparison.Direction, Scope: agentComparisonUnfiltered}
+			if followComparison {
+				result.Answer = "Je reprends les deux périodes de la comparaison précédente.\n" + result.Answer
+			}
+		}
 	} else if interpreted.Intent == "top_expense" && canObserveContext {
 		interpreted.DirectSpending = len(agentScopedIDs(interpreted, user)) == 0
 		result, e = s.agentTopExpense(ctx, owner, interpreted, user)

@@ -41,7 +41,8 @@ async function main() {
       nextAction = 1,
       stale = false,
       applied = 0,
-      briefingState = 'available'
+      briefingState = 'available',
+      comparisonConflict = false
     const evidence = [
       {
         type: 'transaction',
@@ -270,6 +271,15 @@ async function main() {
         ])
         assert.equal(input.messages[0].role, 'user')
         assert.ok(input.context.timezone)
+        if (comparisonConflict) {
+          await route.fulfill({
+            status: 409,
+            json: {
+              error: 'La comparaison a changé ; recharge cette conversation.',
+            },
+          })
+          return
+        }
         let conv = input.conversation_id
         if (!conv) {
           conv = nextConversation++
@@ -513,12 +523,11 @@ async function main() {
     await consoleUI
       .getByRole('button', { name: 'Valider et appliquer', exact: true })
       .click()
-    await expect(
-      consoleUI
-        .getByText('Je préfère examiner mes abonnements TEST.', { exact: true })
-        .first(),
-    ).toBeVisible()
-    await consoleUI
+    const declaredMemory = consoleUI
+      .locator('.agent-workspace li')
+      .filter({ hasText: 'Je préfère examiner mes abonnements TEST.' })
+    await expect(declaredMemory).toBeVisible()
+    await declaredMemory
       .getByRole('button', { name: 'Oublier', exact: true })
       .click()
     await expect(
@@ -685,9 +694,110 @@ async function main() {
         name: 'Point sur les données disponibles',
       }),
     ).toHaveCount(0)
+    briefingState = 'available'
+    answer.answer = 'Comparaison synthétique des revenus.'
+    answer.status = 'insufficient_data'
+    answer.evidence = [evidence.find((e) => e.tool === 'compare_periods')]
+    answer.context = {
+      ...answer.context,
+      period: { from: '2026-10-01', to: '2026-10-17' },
+      intent: 'income_comparison',
+      comparison: {
+        scope: 'unfiltered_months',
+        direction: 'income',
+        period_a: { from: '2026-10-01', to: '2026-10-17' },
+        period_b: { from: '2026-09-01', to: '2026-09-17' },
+      },
+    }
+    await page.reload()
+    await page.getByRole('tab', { name: 'Assistant', exact: true }).click()
+    await consoleUI
+      .getByRole('textbox', { name: 'Votre question' })
+      .fill('Compare mes revenus au mois précédent')
+    await consoleUI
+      .getByRole('textbox', { name: 'Votre question' })
+      .press('Enter')
+    await expect(consoleUI.locator('.assistant-msg-assistant')).toContainText(
+      'Comparaison synthétique des revenus.',
+    )
+    const nextQuestion = consoleUI.getByRole('button', {
+      name: 'Préparer la comparaison des dépenses',
+      exact: true,
+    })
+    await expect(nextQuestion).toBeVisible()
+    const beforePreparation = chatBodies.length
+    await nextQuestion.click()
+    await expect(
+      consoleUI.getByRole('textbox', { name: 'Votre question' }),
+    ).toHaveValue('Et mes dépenses ?')
+    await expect(
+      consoleUI.getByRole('textbox', { name: 'Votre question' }),
+    ).toBeFocused()
+    assert.equal(
+      chatBodies.length,
+      beforePreparation,
+      'Preparing a comparison follow-up never sends a request',
+    )
+    await expect(nextQuestion).toHaveCount(0)
+    await consoleUI
+      .getByRole('textbox', { name: 'Votre question' })
+      .fill('BROUILLON A CONSERVER')
+    await expect(nextQuestion).toHaveCount(0)
+    assert.equal(chatBodies.length, beforePreparation)
+    comparisonConflict = true
+    await consoleUI
+      .getByRole('textbox', { name: 'Votre question' })
+      .press('Enter')
+    await expect(consoleUI.getByRole('alert')).toContainText(
+      'La comparaison a changé',
+    )
+    await expect(
+      consoleUI.getByRole('textbox', { name: 'Votre question' }),
+    ).toHaveValue('BROUILLON A CONSERVER')
+    assert.equal(
+      chatBodies.at(-1).comparison_ref,
+      '2026-10-01|2026-10-17|2026-09-01|2026-09-17',
+    )
+    assert.equal(
+      chatBodies.length,
+      beforePreparation + 1,
+      'A stale comparison is not automatically retried',
+    )
+    const repeatedConflict = page.waitForResponse(
+      (r) => r.url().endsWith('/api/chat') && r.status() === 409,
+    )
+    await consoleUI
+      .getByRole('textbox', { name: 'Votre question' })
+      .press('Enter')
+    await repeatedConflict
+    await expect(consoleUI.getByRole('alert')).toContainText(
+      'La comparaison a changé',
+    )
+    assert.equal(
+      chatBodies.at(-1).comparison_ref,
+      '2026-10-01|2026-10-17|2026-09-01|2026-09-17',
+      'A manual retry retains its comparison precondition',
+    )
+    assert.equal(chatBodies.length, beforePreparation + 2)
+    comparisonConflict = false
+    await consoleUI
+      .getByRole('button', {
+        name: 'Recharger cette conversation',
+        exact: true,
+      })
+      .click()
+    await expect(consoleUI.getByRole('alert')).toHaveCount(0)
+    await expect(
+      consoleUI.getByRole('textbox', { name: 'Votre question' }),
+    ).toHaveValue('BROUILLON A CONSERVER')
+    assert.equal(
+      chatBodies.length,
+      beforePreparation + 2,
+      'Reloading the conversation never sends a chat request',
+    )
     assert.deepEqual(errors, [])
     console.log(
-      'Agent browser PASS: missions, persisted conversations, page context request, real-step display, source selection, preview without write, validation, stale action, preferences/forget, contextual briefing, partial lists, prepared question without model, empty/error states, six layouts/themes and full/floating Axe.',
+      'Agent browser PASS: missions, persisted conversations, page context request, real-step display, source selection, preview without write, validation, stale action, preferences/forget, contextual briefing, partial lists, prepared comparison follow-up without request/draft loss, prepared question without model, empty/error states, six layouts/themes and full/floating Axe.',
     )
   } finally {
     await browser.close()
