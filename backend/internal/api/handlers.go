@@ -561,20 +561,22 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 		FROM rules r
 		JOIN domains d ON d.id = r.domain_id AND d.owner_id=r.owner_id
 		WHERE r.owner_id = $1
-		ORDER BY d.name, r.pattern`, s.ownerID(r))
+		ORDER BY length(r.pattern) DESC,r.id`, s.ownerID(r))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	defer rows.Close()
 	type ruleOut struct {
-		ID         int64    `json:"id"`
-		Pattern    string   `json:"pattern"`
-		DomainID   int64    `json:"domain_id"`
-		DomainName string   `json:"domain_name"`
-		Color      string   `json:"color"`
-		Tags       []string `json:"tags"`
-		Matches    int      `json:"matches"`
+		ID             int64    `json:"id"`
+		Pattern        string   `json:"pattern"`
+		DomainID       int64    `json:"domain_id"`
+		DomainName     string   `json:"domain_name"`
+		Color          string   `json:"color"`
+		Tags           []string `json:"tags"`
+		Matches        int      `json:"matches"`
+		WinningMatches int      `json:"winning_matches"`
+		Invalid        bool     `json:"invalid_pattern"`
 	}
 	out := []ruleOut{}
 	for rows.Next() {
@@ -601,9 +603,15 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer labels.Close()
-	matchers := make([]func(string) bool, len(out))
+	specs := []categorize.Rule{}
+	indices := map[int64]int{}
 	for i, rule := range out {
-		matchers[i], _ = categorize.CompilePattern(rule.Pattern)
+		specs = append(specs, categorize.Rule{ID: rule.ID, Pattern: rule.Pattern, DomainID: rule.DomainID, Tags: rule.Tags})
+		indices[rule.ID] = i
+	}
+	eng := categorize.New(specs)
+	for _, invalid := range eng.Evaluate("").Invalid {
+		out[indices[invalid.ID]].Invalid = true
 	}
 	for labels.Next() {
 		var label string
@@ -611,11 +619,14 @@ func (s *Server) listRules(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 500, fmt.Errorf("portée des règles indisponible"))
 			return
 		}
-		for i, match := range matchers {
-			if match != nil && match(label) {
-				out[i].Matches++
-			}
+		evaluation := eng.Evaluate(label)
+		for _, rule := range evaluation.Matching {
+			out[indices[rule.ID]].Matches++
 		}
+		if evaluation.Winner != nil {
+			out[indices[evaluation.Winner.ID]].WinningMatches++
+		}
+
 	}
 	if labels.Err() != nil {
 		writeErr(w, 500, fmt.Errorf("portée des règles indisponible"))
@@ -658,7 +669,7 @@ func (s *Server) createRule(w http.ResponseWriter, r *http.Request) {
 	}
 	applied := int64(0)
 	if body.Apply {
-		applied, err = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		applied, err = s.applyStoredRuleToTransactions(owner, id)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -728,7 +739,7 @@ func (s *Server) updateRule(w http.ResponseWriter, r *http.Request) {
 	}
 	applied := int64(0)
 	if body.Apply {
-		applied, err = s.applyRuleToTransactions(owner, body.Pattern, body.DomainID, tagsCSV)
+		applied, err = s.applyStoredRuleToTransactions(owner, id)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return

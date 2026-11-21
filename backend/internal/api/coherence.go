@@ -1,12 +1,13 @@
 package api
 
 import (
-	"github.com/lib/pq"
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/lib/pq"
 	"net/http"
 	"strings"
+	"themis/internal/categorize"
 	"time"
 )
 
@@ -40,6 +41,7 @@ func (s *Server) coverage(w http.ResponseWriter, r *http.Request) {
 // avec assez de contexte (catégorie ET tags) pour juger s'il y a vraiment
 // problème sans quitter l'audit.
 type coherenceExample struct {
+	ID       int64    `json:"id,omitempty"`
 	Display  string   `json:"display"`
 	Category string   `json:"category"`
 	Tags     []string `json:"tags"`
@@ -48,12 +50,13 @@ type coherenceExample struct {
 // coherenceFinding : une incohérence détectée entre une règle et l'état réel
 // des transactions.
 type coherenceFinding struct {
-	Rule     string             `json:"rule"`
-	Kind     string             `json:"kind"` // wrong_category | missing_tags
-	Detail   string             `json:"detail"`
-	Count    int                `json:"count"`
-	Query    string             `json:"query"` // pour rebondir vers les transactions concernées
-	Examples []coherenceExample `json:"examples"`
+	TransactionIDs []int64            `json:"transaction_ids,omitempty"`
+	Rule           string             `json:"rule"`
+	Kind           string             `json:"kind"` // wrong_category | missing_tags
+	Detail         string             `json:"detail"`
+	Count          int                `json:"count"`
+	Query          string             `json:"query"` // pour rebondir vers les transactions concernées
+	Examples       []coherenceExample `json:"examples"`
 }
 
 // coherence audite la cohérence entre les règles et les transactions :
@@ -66,113 +69,115 @@ type coherenceFinding struct {
 func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
 
-	rows, err := s.DB.Query(`
-		SELECT r.pattern, r.domain_id, d.name, r.tags
-		FROM rules r JOIN domains d ON d.id = r.domain_id
-		WHERE r.owner_id = $1 ORDER BY r.pattern`, owner)
+	tx, err := s.DB.BeginTx(r.Context(), &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeErr(w, 500, fmt.Errorf("audit indisponible"))
+		return
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(r.Context(), `SELECT r.id,r.pattern,r.domain_id,d.name,COALESCE(r.tags,'') FROM rules r JOIN domains d ON d.id=r.domain_id AND d.owner_id=r.owner_id WHERE r.owner_id=$1 ORDER BY length(r.pattern) DESC,r.id LIMIT 2001`, owner)
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("règles indisponibles"))
 		return
 	}
 	type rl struct {
+		id, domID              int64
 		pattern, domName, tags string
-		domID                  int64
 	}
-	var rules []rl
+	rules := []rl{}
+	specs := []categorize.Rule{}
+	names := map[int64]string{}
 	for rows.Next() {
-		var x rl
-		if rows.Scan(&x.pattern, &x.domID, &x.domName, &x.tags) == nil {
-			rules = append(rules, x)
+		var ru rl
+		if err = rows.Scan(&ru.id, &ru.pattern, &ru.domID, &ru.domName, &ru.tags); err != nil {
+			rows.Close()
+			writeErr(w, 500, fmt.Errorf("règle illisible"))
+			return
 		}
+		rules = append(rules, ru)
+		names[ru.domID] = ru.domName
+		specs = append(specs, categorize.Rule{ID: ru.id, Pattern: ru.pattern, DomainID: ru.domID, Tags: strings.Split(ru.tags, ",")})
 	}
+	err = rows.Err()
 	rows.Close()
-
+	if err != nil || len(rules) > 2000 {
+		writeErr(w, 422, fmt.Errorf("audit incomplet : règles indisponibles ou limite dépassée"))
+		return
+	}
+	eng := categorize.New(specs)
+	trows, err := tx.QueryContext(r.Context(), `SELECT t.id,t.label,COALESCE(NULLIF(t.display_label,''),t.label),t.domain_id,t.classification_source,COALESCE(d.name,'Sans catégorie'),COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 ORDER BY t.id LIMIT 50001`, owner)
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("opérations indisponibles"))
+		return
+	}
 	findings := []coherenceFinding{}
-	for _, ru := range rules {
-		if strings.HasPrefix(ru.pattern, "re:") {
-			continue // les motifs regex ne s'expriment pas en ILIKE ; audités par l'IA
+	indices := map[string]int{}
+	scanned := 0
+	for trows.Next() {
+		var in categorize.Input
+		var display, category string
+		if err = trows.Scan(&in.ID, &in.Label, &display, &in.DomainID, &in.Source, &category, pq.Array(&in.Tags)); err != nil {
+			trows.Close()
+			writeErr(w, 500, fmt.Errorf("opération illisible"))
+			return
 		}
-		// 1a. Mauvaise catégorie : le libellé matche mais la catégorie diffère.
-		var n int
-		var ex []coherenceExample
-		erows, e := s.DB.Query(`
-			SELECT COALESCE(NULLIF(t.display_label,''), t.label), COALESCE(d.name,'(sans)'),
-			       COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.transaction_id = t.id), '{}')
-			FROM transactions t
-			LEFT JOIN domains d ON d.id = t.domain_id
-			WHERE t.owner_id = $1 AND t.label ILIKE '%'||$2||'%'
-			  AND t.domain_id IS NOT NULL AND t.domain_id <> $3
-			LIMIT 4`, owner, ru.pattern, ru.domID)
-		if e == nil {
-			for erows.Next() {
-				var disp, cat string
-				var tags []string
-				if erows.Scan(&disp, &cat, pq.Array(&tags)) == nil {
-					ex = append(ex, coherenceExample{Display: disp, Category: cat, Tags: tags})
-				}
+		scanned++
+		if scanned > 50000 || len(rules)*scanned > 5000000 {
+			trows.Close()
+			writeErr(w, 422, fmt.Errorf("audit incomplet : limite dépassée, aucune conclusion produite"))
+			return
+		}
+		plan := eng.Plan(in)
+		if plan.Winner == nil {
+			continue
+		}
+		record := func(kind, detail string) {
+			key := fmt.Sprintf("%d:%s", plan.Winner.ID, kind)
+			i, ok := indices[key]
+			if !ok {
+				i = len(findings)
+				indices[key] = i
+				findings = append(findings, coherenceFinding{Rule: plan.Winner.Pattern, Kind: kind, Detail: detail, Examples: []coherenceExample{}, TransactionIDs: []int64{}})
 			}
-			erows.Close()
+			f := &findings[i]
+			f.Count++
+			if len(f.TransactionIDs) < 1000 {
+				f.TransactionIDs = append(f.TransactionIDs, in.ID)
+			}
+			if len(f.Examples) < 4 {
+				f.Examples = append(f.Examples, coherenceExample{ID: in.ID, Display: display, Category: category, Tags: in.Tags})
+			}
 		}
-		_ = s.DB.QueryRow(`
-			SELECT count(*) FROM transactions t
-			WHERE t.owner_id = $1 AND t.label ILIKE '%'||$2||'%'
-			  AND t.domain_id IS NOT NULL AND t.domain_id <> $3`, owner, ru.pattern, ru.domID).Scan(&n)
-		if n > 0 {
-			findings = append(findings, coherenceFinding{
-				Rule: ru.pattern, Kind: "wrong_category",
-				Detail:   fmt.Sprintf("%d transaction(s) correspondant à « %s » sont rangées ailleurs que dans %s.", n, ru.pattern, ru.domName),
-				Count:    n, Query: ru.pattern, Examples: ex,
-			})
+		if in.DomainID == nil || *in.DomainID != *plan.ProposedDomain {
+			detail := fmt.Sprintf("Règle gagnante « %s » : proposition %s. Le domaine déjà attribué est conservé ; vérifier le choix avant toute modification.", plan.Winner.Pattern, names[*plan.ProposedDomain])
+			kind := "wrong_category"
+			if plan.ManualDomainProtected {
+				kind = "manual_choice"
+				detail = "Choix manuel conservé, y compris Sans domaine ; la règle gagnante propose une autre classification. Aucune correction automatique du domaine."
+			} else if in.DomainID == nil {
+				detail = "Sans domaine : la règle gagnante propose une catégorie ; appliquer les règles pourra la compléter."
+			}
+			record(kind, detail)
 		}
-		// 1b. Tags manquants : la règle porte des tags, des transactions
-		// correspondantes ne les ont pas tous.
-		if strings.TrimSpace(ru.tags) != "" {
-			for _, tag := range strings.Split(ru.tags, ",") {
-				tag = strings.TrimSpace(tag)
-				if tag == "" {
-					continue
-				}
-				var m int
-				_ = s.DB.QueryRow(`
-					SELECT count(*) FROM transactions t
-					WHERE t.owner_id = $1 AND t.label ILIKE '%'||$2||'%'
-					  AND NOT EXISTS (
-						SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
-						WHERE tt.transaction_id = t.id AND lower(tg.name) = lower($3))`,
-					owner, ru.pattern, tag).Scan(&m)
-				if m > 0 {
-					// exemples : montrer les tags actuels, pour voir ce qui manque
-					var tex []coherenceExample
-					trows, te := s.DB.Query(`
-						SELECT COALESCE(NULLIF(t.display_label,''), t.label), COALESCE(d.name,'(sans)'),
-						       COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id WHERE tt.transaction_id = t.id), '{}')
-						FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
-						WHERE t.owner_id = $1 AND t.label ILIKE '%'||$2||'%'
-						  AND NOT EXISTS (
-							SELECT 1 FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id
-							WHERE tt.transaction_id = t.id AND lower(tg.name) = lower($3))
-						LIMIT 4`, owner, ru.pattern, tag)
-					if te == nil {
-						for trows.Next() {
-							var disp, cat string
-							var tags []string
-							if trows.Scan(&disp, &cat, pq.Array(&tags)) == nil {
-								tex = append(tex, coherenceExample{Display: disp, Category: cat, Tags: tags})
-							}
-						}
-						trows.Close()
-					}
-					findings = append(findings, coherenceFinding{
-						Rule: ru.pattern, Kind: "missing_tags",
-						Detail: fmt.Sprintf("%d transaction(s) « %s » n'ont pas le tag « %s » prévu par la règle. « Appliquer les règles » corrigera.", m, ru.pattern, tag),
-						Count:  m, Query: ru.pattern, Examples: tex,
-					})
-				}
+		if len(plan.AddTags) > 0 {
+			record("missing_tags", "Tags proposés par la seule règle gagnante. Les tags existants seront conservés ; la provenance des retraits historiques est inconnue.")
+		}
+	}
+	err = trows.Err()
+	trows.Close()
+	if err != nil {
+		writeErr(w, 500, fmt.Errorf("audit interrompu"))
+		return
+	}
+	for _, invalid := range eng.Evaluate("").Invalid {
+		for _, ru := range rules {
+			if ru.id == invalid.ID {
+				findings = append(findings, coherenceFinding{Rule: ru.pattern, Kind: "invalid_rule", Detail: "Motif invalide : règle ignorée par le moteur, à corriger explicitement.", Examples: []coherenceExample{}})
 			}
 		}
 	}
-
-	out := map[string]any{"findings": findings, "rules_checked": len(rules)}
+	tx.Rollback() // Release the snapshot before optional network work.
+	out := map[string]any{"findings": findings, "rules_checked": len(rules), "transactions_checked": scanned, "policy": "winning_rule_only"}
 
 	// 2. Relecture IA optionnelle : règles + échantillon de transactions triées.
 	if r.URL.Query().Get("ai") == "1" {
@@ -189,8 +194,8 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 			b.WriteString("\nÉchantillon de transactions triées (libellé | catégorie | tags) :\n")
 			trows, e := s.DB.Query(`
 				SELECT COALESCE(NULLIF(t.display_label,''), t.label), COALESCE(d.name,'(sans)'),
-				       COALESCE((SELECT string_agg(tg.name, ',') FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id WHERE tt.transaction_id=t.id), '')
-				FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id
+				       COALESCE((SELECT string_agg(tg.name, ',') FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id), '')
+				FROM transactions t LEFT JOIN domains d ON d.id = t.domain_id AND d.owner_id=t.owner_id
 				WHERE t.owner_id = $1 AND t.domain_id IS NOT NULL
 				ORDER BY t.tx_date DESC LIMIT 120`, owner)
 			if e == nil {

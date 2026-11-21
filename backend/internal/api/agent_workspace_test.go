@@ -94,6 +94,17 @@ func TestAgentActionIsolationStalenessAndReplayPostgres(t *testing.T) {
 	if before != after {
 		t.Fatal("action changed bank amounts")
 	}
+	// A manual decision with unchanged domain/tags still invalidates an older
+	// prepared action: provenance is now included in the protected snapshot.
+	sourceChanged, err := s.prepareAgentAction(ctx, 1, conv, 0, agentActionInput{Kind: "tag", TransactionIDs: []int64{6}, Tag: "source-check"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(`UPDATE transactions SET classification_source='manual' WHERE id=6`); err != nil {
+		t.Fatal(err)
+	}
+	agentReq(t, s, s.agentActionDecision, 1, "POST", "/", `{"decision":"apply"}`, sourceChanged.ID, 409)
+
 	stale, e := s.prepareAgentAction(ctx, 1, conv, 0, agentActionInput{Kind: "categorize", TransactionIDs: []int64{6}, DomainID: 9001})
 	if e != nil {
 		t.Fatal(e)
