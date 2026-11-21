@@ -36,6 +36,7 @@ func (m *chatMsg) UnmarshalJSON(data []byte) error {
 }
 
 type chatIn struct {
+	ComparisonRef  *string             `json:"comparison_ref,omitempty"`
 	ConversationID *int64              `json:"conversation_id"`
 	Context        agentRequestContext `json:"context"`
 	MissionID      int64               `json:"mission_id"`

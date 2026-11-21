@@ -23,14 +23,15 @@ type agentPage struct {
 	Tag                     string  `json:"tag,omitempty"`
 }
 type agentContext struct {
-	DirectSpending bool        `json:"direct_spending,omitempty"`
-	TargetMonth    string      `json:"target_month,omitempty"`
-	FocusedIDs     []int64     `json:"focused_ids,omitempty"`
-	Timezone       string      `json:"timezone"`
-	Today          string      `json:"today"`
-	Period         agentPeriod `json:"period"`
-	Intent         string      `json:"intent,omitempty"`
-	Page           agentPage   `json:"page_context"`
+	Comparison     *agentComparisonContext `json:"comparison,omitempty"`
+	DirectSpending bool                    `json:"direct_spending,omitempty"`
+	TargetMonth    string                  `json:"target_month,omitempty"`
+	FocusedIDs     []int64                 `json:"focused_ids,omitempty"`
+	Timezone       string                  `json:"timezone"`
+	Today          string                  `json:"today"`
+	Period         agentPeriod             `json:"period"`
+	Intent         string                  `json:"intent,omitempty"`
+	Page           agentPage               `json:"page_context"`
 }
 
 var agentISODate = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}\b`)
