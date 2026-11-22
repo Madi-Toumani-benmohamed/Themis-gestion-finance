@@ -255,8 +255,18 @@ func (s *Server) updateDomain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteDomain(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	var used bool
+	if err := s.DB.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM transactions WHERE owner_id=$1 AND domain_id IN(SELECT id FROM domains WHERE owner_id=$1 AND (id=$2 OR parent_id=$2)))`, s.ownerID(r), id).Scan(&used); err != nil {
+		writeErr(w, 500, fmt.Errorf("catégorie indisponible"))
+		return
+	}
+	if used {
+		writeErr(w, 409, fmt.Errorf("cette catégorie est utilisée ; sa suppression effacerait des décisions de classification"))
+		return
+	}
+
 	if _, err := s.DB.Exec(`DELETE FROM domains WHERE id = $1 AND owner_id = $2`, id, s.ownerID(r)); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "supprimé"})

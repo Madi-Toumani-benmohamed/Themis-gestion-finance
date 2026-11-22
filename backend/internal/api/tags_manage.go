@@ -6,13 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"themis/internal/classification"
 )
 
-// renameTag renomme un tag. Cas délicat géré : si le nouveau nom existe déjà,
-// les deux tags FUSIONNENT (les transactions de l'ancien passent au nouveau,
-// sans doublon), au lieu de violer la contrainte d'unicité. Les règles qui
-// référencent l'ancien nom sont mises à jour pour ne pas re-créer l'ancien tag
-// au prochain import.
+// renameTag preserves a stable ID and its decisions. Name collisions require
+// a separate, explicit merge policy and are refused rather than merged silently.
 func (s *Server) renameTag(w http.ResponseWriter, r *http.Request) {
 	owner := s.ownerID(r)
 	old := strings.TrimSpace(r.PathValue("name"))
@@ -35,51 +33,48 @@ func (s *Server) renameTag(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := s.DB.Begin()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	defer tx.Rollback()
 
+	if _, err = tx.ExecContext(r.Context(), `SELECT set_config('themis.classification_origin','dictionary',true),set_config('themis.classification_actor',$1,true),set_config('themis.classification_operation',$2,true)`, fmt.Sprint(owner), classification.OperationID()); err != nil {
+		classificationFailure(w, err)
+		return
+	}
 	var oldID int64
-	if err := tx.QueryRow(`SELECT id FROM tags WHERE owner_id = $1 AND name = $2`, owner, old).Scan(&oldID); err != nil {
+	if err := tx.QueryRow(`SELECT id FROM tags WHERE owner_id = $1 AND name = $2 FOR UPDATE`, owner, old).Scan(&oldID); err != nil {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("tag introuvable"))
 		return
 	}
 
-	// Le nouveau nom existe-t-il déjà ? → fusion.
+	// Refuse implicit identity changes through a name collision.
 	var newID int64
 	merged := false
 	err = tx.QueryRow(`SELECT id FROM tags WHERE owner_id = $1 AND name = $2`, owner, neo).Scan(&newID)
 	if err == nil && newID != oldID {
-		// déplacer les liaisons de l'ancien vers le nouveau, en évitant les doublons
-		if _, err := tx.Exec(`
-			INSERT INTO transaction_tags (transaction_id, tag_id)
-			SELECT transaction_id, $1 FROM transaction_tags WHERE tag_id = $2
-			ON CONFLICT DO NOTHING`, newID, oldID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		if _, err := tx.Exec(`DELETE FROM tags WHERE id = $1`, oldID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		merged = true
+		writeErr(w, 409, fmt.Errorf("ce nom est déjà utilisé ; la fusion de tags n'est pas disponible avec les protections de classification"))
+		return
 	} else {
+		if err != sql.ErrNoRows {
+			classificationFailure(w, err)
+			return
+		}
 		// simple renommage
 		if _, err := tx.Exec(`UPDATE tags SET name = $1 WHERE id = $2`, neo, oldID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
+			classificationFailure(w, err)
 			return
 		}
 	}
 
 	// Mettre à jour les règles qui citent l'ancien nom (rules.tags = CSV de noms).
 	if err := s.rewriteRuleTags(tx, owner, old, neo); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "merged": merged})
@@ -96,15 +91,15 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := s.DB.Begin()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	defer tx.Rollback()
 
-	// La suppression du tag fait tomber les transaction_tags (ON DELETE CASCADE).
+	// Referenced or explicitly protected tags are refused by the shared guard.
 	res, err := tx.Exec(`DELETE FROM tags WHERE owner_id = $1 AND name = $2`, owner, name)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	n, _ := res.RowsAffected()
@@ -114,11 +109,11 @@ func (s *Server) deleteTag(w http.ResponseWriter, r *http.Request) {
 	}
 	// retirer le nom des règles
 	if err := s.rewriteRuleTags(tx, owner, name, ""); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		classificationFailure(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

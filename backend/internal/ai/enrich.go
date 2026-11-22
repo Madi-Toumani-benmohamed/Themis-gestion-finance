@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"errors"
 	"github.com/lib/pq"
+	"themis/internal/classification"
 	"themis/internal/llm"
 )
 
@@ -41,7 +43,7 @@ type EnrichResult struct {
 
 // AutoEnrich generates suggestions using the existing provider. It never changes
 // assigned categories or tags. A later explicit PATCH is required to apply one.
-func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, statementID int64, month string) (EnrichResult, error) {
+func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, statementID int64, month string, explicitIDs ...int64) (EnrichResult, error) {
 	var res EnrichResult
 	if client == nil {
 		return res, fmt.Errorf("aucun fournisseur d'IA configuré")
@@ -91,8 +93,17 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 		Label  string
 		Amount string
 	}
-	q := `SELECT id, label, amount::text FROM transactions WHERE domain_id IS NULL AND classification_source<>'manual' AND owner_id = $1`
+	q := `SELECT id, label, amount::text FROM transactions WHERE owner_id = $1`
+	if len(explicitIDs) > 1 || (len(explicitIDs) == 1 && explicitIDs[0] <= 0) {
+		return res, fmt.Errorf("opération de réévaluation invalide")
+	}
 	args := []any{ownerID}
+	if len(explicitIDs) == 0 {
+		q += ` AND domain_id IS NULL AND classification_source<>'manual'`
+	} else {
+		args = append(args, explicitIDs[0])
+		q += ` AND id=$2`
+	}
 	if statementID > 0 {
 		args = append(args, statementID)
 		q += fmt.Sprintf(" AND statement_id = $%d", len(args))
@@ -121,6 +132,9 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 	}
 	trows.Close()
 	if len(txs) == 0 {
+		if len(explicitIDs) > 0 {
+			return res, classification.ErrNotFound
+		}
 		return res, nil
 	}
 
@@ -130,6 +144,18 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 			end = len(txs)
 		}
 		chunk := txs[start:end]
+		type capture struct {
+			revision int64
+			key      string
+		}
+		captures := map[int64]capture{}
+		for _, t := range chunk {
+			state, key, e := classification.Context(ctx, db, ownerID, t.ID)
+			if e != nil {
+				return res, e
+			}
+			captures[t.ID] = capture{state.Revision, key}
+		}
 
 		var b strings.Builder
 		fmt.Fprintf(&b, "Domaines autorisés : %s\n", strings.Join(domNames, " | "))
@@ -188,19 +214,62 @@ func AutoEnrich(ctx context.Context, db *sql.DB, client llm.Client, ownerID, sta
 					break
 				}
 			}
-			// Re-check ownership and absence of assignment after the LLM call:
-			// a concurrent manual edit always wins over this proposal.
-			result, err := db.ExecContext(ctx, `INSERT INTO transaction_suggestions(transaction_id,owner_id,domain_id,tags)
-			 SELECT t.id,t.owner_id,d.id,$4::text[] FROM transactions t JOIN domains d ON d.id=$3 AND d.owner_id=t.owner_id
-			 WHERE t.id=$1 AND t.owner_id=$2 AND t.domain_id IS NULL AND t.classification_source<>'manual'
-			 ON CONFLICT(transaction_id) DO UPDATE SET domain_id=EXCLUDED.domain_id,tags=EXCLUDED.tags,created_at=now()
-			 WHERE transaction_suggestions.owner_id=EXCLUDED.owner_id`, a.ID, ownerID, domID, pq.Array(tags))
-			if err != nil {
-				return res, err
+			identity, e := SuggestionIdentity(ownerID, a.ID, domID, tags)
+			if e != nil {
+				return res, e
 			}
-			if n, _ := result.RowsAffected(); n == 1 {
+			captured := captures[a.ID]
+			apply, e := db.BeginTx(ctx, nil)
+			if e != nil {
+				return res, e
+			}
+			_, e = classification.Begin(ctx, apply, ownerID, a.ID, "suggestion", "", struct{ Identity, Context string }{identity, captured.key}, &captured.revision, "")
+			if errors.Is(e, classification.ErrConflict) || errors.Is(e, classification.ErrNotFound) {
+				apply.Rollback()
+				continue
+			}
+			if e != nil {
+				apply.Rollback()
+				return res, e
+			}
+			state, currentKey, e := classification.Context(ctx, apply, ownerID, a.ID)
+			if e != nil {
+				apply.Rollback()
+				return res, e
+			}
+			if currentKey != captured.key || (len(explicitIDs) == 0 && (state.Domain != nil || state.Source == "manual")) {
+				apply.Rollback()
+				continue
+			}
+			var rejected bool
+			if e = apply.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM classification_rejections WHERE owner_id=$1 AND transaction_id=$2 AND identity=$3 AND context_key=$4)`, ownerID, a.ID, identity, currentKey).Scan(&rejected); e != nil {
+				apply.Rollback()
+				return res, e
+			}
+			if rejected {
+				apply.Rollback()
+				continue
+			}
+			result, e := apply.ExecContext(ctx, `INSERT INTO transaction_suggestions(transaction_id,owner_id,domain_id,tags,identity,context_key,base_revision)
+   SELECT t.id,t.owner_id,d.id,$4::text[],$5,$6,$7 FROM transactions t JOIN domains d ON d.id=$3 AND d.owner_id=t.owner_id WHERE t.id=$1 AND t.owner_id=$2
+   ON CONFLICT(transaction_id) DO UPDATE SET domain_id=EXCLUDED.domain_id,tags=EXCLUDED.tags,identity=EXCLUDED.identity,context_key=EXCLUDED.context_key,base_revision=EXCLUDED.base_revision,created_at=now()
+   WHERE transaction_suggestions.owner_id=EXCLUDED.owner_id`, a.ID, ownerID, domID, pq.Array(tags), identity, currentKey, captured.revision)
+			if e != nil {
+				apply.Rollback()
+				return res, e
+			}
+			n, e := result.RowsAffected()
+			if e != nil {
+				apply.Rollback()
+				return res, e
+			}
+			if e = apply.Commit(); e != nil {
+				return res, e
+			}
+			if n == 1 {
 				res.Suggested++
 			}
+
 		}
 	}
 	res.Remaining = len(txs)

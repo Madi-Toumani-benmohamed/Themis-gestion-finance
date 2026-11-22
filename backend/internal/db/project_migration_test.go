@@ -78,6 +78,13 @@ func TestProjectMigrationKeepsLegacyAndGuardsRollbackPostgres(t *testing.T) {
 	if e = db.QueryRow(`SELECT count(*) FROM financial_projects`).Scan(&count); e != nil || count != 0 {
 		t.Fatal("hypotheses silently confirmed", count, e)
 	}
+	classificationRollback, rollbackErr := os.ReadFile("rollbacks/035_classification_decisions.sql")
+	if rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
+	if _, rollbackErr = db.Exec(string(classificationRollback)); rollbackErr != nil {
+		t.Fatal(rollbackErr)
+	}
 	rollback, e := os.ReadFile("rollbacks/031_financial_projects.sql")
 	if e != nil {
 		t.Fatal(e)

@@ -26,7 +26,7 @@ func TestClassificationConcurrentSnapshotPreconditionPostgres(t *testing.T) {
 		t.Fatal(e)
 	}
 	old := rows[0]
-	version := classificationVersion(1, old.ID, old.Domain, old.Source, old.Tags)
+	version := classificationVersion(1, old.ID, old.Domain, old.Source, old.Tags, old.Revision)
 	var wg sync.WaitGroup
 	codes := make(chan int, 2)
 	for _, tag := range []string{"alpha", "beta"} {
@@ -62,7 +62,7 @@ func TestClassificationConcurrentSnapshotPreconditionPostgres(t *testing.T) {
 	if classificationPatch(s, fmt.Sprintf(`{"domain_id":null,"expected_classification_version":%q}`, version)).Code != 409 {
 		t.Fatal("stale domain update accepted")
 	}
-	fresh := classificationVersion(1, current[0].ID, current[0].Domain, current[0].Source, current[0].Tags)
+	fresh := classificationVersion(1, current[0].ID, current[0].Domain, current[0].Source, current[0].Tags, current[0].Revision)
 	if classificationPatch(s, fmt.Sprintf(`{"domain_id":null,"expected_classification_version":%q}`, fresh)).Code != 204 {
 		t.Fatal("explicit manual NULL rejected")
 	}
@@ -78,7 +78,7 @@ func TestClassificationConcurrentSnapshotPreconditionPostgres(t *testing.T) {
 	}
 }
 
-func TestManualTagRemovalPersistenceLimitIsExplicitPostgres(t *testing.T) {
+func TestManualTagRemovalSurvivesRuleReapplicationPostgres(t *testing.T) {
 	db := reimbursementTestDB(t)
 	s := &Server{DB: db}
 	if _, e := db.Exec(`INSERT INTO rules(owner_id,pattern,domain_id,tags) VALUES(1,'TEST RESTAURANT',9001,'resto')`); e != nil {
@@ -94,14 +94,13 @@ func TestManualTagRemovalPersistenceLimitIsExplicitPostgres(t *testing.T) {
 	if e := db.QueryRow(`SELECT classification_source FROM transactions WHERE id=1`).Scan(&source); e != nil || source == "manual" {
 		t.Fatal("tag-only edit must not invent a manual domain lock", e)
 	}
-	// No tombstone exists: the removed tag can still be proposed/applied on an
-	// explicit global reapplication. This is an unmet sprint-1B requirement.
+	// Durable tombstones prevent automatic reintroduction.
 	if _, e := s.applyAllRules(1); e != nil {
 		t.Fatal(e)
 	}
 	var n int
-	if e := db.QueryRow(`SELECT count(*) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id WHERE tt.transaction_id=1 AND tg.name='resto'`).Scan(&n); e != nil || n != 1 {
-		t.Fatal("persistence contract changed; review protection design", e)
+	if e := db.QueryRow(`SELECT count(*) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id WHERE tt.transaction_id=1 AND tg.name='resto'`).Scan(&n); e != nil || n != 0 {
+		t.Fatal("manual removal was not preserved", e)
 	}
 }
 

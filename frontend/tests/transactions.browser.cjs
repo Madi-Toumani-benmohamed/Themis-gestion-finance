@@ -13,7 +13,7 @@ const row = (id, day, amount_cents, display_label, domain_id = 1, financial_type
   id, date: `${month}-${day}`, amount: amount_cents / 100, amount_cents, display_label, merchant: display_label,
   label: `LIBELLE BANCAIRE ORIGINAL ${display_label} REFERENCE ${id}`, domain_id, tags: [],
   account_id: 11, account_name: 'COURANT TEST', statement_id: 1, statement_filename: 'RELEVE TEST.csv', statement_validated: true,
-  statement_period_start: `${month}-01`, statement_period_end: `${month}-21`, classification_source: 'unknown', classification_version: id.toString(16).padStart(64, '0'), suggestion: null,
+  statement_period_start: `${month}-01`, statement_period_end: `${month}-21`, classification_source: 'unknown', classification_revision: '0', domain_locked: false, tags_locked: false, classification_configured: false, classification_version: id.toString(16).padStart(64, '0'), suggestion: null,
   financial_type: financial_type || (amount_cents < 0 ? 'debit' : amount_cents > 0 ? 'credit' : 'neutral'),
 })
 let rows = [row(1, '09', -2200, 'TRANSFERT SORTANT TEST', 3, 'transfer'), row(2, '09', 2200, 'TRANSFERT ENTRANT TEST', 3, 'transfer'), row(3, '08', 324947, 'SALAIRE TEST'), row(4, '07', -418480, 'DEPENSE TEST'), row(5, '06', 0, 'A CLASSER TEST', null), row(7, '07', -1234, 'CAFE TEST')]
@@ -100,11 +100,12 @@ async function main() {
       const id = Number(path.split('/').at(-1)); reimbursementAllocations = reimbursementAllocations.map(a => a.id === id ? { ...a, voided_at: new Date().toISOString(), void_reason: request.postDataJSON().reason } : a); reimbursementHistory.push({ event_type: 'allocation_voided' }); status = 204
     } else if (/^\/api\/transactions\/\d+$/.test(path) && request.method() === 'PATCH') {
       const id = Number(path.split('/').at(-1)), patch = request.postDataJSON()
-      patches.push({ id, patch })
-      if (conflictPatch.has(id) || patch.expected_classification_version !== rows.find(t => t.id === id)?.classification_version) { status = 409; data = { error: 'CLASSIFICATION MODIFIÉE TEST' } }
+      patches.push({ id, patch, operation: request.headers()['idempotency-key'] })
+      if (conflictPatch.has(id) || (patch.expected_revision != null ? patch.expected_revision !== rows.find(t => t.id === id)?.classification_revision : patch.expected_classification_version !== rows.find(t => t.id === id)?.classification_version)) { status = 409; data = { error: 'CLASSIFICATION MODIFIÉE TEST' } }
       else if (failPatch.has(id)) { status = 500; data = { error: 'ERREUR SAUVEGARDE TEST' } }
-      else { rows = rows.map(t => t.id === id ? { ...t, ...patch, classification_version: (BigInt('0x' + t.classification_version) + 1n).toString(16).padStart(64, '0'), ...(Object.hasOwn(patch, 'domain_id') ? { classification_source: 'manual', financial_type: patch.domain_id === 3 ? 'transfer' : t.amount_cents < 0 ? 'debit' : t.amount_cents > 0 ? 'credit' : 'neutral', suggestion: null } : {}), ...(patch.discard_suggestion ? { suggestion: null } : {}), ...(patch.add_tags ? {tags:[...new Set([...t.tags,...patch.add_tags])]} : {}), ...(patch.remove_tags ? {tags:t.tags.filter(tag=>!patch.remove_tags.includes(tag))} : {}) } : t); status = 204 }
-    } else if (path === '/api/enrich/ai') data = { suggested: 1, domains_set: 0, tags_set: 0 }
+      else { rows = rows.map(t => t.id === id ? { ...t, ...patch, classification_revision: String(BigInt(t.classification_revision) + 1n), classification_configured: true, classification_version: (BigInt('0x' + t.classification_version) + 1n).toString(16).padStart(64, '0'), ...(Object.hasOwn(patch, 'domain_id') ? { classification_source: 'manual', financial_type: patch.domain_id === 3 ? 'transfer' : t.amount_cents < 0 ? 'debit' : t.amount_cents > 0 ? 'credit' : 'neutral', suggestion: null } : {}), ...(patch.discard_suggestion ? { suggestion: null } : {}), ...(patch.add_tags ? {tags:[...new Set([...t.tags,...patch.add_tags])]} : {}), ...(patch.remove_tags ? {tags:t.tags.filter(tag=>!patch.remove_tags.includes(tag))} : {}) } : t); status = 204 }
+    } else if (/^\/api\/transactions\/\d+\/classification\/history$/.test(path)) data = {events:[{id:1,revision:'1',event_type:'locks_changed',origin:'manual',at:'2026-01-01T12:00:00Z'}],has_more:false}
+    else if (path === '/api/enrich/ai') data = { suggested: 1, domains_set: 0, tags_set: 0 }
     else if (path === '/api/rules' || path === '/api/merchants/aliases' || path === '/api/merchants/unrecognized') data = []
     return route.fulfill({ status, contentType: 'application/json', body: status === 204 ? undefined : JSON.stringify(data) }).catch(() => {})
   })
@@ -170,7 +171,7 @@ async function main() {
   await page.keyboard.press('Escape'); await detail().waitFor({ state: 'detached' }); assert.equal(await opener.evaluate(el => el === document.activeElement), true)
   await opener.click()
   await detail().getByRole('textbox', { name: 'Tags', exact: true }).fill('taxes, nouveau')
-  const versionBeforeEdit = rows.find(t => t.id === 7).classification_version
+  const versionBeforeEdit = rows.find(t => t.id === 7).classification_revision
   failPatch.add(7); await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await detail().getByRole('alert').filter({ hasText: 'ERREUR SAUVEGARDE TEST' }).waitFor()
   assert.equal(rows.find(t => t.id === 7).tags.includes('nouveau'), false)
@@ -180,12 +181,43 @@ async function main() {
   await detail().getByRole('alert').filter({ hasText: 'CLASSIFICATION MODIFIÉE TEST' }).waitFor()
   assert.equal(patches.length, patchesBeforeConflict + 1)
   assert.equal(await detail().getByRole('textbox', { name: 'Tags', exact: true }).inputValue(), 'taxes, nouveau')
-  assert.equal(patches.at(-1).patch.expected_classification_version, versionBeforeEdit)
+  assert.equal(patches.at(-1).patch.expected_revision, versionBeforeEdit)
   conflictPatch.clear(); await detail().getByRole('button', { name: 'Enregistrer', exact: true }).click()
   await detail().getByRole('status').filter({ hasText: 'enregistrés' }).waitFor()
-  assert.deepEqual(patches.at(-1).patch, { tags: ['taxes', 'nouveau'], expected_classification_version: versionBeforeEdit })
+  assert.deepEqual(patches.at(-1).patch, { tags: ['taxes', 'nouveau'], expected_revision: versionBeforeEdit })
   await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
   await reset()
+  // Independent protections, explicit conflict reload and history use the advanced disclosure.
+  await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).click()
+  await detail().getByText('Classification avancée', { exact: true }).click()
+  const domainLock = detail().getByRole('checkbox', { name: 'Verrouiller le domaine', exact: true })
+  const tagsLock = detail().getByRole('checkbox', { name: 'Verrouiller les tags', exact: true })
+  await domainLock.check()
+  conflictPatch.add(7)
+  const beforeProtectionConflict = patches.length
+  await detail().getByRole('button', { name: 'Enregistrer les protections', exact: true }).click()
+  await detail().getByRole('alert').filter({ hasText: 'CLASSIFICATION MODIFIÉE TEST' }).waitFor()
+  assert.equal(patches.length, beforeProtectionConflict + 1)
+  const retryOperation = patches.at(-1).operation
+  assert.ok(retryOperation && retryOperation.length > 10)
+  await detail().getByRole('button', { name: 'Recharger l’état', exact: true }).click()
+  await detail().getByRole('status').filter({ hasText: 'Ton brouillon est conservé' }).waitFor()
+  assert.equal(await domainLock.isChecked(), true)
+  assert.equal(await tagsLock.isChecked(), false)
+  conflictPatch.clear()
+  await detail().getByRole('button', { name: 'Enregistrer les protections', exact: true }).click()
+  await detail().getByRole('status').filter({ hasText: 'Protections enregistrées' }).waitFor()
+  assert.equal(patches.at(-1).operation, retryOperation)
+  assert.equal(rows.find(t=>t.id===7).domain_locked,true)
+  assert.equal(rows.find(t=>t.id===7).tags_locked,false)
+  await detail().getByRole('button', { name: 'Voir les dernières décisions', exact: true }).click()
+  await detail().getByText('Protections modifiées', { exact: false }).waitFor()
+  const advancedAxe = await new AxeBuilder({ page }).analyze()
+  assert.deepEqual(advancedAxe.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})), [], 'advanced classification Axe')
+  await detail().getByRole('button', { name: 'Demander une réévaluation IA', exact: true }).click()
+  await detail().getByRole('status').filter({ hasText: 'Réévaluation terminée' }).waitFor()
+  assert.equal(patches.at(-1).patch.reevaluate,true)
+  await detail().getByRole('button', { name: 'Fermer le détail', exact: true }).click()
   // Manual category change must update whole-filter aggregates immediately.
   await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).click()
   await detail().getByRole('combobox', { name: 'Catégorie', exact: true }).selectOption('3')
@@ -324,6 +356,7 @@ async function main() {
     const results = await new AxeBuilder({ page }).analyze()
     assert.deepEqual(results.violations.map(v => ({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)})), [], `axe ${viewport.width}`)
     await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).click(); await settle()
+    await detail().getByText('Classification avancée', { exact: true }).click()
     assert.equal(await page.evaluate(() => document.querySelector('dialog').scrollWidth <= document.querySelector('dialog').clientWidth), true, `drawer overflow ${viewport.width}`)
     const drawerAxe = await new AxeBuilder({ page }).analyze()
     assert.deepEqual(drawerAxe.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})), [], `drawer axe ${viewport.width}`)
@@ -334,6 +367,11 @@ async function main() {
   await positiveColors()
   await categoryColor(transactionRow(3).locator('.transaction-category-picker .dom-dot'), '#9c99ff')
   const lightAxe = await new AxeBuilder({ page }).analyze(); assert.deepEqual(lightAxe.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})), [], 'light axe')
+  await page.getByRole('button', { name: 'Détail de CAFE TEST', exact: true }).click()
+  await detail().getByText('Classification avancée', { exact: true }).click()
+  const lightAdvancedAxe = await new AxeBuilder({ page }).analyze()
+  assert.deepEqual(lightAdvancedAxe.violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)})), [], 'light advanced classification Axe')
+  await page.keyboard.press('Escape')
   const cdp = await context.newCDPSession(page)
   await cdp.send('Emulation.setDeviceMetricsOverride',{width:960,height:540,deviceScaleFactor:2,mobile:false})
   await settle(); assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
@@ -343,7 +381,7 @@ async function main() {
   await page.getByRole('button',{name:'Importer un ou plusieurs relevés',exact:true}).click()
   await (await chooser).setFiles([])
   assert.deepEqual(errors, [])
-  console.log('Transactions browser PASS: filters, exact totals, pagination, drawer, refund qualification/allocation/revocation, errors, edits, suggestions, bulk partial failures, period/stale requests, 6 viewports, keyboard and dark/light Axe.')
+  console.log('Transactions browser PASS: filters, exact totals, pagination, drawer, refund qualification/allocation/revocation, errors, edits, revisions/idempotency, locks/history/reevaluation, suggestions, bulk partial failures, period/stale requests, 6 viewports, keyboard and dark/light Axe.')
   await browser.close()
 }
 main().catch(error => { console.error(error); process.exit(1) })

@@ -105,7 +105,7 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	eng := categorize.New(specs)
-	trows, err := tx.QueryContext(r.Context(), `SELECT t.id,t.label,COALESCE(NULLIF(t.display_label,''),t.label),t.domain_id,t.classification_source,COALESCE(d.name,'Sans catégorie'),COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 ORDER BY t.id LIMIT 50001`, owner)
+	trows, err := tx.QueryContext(r.Context(), `SELECT t.id,t.label,COALESCE(NULLIF(t.display_label,''),t.label),t.domain_id,t.classification_source,COALESCE(d.name,'Sans catégorie'),COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}'),COALESCE(cs.domain_locked,false),COALESCE(cs.tags_locked,false),COALESCE((SELECT array_agg(g.name) FROM classification_tag_decisions cd JOIN tags g ON g.id=cd.tag_id AND g.owner_id=cd.owner_id WHERE cd.owner_id=t.owner_id AND cd.transaction_id=t.id AND cd.decision='removed'),'{}') FROM transactions t LEFT JOIN classification_state cs ON cs.owner_id=t.owner_id AND cs.transaction_id=t.id LEFT JOIN domains d ON d.id=t.domain_id AND d.owner_id=t.owner_id WHERE t.owner_id=$1 ORDER BY t.id LIMIT 50001`, owner)
 	if err != nil {
 		writeErr(w, 500, fmt.Errorf("opérations indisponibles"))
 		return
@@ -116,7 +116,7 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 	for trows.Next() {
 		var in categorize.Input
 		var display, category string
-		if err = trows.Scan(&in.ID, &in.Label, &display, &in.DomainID, &in.Source, &category, pq.Array(&in.Tags)); err != nil {
+		if err = trows.Scan(&in.ID, &in.Label, &display, &in.DomainID, &in.Source, &category, pq.Array(&in.Tags), &in.DomainLocked, &in.TagsLocked, pq.Array(&in.RemovedTags)); err != nil {
 			trows.Close()
 			writeErr(w, 500, fmt.Errorf("opération illisible"))
 			return
@@ -127,6 +127,7 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 422, fmt.Errorf("audit incomplet : limite dépassée, aucune conclusion produite"))
 			return
 		}
+		in.ProtectionsKnown = true
 		plan := eng.Plan(in)
 		if plan.Winner == nil {
 			continue
@@ -151,7 +152,7 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 		if in.DomainID == nil || *in.DomainID != *plan.ProposedDomain {
 			detail := fmt.Sprintf("Règle gagnante « %s » : proposition %s. Le domaine déjà attribué est conservé ; vérifier le choix avant toute modification.", plan.Winner.Pattern, names[*plan.ProposedDomain])
 			kind := "wrong_category"
-			if plan.ManualDomainProtected {
+			if plan.ManualDomainProtected || in.DomainLocked {
 				kind = "manual_choice"
 				detail = "Choix manuel conservé, y compris Sans domaine ; la règle gagnante propose une autre classification. Aucune correction automatique du domaine."
 			} else if in.DomainID == nil {
@@ -160,7 +161,7 @@ func (s *Server) coherence(w http.ResponseWriter, r *http.Request) {
 			record(kind, detail)
 		}
 		if len(plan.AddTags) > 0 {
-			record("missing_tags", "Tags proposés par la seule règle gagnante. Les tags existants seront conservés ; la provenance des retraits historiques est inconnue.")
+			record("missing_tags", "Tags proposés par la seule règle gagnante. Les tags existants, les verrous et les retraits tracés sont respectés.")
 		}
 	}
 	err = trows.Err()

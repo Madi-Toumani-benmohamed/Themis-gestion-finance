@@ -1,19 +1,11 @@
 package api
 
-import (
-	"sort"
-	"themis/internal/categorize"
-)
+import "themis/internal/classification"
 
-// This is a state precondition, not a persisted revision or an authorization
-// token. It cannot detect an ABA change; a durable revision needs sprint 1B.
-func classificationVersion(owner, id int64, domain *int64, source string, tags []string) string {
-	normalized := categorize.NormalizeTags(tags)
-	sort.Strings(normalized)
-	return agentHash(struct {
-		Owner, ID int64
-		Domain    *int64
-		Source    string
-		Tags      []string
-	}{owner, id, domain, source, normalized})
+func classificationVersion(owner, id int64, domain *int64, source string, tags []string, revision ...int64) string {
+	var rev int64
+	if len(revision) > 0 {
+		rev = revision[0]
+	}
+	return classification.Version(owner, id, classification.State{Domain: domain, Source: source, Tags: tags, Revision: rev})
 }
