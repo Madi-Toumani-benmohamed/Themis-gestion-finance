@@ -23,11 +23,13 @@ type Evaluation struct {
 	Conflict bool          `json:"different_domains"`
 }
 type Input struct {
-	ID       int64
-	Label    string
-	DomainID *int64
-	Source   string
-	Tags     []string
+	DomainLocked, TagsLocked, ProtectionsKnown bool
+	RemovedTags                                []string
+	ID                                         int64
+	Label                                      string
+	DomainID                                   *int64
+	Source                                     string
+	Tags                                       []string
 }
 type Plan struct {
 	TransactionID int64 `json:"transaction_id,omitempty"`
@@ -95,15 +97,16 @@ func (e *Engine) Evaluate(label string) Evaluation {
 }
 func (e *Engine) Plan(in Input) Plan {
 	p := Plan{TransactionID: in.ID, Evaluation: e.Evaluate(in.Label), ProposedTags: []string{}, AddTags: []string{}, ManualDomainProtected: in.Source == "manual", Explanation: "no_matching_rule"}
-	// No persisted independent tag locks/tombstones or domain locks exist.
-	// Never manufacture those states from a classification source or tags.
+	// Known metadata is supplied by the repository; legacy provenance is not inferred.
+	p.TagProtectionKnown = in.ProtectionsKnown
+	p.LockStateKnown = in.ProtectionsKnown
 	if p.Winner == nil {
 		return p
 	}
 	domain := p.Winner.DomainID
 	p.ProposedDomain = &domain
 	p.ProposedTags = append([]string{}, p.Winner.Tags...)
-	p.SetDomain = in.DomainID == nil && in.Source != "manual"
+	p.SetDomain = in.DomainID == nil && in.Source != "manual" && !in.DomainLocked
 	p.Explanation = "winning_rule"
 	if in.DomainID == nil && in.Source == "manual" {
 		p.Explanation = "manual_unclassified_preserved"
@@ -116,12 +119,23 @@ func (e *Engine) Plan(in Input) Plan {
 	if in.DomainID != nil && in.Source == "manual" {
 		p.Explanation = "manual_domain_preserved_tags_proposed"
 	}
+	if in.TagsLocked {
+		p.Explanation = "tags_locked"
+		return p
+	}
+	if in.DomainLocked {
+		p.Explanation = "domain_locked"
+	}
+	blocked := map[string]bool{}
+	for _, tag := range NormalizeTags(in.RemovedTags) {
+		blocked[tag] = true
+	}
 	existing := map[string]bool{}
 	for _, tag := range NormalizeTags(in.Tags) {
 		existing[tag] = true
 	}
 	for _, tag := range p.ProposedTags {
-		if !existing[tag] {
+		if !existing[tag] && !blocked[tag] {
 			p.AddTags = append(p.AddTags, tag)
 		}
 	}

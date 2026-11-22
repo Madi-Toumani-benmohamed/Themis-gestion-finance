@@ -115,3 +115,12 @@
 .transaction-category-label { display:inline-flex; align-items:center; gap:6px; max-width:100%; color:var(--body); }
 .transaction-category-label .dom-dot { width:7px; height:7px; }
 .transaction-category-picker:focus-within { outline:2px solid var(--accent); outline-offset:2px; }
+
+.transaction-classification-advanced { margin-top:24px; padding:14px; border:1px solid var(--line); border-radius:10px; }
+.transaction-classification-advanced summary { cursor:pointer; color:var(--body); font-size:13px; font-weight:600; }
+.transaction-classification-advanced p,.transaction-classification-advanced ol { font-size:12px; line-height:1.65; }
+.transaction-classification-advanced label { display:flex; align-items:center; gap:8px; margin:12px 0; font-size:13px; }
+.transaction-classification-advanced input[type=checkbox] { width:18px; height:18px; flex-shrink:0; accent-color:var(--accent); }
+.transaction-classification-advanced ol { padding-left:20px; }
+.transaction-classification-advanced li { margin:8px 0; overflow-wrap:anywhere; }
+.transaction-reimbursements .eyebrow,.transaction-reimbursements .reimbursement-scope-note,.transaction-reimbursements .reimbursement-source-detail { color:var(--body); }

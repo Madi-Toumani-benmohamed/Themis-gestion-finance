@@ -1,3 +1,4 @@
+import { documentKey } from '../lib/laboratory/documentKey.mjs'
 import { AnimatedRegion } from '../motion'
 import { AnimatedNumber } from '../motion/AnimatedNumber'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
@@ -109,6 +110,15 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
     finally { if (epoch === requestEpoch.current) setFetching(false) }
   }
 
+  const refreshDetail = async () => {
+    await reload()
+    if (!detail?.id) return
+    const data = transactionReportModel(await api.transactionReport({ all: 1, ids: String(detail.id), limit: 1 }))
+    const fresh = data.transactions.find(row => row.id === detail.id)
+    if (!fresh) throw new Error('Opération indisponible. Ton brouillon est conservé.')
+    setDetail(current => current?.id === fresh.id ? fresh : current)
+  }
+
   useEffect(() => { setPage(0); setSelected(new Set()) }, [month, merchantFilter, domainFilter, accountFilter, typeFilter, search, tagFilter, from, to, sourceFilter, sourcePage])
   useEffect(() => { setSelected(new Set()) }, [page])
   useEffect(() => {
@@ -127,17 +137,26 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
     setMonth(months[0] || new Date().toISOString().slice(0, 7)); setFrom(''); setTo(''); setShowDates(false)
     setSearch(''); setDomainFilter(''); setAccountFilter(''); setTypeFilter(''); setTagFilter(''); setMerchantFilter(''); setSourceFilter({ statement: '', budget: '', ids: [] }); setSourcePage(0); setPage(0)
   }
+  const operations = useRef(new Map())
+  const guardedSave = async (tx, patch) => {
+    const body = { ...patch, ...(tx.classification_revision != null ? { expected_revision: tx.classification_revision } : tx.classification_version ? { expected_classification_version: tx.classification_version } : {}) }
+    const signature = JSON.stringify(body), previous = operations.current.get(tx.id)
+    const operation = previous?.signature === signature ? previous.operation : documentKey()
+    operations.current.set(tx.id, { signature, operation })
+    await api.setTransactionMeta(tx.id, body, operation)
+    operations.current.delete(tx.id)
+  }
   const saveTransaction = async (tx, patch) => {
-    await api.setTransactionMeta(tx.id, { ...patch, ...(tx.classification_version ? { expected_classification_version: tx.classification_version } : {}) })
+    await guardedSave(tx, patch)
     setDetail(current => current?.id === tx.id ? { ...current, ...patch, classification_source: Object.hasOwn(patch, 'domain_id') ? 'manual' : current.classification_source, financial_type: Object.hasOwn(patch, 'domain_id') ? undefined : current.financial_type, suggestion: Object.hasOwn(patch, 'domain_id') || patch.discard_suggestion ? null : current.suggestion } : current)
-    await reload()
+    await refreshDetail()
     api.tags().then(setAllTags).catch(() => {})
   }
   const applyBulk = async (rows, change) => {
     const failed = []; let succeeded = 0
     for (const tx of rows) {
       const patch = change.action === 'category' ? { domain_id: change.domain_id } : { [change.action]: change.tags }
-      try { await api.setTransactionMeta(tx.id, { ...patch, ...(tx.classification_version ? { expected_classification_version: tx.classification_version } : {}) }); succeeded++ }
+      try { await guardedSave(tx, patch); succeeded++ }
       catch (error) { failed.push({ id: tx.id, error: error.message }) }
     }
     setSelected(new Set(failed.map(item => item.id)))
@@ -530,7 +549,7 @@ export default function Transactions({ onAgentFiltersChange, onMonthChange, onDi
           <td className={'num amt' + (transactionCents(tx) > 0 ? ' credit' : '')}>{transactionCents(tx) > 0 ? '+' : ''}{transactionMoney(transactionCents(tx))}</td>
         </tr>)}</Fragment>)}</tbody></table></AnimatedRegion>}
       {report && <nav className="transaction-pagination" aria-label="Pagination des transactions"><button className="btn-secondary" disabled={fetching || page === 0} onClick={() => setPage(value => value - 1)}>Précédent</button><span>Page {page + 1} sur {Math.max(1, Math.ceil(report.total / 100))} · 100 opérations maximum</span><button className="btn-secondary" disabled={fetching || (page + 1) * 100 >= report.total} onClick={() => setPage(value => value + 1)}>Suivant</button></nav>}
-      {detail && <TransactionDrawer key={detail.id} transaction={detail} domains={domains} allTags={allTags} onSave={saveTransaction} onRefresh={reload} onClose={() => setDetail(null)}/>}
+      {detail && <TransactionDrawer key={detail.id} transaction={detail} domains={domains} allTags={allTags} onSave={saveTransaction} onRefresh={refreshDetail} onClose={() => setDetail(null)}/>}
       {bulk && <TransactionBulkDialog rows={bulk} domains={domains} onApply={applyBulk} onClose={() => setBulk(null)}/>}
     </div>
   )

@@ -3,8 +3,8 @@ package ai
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
+	"themis/internal/testfixture"
 
 	_ "github.com/lib/pq"
 )
@@ -31,16 +31,8 @@ func (c proposalClient) Complete(context.Context, string, string, int, bool) (st
 }
 
 func TestAIEnrichmentProposesWithoutAssigningPostgres(t *testing.T) {
-	dsn := os.Getenv("THEMIS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("THEMIS_TEST_DATABASE_URL non défini")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
+	db := testfixture.Postgres(t)
+	var err error
 	_, err = db.Exec(`
 CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,name text);
 CREATE TEMP TABLE transactions(id bigint PRIMARY KEY,owner_id bigint,statement_id bigint,tx_date date,label text,amount numeric(12,2),domain_id bigint,classification_source text DEFAULT 'unknown');
@@ -53,6 +45,7 @@ INSERT INTO tags VALUES(1,1,'existing');INSERT INTO transaction_tags VALUES(1,1)
 	if err != nil {
 		t.Fatal(err)
 	}
+	testfixture.ClassificationShadows(t, db)
 	result, err := AutoEnrich(context.Background(), db, proposalClient{db: db}, 1, 0, "2020-01")
 	if err != nil || result.Suggested != 1 || result.DomainsSet != 0 || result.TagsSet != 0 {
 		t.Fatalf("proposals %+v %v", result, err)
@@ -79,9 +72,8 @@ INSERT INTO tags VALUES(1,1,'existing');INSERT INTO transaction_tags VALUES(1,1)
 	if err != nil || result.Suggested != 0 {
 		t.Fatalf("manual edit during LLM call lost: %+v %v", result, err)
 	}
-	// Current schema limitation: deleting a rejected proposal loses its identity.
-	// This asserts the gap for sprint 1B, rather than claiming durable rejection.
-	if _, err = db.Exec(`UPDATE transactions SET domain_id=NULL,classification_source='unknown' WHERE id=1;DELETE FROM transaction_suggestions`); err != nil {
+	// Cache eviction alone is not a user rejection; the durable command is tested separately.
+	if _, err = db.Exec(`BEGIN; SELECT set_config('themis.classification_origin','manual',true); UPDATE transactions SET domain_id=NULL,classification_source='unknown' WHERE id=1;DELETE FROM transaction_suggestions; COMMIT`); err != nil {
 		t.Fatal(err)
 	}
 	result, err = AutoEnrich(context.Background(), db, proposalClient{db: db}, 1, 0, "2020-01")
@@ -93,7 +85,7 @@ INSERT INTO tags VALUES(1,1,'existing');INSERT INTO transaction_tags VALUES(1,1)
 	}
 	result, err = AutoEnrich(context.Background(), db, proposalClient{db: db}, 1, 0, "2020-01")
 	if err != nil || result.Suggested != 1 {
-		t.Fatal("persistence gap changed; implement/review rejection contract", result, err)
+		t.Fatal("cache regeneration failed", result, err)
 	}
 	if _, err = db.Exec(`DELETE FROM transaction_suggestions`); err != nil {
 		t.Fatal(err)

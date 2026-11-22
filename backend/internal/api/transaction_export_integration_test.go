@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"net/http/httptest"
@@ -10,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"themis/internal/testfixture"
 
 	"themis/internal/money"
 )
@@ -21,12 +21,8 @@ func TestTransactionExportPostgres(t *testing.T) {
 	}
 	stagingDir := t.TempDir()
 	t.Setenv("TMPDIR", stagingDir)
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
+	db := qualityTestDB(t)
+	var err error
 	_, err = db.Exec(`CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,is_transfer bool DEFAULT false,name text);
  CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigint PRIMARY KEY,owner_id bigint,account_id bigint,filename text,validated bool,period_start date,period_end date);
@@ -54,6 +50,7 @@ func TestTransactionExportPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedDocumentedStatementBalances(t, db)
+	testfixture.ClassificationShadows(t, db)
 	s := &Server{DB: db}
 	call := func(path string, export bool) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("GET", path, nil)

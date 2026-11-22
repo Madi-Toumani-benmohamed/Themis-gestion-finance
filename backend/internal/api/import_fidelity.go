@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -9,6 +10,7 @@ import (
 	"github.com/lib/pq"
 
 	"themis/internal/categorize"
+	"themis/internal/classification"
 	"themis/internal/models"
 	"themis/internal/money"
 	"themis/internal/normalize"
@@ -74,6 +76,9 @@ func (s *Server) persistDocument(filename string, res *models.ParseResult, accou
 		return 0, 0, 0, e
 	}
 	defer tx.Rollback()
+	if e = classification.Automatic(context.Background(), tx, "import"); e != nil {
+		return 0, 0, 0, e
+	}
 	if _, e = tx.Exec(`SELECT pg_advisory_xact_lock($1)`, owner); e != nil {
 		return 0, 0, 0, e
 	}
@@ -145,8 +150,15 @@ func (s *Server) persistDocument(filename string, res *models.ParseResult, accou
 	}
 	for i, t := range res.Transactions {
 		var domain *int64
-		if id, ok := eng.Match(t.Label); ok {
+		winner := eng.Evaluate(t.Label).Winner
+		var ruleID int64
+		if winner != nil {
+			id := winner.DomainID
 			domain = &id
+			ruleID = winner.ID
+		}
+		if ruleErr := classification.Rule(context.Background(), tx, ruleID); ruleErr != nil {
+			return 0, 0, 0, ruleErr
 		}
 		n := normalize.Label(t.Label, t.Amount)
 		if alias, ok := s.aliasFor(owner, n.Merchant, t.Label); ok {

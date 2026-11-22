@@ -16,6 +16,7 @@ import (
 
 	"github.com/lib/pq"
 	"themis/internal/categorize"
+	"themis/internal/classification"
 	"themis/internal/intelligence"
 )
 
@@ -53,13 +54,14 @@ type agentAction struct {
 	Created time.Time        `json:"created_at"`
 }
 type agentSnapshot struct {
-	Source string   `json:"classification_source"`
-	ID     int64    `json:"id"`
-	Date   string   `json:"date"`
-	Label  string   `json:"label"`
-	Amount string   `json:"amount"`
-	Domain *int64   `json:"domain_id"`
-	Tags   []string `json:"tags"`
+	Revision int64    `json:"classification_revision"`
+	Source   string   `json:"classification_source"`
+	ID       int64    `json:"id"`
+	Date     string   `json:"date"`
+	Label    string   `json:"label"`
+	Amount   string   `json:"amount"`
+	Domain   *int64   `json:"domain_id"`
+	Tags     []string `json:"tags"`
 }
 type agentStep struct {
 	Name     string `json:"name"`
@@ -383,7 +385,7 @@ func agentSnapshots(ctx context.Context, reader agentReader, owner int64, ids []
 	if lock {
 		suffix = " FOR UPDATE OF t"
 	}
-	const q = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,t.domain_id,t.classification_source,COALESCE((SELECT array_agg(g.name ORDER BY g.name) FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id AND g.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.owner_id=$1 AND t.id=ANY($2) ORDER BY t.id`
+	const q = `SELECT t.id,t.tx_date::text,t.label,t.amount::text,t.domain_id,t.classification_source,COALESCE((SELECT revision FROM classification_state cs WHERE cs.owner_id=t.owner_id AND cs.transaction_id=t.id),0),COALESCE((SELECT array_agg(g.name ORDER BY g.name) FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id AND g.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.owner_id=$1 AND t.id=ANY($2) ORDER BY t.id`
 	rows, e := reader.QueryContext(ctx, q+suffix, owner, pq.Array(ids))
 	if e != nil {
 		return nil, e
@@ -392,7 +394,7 @@ func agentSnapshots(ctx context.Context, reader agentReader, owner int64, ids []
 	items := []agentSnapshot{}
 	for rows.Next() {
 		var x agentSnapshot
-		if e = rows.Scan(&x.ID, &x.Date, &x.Label, &x.Amount, &x.Domain, &x.Source, pq.Array(&x.Tags)); e != nil {
+		if e = rows.Scan(&x.ID, &x.Date, &x.Label, &x.Amount, &x.Domain, &x.Source, &x.Revision, pq.Array(&x.Tags)); e != nil {
 			return nil, e
 		}
 		items = append(items, x)
@@ -730,6 +732,11 @@ func (s *Server) agentActionDecision(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		for _, x := range snapshots {
+			if _, e = classification.Begin(r.Context(), tx, owner, x.ID, "agent", fmt.Sprintf("agent:%d:%d", id, x.ID), action, &x.Revision, ""); e != nil {
+				classificationFailure(w, e)
+				return
+			}
+
 			if kind == "categorize" {
 				_, e = tx.ExecContext(r.Context(), `UPDATE transactions SET domain_id=$1,classification_source='manual' WHERE id=$2 AND owner_id=$3`, action.DomainID, x.ID, owner)
 				if e == nil {
@@ -742,6 +749,9 @@ func (s *Server) agentActionDecision(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				e = replaceTransactionTags(r.Context(), tx, x.ID, owner, tags)
+			}
+			if e == nil {
+				e = classification.Finish(r.Context(), tx, owner, x.ID)
 			}
 			if e != nil {
 				writeErr(w, 500, fmt.Errorf("action non appliquée, aucune modification conservée"))

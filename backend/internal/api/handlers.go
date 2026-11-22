@@ -15,8 +15,10 @@ import (
 
 	"github.com/lib/pq"
 
+	"errors"
 	"themis/internal/ai"
 	"themis/internal/categorize"
+	"themis/internal/classification"
 	"themis/internal/config"
 	"themis/internal/memory"
 	"themis/internal/models"
@@ -53,6 +55,7 @@ func (s *Server) Router() http.Handler {
 	mux.HandleFunc("POST /api/statements/{id}/checks", s.recheckStatement)
 	mux.HandleFunc("GET /api/transactions", s.listTransactions)
 	mux.HandleFunc("PATCH /api/transactions/{id}", s.updateTransaction)
+	mux.HandleFunc("GET /api/transactions/{id}/classification/history", s.classificationHistory)
 	mux.HandleFunc("GET /api/categories", s.listCategories)
 	mux.HandleFunc("GET /api/rules", s.listRules)
 	mux.HandleFunc("POST /api/rules", s.createRule)
@@ -414,7 +417,8 @@ func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Month string `json:"month"`
+		Month         string `json:"month"`
+		TransactionID int64  `json:"transaction_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil && err != io.EOF {
 		writeErr(w, 400, fmt.Errorf("demande IA invalide"))
@@ -424,9 +428,22 @@ func (s *Server) aiEnrich(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("month doit être au format YYYY-MM"))
 		return
 	}
-	res, err := ai.AutoEnrich(r.Context(), s.DB, s.getLLM(), s.ownerID(r), 0, in.Month)
+	var res ai.EnrichResult
+	var err error
+	if in.TransactionID > 0 {
+		res, err = ai.AutoEnrich(r.Context(), s.DB, s.getLLM(), s.ownerID(r), 0, in.Month, in.TransactionID)
+	} else if in.TransactionID < 0 {
+		writeErr(w, 400, fmt.Errorf("opération invalide"))
+		return
+	} else {
+		res, err = ai.AutoEnrich(r.Context(), s.DB, s.getLLM(), s.ownerID(r), 0, in.Month)
+	}
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
+		if errors.Is(err, classification.ErrNotFound) || errors.Is(err, classification.ErrConflict) {
+			classificationFailure(w, err)
+		} else {
+			writeErr(w, http.StatusBadGateway, fmt.Errorf("réévaluation IA indisponible"))
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -467,6 +484,9 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 		return 0, 0, 0, err
 	}
 	defer tx.Rollback()
+	if err = classification.Automatic(context.Background(), tx, "import"); err != nil {
+		return 0, 0, 0, err
+	}
 	// Sérialiser les imports d'un propriétaire pour que la vérification de
 	// portée et la contrainte historique de déduplication soient atomiques.
 	if _, err = tx.Exec(`SELECT pg_advisory_xact_lock($1)`, ownerID); err != nil {
@@ -493,8 +513,15 @@ func (s *Server) persist(filename string, res *models.ParseResult, accountID, ow
 
 	for _, t := range res.Transactions {
 		var domID *int64
-		if id, ok := eng.Match(t.Label); ok {
+		winner := eng.Evaluate(t.Label).Winner
+		var ruleID int64
+		if winner != nil {
+			id := winner.DomainID
 			domID = &id
+			ruleID = winner.ID
+		}
+		if ruleErr := classification.Rule(context.Background(), tx, ruleID); ruleErr != nil {
+			return 0, 0, 0, ruleErr
 		}
 		norm := normalize.Label(t.Label, t.Amount)
 		disp := norm.Display

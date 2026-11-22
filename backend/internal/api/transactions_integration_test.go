@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"themis/internal/testfixture"
 )
 
 // All fixtures are temporary and shadow public tables even when testing errors.
@@ -17,12 +17,8 @@ func TestTransactionsPostgres(t *testing.T) {
 	if dsn == "" {
 		t.Skip("THEMIS_TEST_DATABASE_URL non défini")
 	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
+	db := qualityTestDB(t)
+	var err error
 	_, err = db.Exec(`CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint,parent_id bigint,is_transfer bool DEFAULT false);
  CREATE TEMP TABLE accounts(id bigint PRIMARY KEY,owner_id bigint,name text,tracking_mode text NOT NULL DEFAULT 'statements');
  CREATE TEMP TABLE statements(id bigint PRIMARY KEY,owner_id bigint,account_id bigint,filename text,validated bool,period_start date,period_end date);
@@ -53,6 +49,7 @@ func TestTransactionsPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedDocumentedStatementBalances(t, db)
+	testfixture.ClassificationShadows(t, db)
 	s := &Server{DB: db}
 	call := func(method, path, body string, owner int64) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, strings.NewReader(body))

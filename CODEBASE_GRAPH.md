@@ -1,13 +1,15 @@
 # Themis — Codebase Knowledge Graph
 *Graphe de référence pour navigation rapide. À mettre à jour à chaque changement significatif.*
 
-### Classification — sprint 1A
+### Classification — sprints 1A et 1B
 
 - `internal/categorize/plan.go` fournit les règles ordonnées, leur évaluation et un plan propriétaire préparé avant application. Priorité inchangée (longueur Unicode décroissante puis ID), règle gagnante seule pour les tags ; motifs invalides explicites.
 - `api/transaction_rules.go` applique le plan sous verrou, en une transaction par périmètre demandé ; une règle individuelle ne contourne pas une règle gagnante concurrente. Les domaines existants et les choix manuels NULL sont préservés, les tags existants ne sont jamais retirés.
 - `api/coherence.go`, `handlers.go::listRules` et le diagnostic local `internal/classificationaudit` réutilisent le moteur Go. Le rapport de cohérence expose des sources par ID et des explications ; aucune regex SQL approximative.
-- `transactions.go` et `classification_version.go` ajoutent une précondition d’état facultative à l’API existante, envoyée par Transactions et ses opérations par lot. L’Agent inclut également la provenance dans ses empreintes ; les préconditions ne sont pas des révisions persistées.
-- `ai/enrich.go` respecte le NULL manuel, y compris après appel modèle. `ai/suggestion_identity.go` définit et teste l’identité future d’un rejet, sans la persister ni supprimer les nouvelles propositions. Verrous indépendants et tombstones de tags restent non représentables : aucune migration ajoutée. Détails, acceptation partielle et proposition 1B : `docs/financial-classification/SPRINT_1A_REPORT.md`.
+- `internal/classification/service.go` et la migration `035_classification_decisions.sql` partagent les commandes transactionnelles, révisions monotones, reçus idempotents, verrous domaine/tags, décisions de tags et journal atomique. Les triggers couvrent aussi import, règles et dictionnaires. L’Agent inclut la révision dans ses aperçus ; Transactions envoie `expected_revision` et une clé d’opération, avec transition de l’empreinte 1A limitée aux états non configurés à révision 0.
+- `ai/enrich.go` conserve les propositions sans affectation et revalide révision/contexte/rejet après retour modèle. `SuggestionIdentity` conserve le calcul canonique v1 ; les rejets sont persistés avec un contexte distinct, dépendant des seules règles pertinentes. Le rapport revalide aussi les propositions affichées. Une réévaluation explicite est tracée sans déverrouillage ni application automatique.
+- `api/classification_history.go` fournit l’historique paginé authentifié ; `components/ClassificationAdvanced.jsx` expose protections, historique et réévaluation dans le détail Transactions. Le journal exclut libellés/montants et survit à la suppression d’une transaction, avec effacement lors de la suppression du propriétaire. Les fusions implicites et suppressions de dictionnaires utilisés sont refusées.
+- Tests spécifiques : `api/classification_decisions_integration_test.go`, `db/classification_migration_test.go`, Transactions/Agent navigateur et Axe. Architecture, limites et rollback : `docs/financial-classification/SPRINT_1B_REPORT.md`. Le rapport 1A reste le constat de son périmètre historique.
 
 ---
 
@@ -105,7 +107,7 @@ Client{Learn, LearnSource, Query, Inspect, SearchFacts, BuildFinancialFacts}
 - UI : page `Knowledge`, `KnowledgeActivity` (également Admin → IA → Mémoire), `KnowledgeFacts` et validation `knowledgeModel.mjs`. Voir `docs/KNOWLEDGE_ACTIVITY.md`.
 
 ### Migrations (`backend/internal/db/migrations/`)
-- `001_init.sql` → `034_agent_workspace.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
+- `001_init.sql` → `035_classification_decisions.sql` (appliquées 1x via `schema_migrations`, rollbacks explicites et gardés hors du dossier embarqué)
 
 ### Remboursements manuels
 - `reimbursements.go` expose les routes authentifiées `/api/reimbursements*`; `reimbursement_service.go` porte les snapshots, allocations en centimes, verrous, statuts et historique.
@@ -240,6 +242,9 @@ go func() {
 | `chat_conversations` / `chat_messages` | Historique assistant |
 | `settings` | Clé/valeur (layout dashboard, ai_config, etc.) |
 | `schema_migrations` | Suivi migrations appliquées |
+| `classification_state`, `classification_tag_decisions` | Révisions/verrous et choix de tags par identité stable/propriétaire |
+| `classification_rejections`, `classification_rule_versions` | Rejets IA et dépendances de contexte pertinentes |
+| `classification_events`, `classification_operations` | Journal atomique et reçus de commandes idempotentes |
 
 ---
 

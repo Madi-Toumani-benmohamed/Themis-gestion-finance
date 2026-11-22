@@ -5,24 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
+	"themis/internal/testfixture"
 )
 
 func qualityTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dsn := os.Getenv("THEMIS_TEST_DATABASE_URL")
-	if dsn == "" {
-		t.Skip("THEMIS_TEST_DATABASE_URL non défini")
-	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	t.Cleanup(func() { db.Close() })
-	return db
+	return testfixture.Postgres(t)
 }
 
 func TestNormalizerOwnerIsolationAndAtomicVersionPostgres(t *testing.T) {

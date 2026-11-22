@@ -2,9 +2,9 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"testing"
+	"themis/internal/testfixture"
 )
 
 func TestTransactionRuleProvenancePostgres(t *testing.T) {
@@ -12,12 +12,8 @@ func TestTransactionRuleProvenancePostgres(t *testing.T) {
 	if dsn == "" {
 		t.Skip("THEMIS_TEST_DATABASE_URL non défini")
 	}
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
+	db := qualityTestDB(t)
+	var err error
 	_, err = db.Exec(`
 CREATE TEMP TABLE domains(id bigint PRIMARY KEY,owner_id bigint);
 CREATE TEMP TABLE rules(id bigserial PRIMARY KEY,owner_id bigint,domain_id bigint,pattern text,tags text);
@@ -30,6 +26,7 @@ INSERT INTO rules(owner_id,domain_id,pattern,tags) VALUES(1,1,'re:^PRLV EDF$','f
 	if err != nil {
 		t.Fatal(err)
 	}
+	testfixture.ClassificationShadows(t, db)
 	s := &Server{DB: db}
 	// Import applies rules only to newly imported sources. It does not tag or
 	// recategorize historical or foreign transactions as a side effect.

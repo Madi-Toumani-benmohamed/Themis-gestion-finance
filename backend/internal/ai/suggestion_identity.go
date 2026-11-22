@@ -9,10 +9,9 @@ import (
 	"strings"
 )
 
-// SuggestionIdentity defines the versioned semantic identity for a future
-// rejection store. It does not persist a rejection or suppress proposals yet.
-// Provider, attempt time and imports are intentionally absent. A meaningful
-// context revision must be checked separately by the future persisted policy.
+// SuggestionIdentity defines the stable v1 semantic identity used by durable
+// rejections. Context eligibility is checked separately; model and attempt time
+// never alter this identity. The canonical contract remains unchanged from 1A.
 func SuggestionIdentity(owner, transaction, domain int64, tags []string) (string, error) {
 	if owner <= 0 || transaction <= 0 || domain <= 0 {
 		return "", fmt.Errorf("identité de proposition invalide")

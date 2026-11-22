@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"themis/internal/models"
+	"themis/internal/testfixture"
 )
 
 func TestImportAndReapplicationWinningRuleParityPostgres(t *testing.T) {
@@ -60,6 +61,7 @@ SELECT setval(pg_get_serial_sequence('tags','id'),3);`)
 			if err != nil {
 				t.Fatal(err)
 			}
+			testfixture.ClassificationShadows(t, db)
 			s := &Server{DB: db}
 			proof := func() string {
 				var p string

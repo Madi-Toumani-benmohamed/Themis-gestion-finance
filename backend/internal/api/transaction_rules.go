@@ -7,6 +7,7 @@ import (
 
 	"github.com/lib/pq"
 	"themis/internal/categorize"
+	"themis/internal/classification"
 )
 
 func validCalendarMonth(month string) bool {
@@ -47,6 +48,9 @@ func (s *Server) applyClassificationRules(owner, statement int64, selectedID int
 		return 0, err
 	}
 	defer tx.Rollback()
+	if err = classification.Automatic(context.Background(), tx, "rule"); err != nil {
+		return 0, err
+	}
 	eng, err := categorize.LoadFrom(ctx, tx, owner)
 	if err != nil {
 		return 0, err
@@ -63,18 +67,20 @@ func (s *Server) applyClassificationRules(owner, statement int64, selectedID int
 		}
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT t.id,t.label,t.domain_id,t.classification_source,
- COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}')
- FROM transactions t WHERE t.owner_id=$1 AND ($2::bigint=0 OR t.statement_id=$2) ORDER BY t.id FOR UPDATE OF t`, owner, statement)
+ COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}'),COALESCE(cs.domain_locked,false),COALESCE(cs.tags_locked,false),
+ COALESCE((SELECT array_agg(g.name) FROM classification_tag_decisions d JOIN tags g ON g.id=d.tag_id AND g.owner_id=d.owner_id WHERE d.owner_id=t.owner_id AND d.transaction_id=t.id AND d.decision='removed'),'{}')
+ FROM transactions t LEFT JOIN classification_state cs ON cs.owner_id=t.owner_id AND cs.transaction_id=t.id WHERE t.owner_id=$1 AND ($2::bigint=0 OR t.statement_id=$2) ORDER BY t.id FOR UPDATE OF t`, owner, statement)
 	if err != nil {
 		return 0, err
 	}
 	plans := []categorize.Plan{}
 	for rows.Next() {
 		var in categorize.Input
-		if err = rows.Scan(&in.ID, &in.Label, &in.DomainID, &in.Source, pq.Array(&in.Tags)); err != nil {
+		if err = rows.Scan(&in.ID, &in.Label, &in.DomainID, &in.Source, pq.Array(&in.Tags), &in.DomainLocked, &in.TagsLocked, pq.Array(&in.RemovedTags)); err != nil {
 			rows.Close()
 			return 0, err
 		}
+		in.ProtectionsKnown = true
 		plan := eng.Plan(in)
 		if plan.Winner != nil && (selectedID == 0 || plan.Winner.ID == selectedID) {
 			plans = append(plans, plan)
@@ -87,6 +93,9 @@ func (s *Server) applyClassificationRules(owner, statement int64, selectedID int
 	}
 	var applied int64
 	for _, plan := range plans {
+		if e := classification.Rule(ctx, tx, plan.Winner.ID); e != nil {
+			return 0, e
+		}
 		if plan.SetDomain {
 			res, e := tx.ExecContext(ctx, `UPDATE transactions SET domain_id=$1,classification_source='rule' WHERE id=$2 AND owner_id=$3 AND domain_id IS NULL AND classification_source<>'manual'`, *plan.ProposedDomain, plan.TransactionID, owner)
 			if e != nil {

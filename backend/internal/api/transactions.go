@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"themis/internal/ai"
+	"themis/internal/classification"
 	"themis/internal/models"
 	"themis/internal/money"
 )
@@ -185,35 +187,42 @@ func parseTransactionFilter(v url.Values, owner int64, report bool, now time.Tim
 }
 
 type transactionReportRow struct {
-	SourcePage            *int                   `json:"source_page,omitempty"`
-	SourceLine            *int                   `json:"source_line,omitempty"`
-	ValueDate             *string                `json:"value_date,omitempty"`
-	ID                    int64                  `json:"id"`
-	StatementID           *int64                 `json:"statement_id,omitempty"`
-	Date                  string                 `json:"date"`
-	Label                 string                 `json:"label"`
-	Display               string                 `json:"display_label"`
-	Merchant              string                 `json:"merchant"`
-	Kind                  string                 `json:"kind,omitempty"`
-	Amount                json.Number            `json:"amount"`
-	AmountCents           money.Cents            `json:"amount_cents"`
-	DomainID              *int64                 `json:"domain_id"`
-	Tags                  []string               `json:"tags"`
-	AccountID             *int64                 `json:"account_id"`
-	AccountName           string                 `json:"account_name"`
-	StatementFilename     string                 `json:"statement_filename"`
-	StatementValidated    *bool                  `json:"statement_validated"`
-	StatementPeriodStart  *string                `json:"statement_period_start"`
-	StatementPeriodEnd    *string                `json:"statement_period_end"`
-	FinancialType         string                 `json:"financial_type"`
-	ClassificationVersion string                 `json:"classification_version"`
-	ClassificationSource  string                 `json:"classification_source"`
-	Suggestion            *transactionSuggestion `json:"suggestion"`
+	SourcePage               *int                   `json:"source_page,omitempty"`
+	SourceLine               *int                   `json:"source_line,omitempty"`
+	ValueDate                *string                `json:"value_date,omitempty"`
+	ID                       int64                  `json:"id"`
+	StatementID              *int64                 `json:"statement_id,omitempty"`
+	Date                     string                 `json:"date"`
+	Label                    string                 `json:"label"`
+	Display                  string                 `json:"display_label"`
+	Merchant                 string                 `json:"merchant"`
+	Kind                     string                 `json:"kind,omitempty"`
+	Amount                   json.Number            `json:"amount"`
+	AmountCents              money.Cents            `json:"amount_cents"`
+	DomainID                 *int64                 `json:"domain_id"`
+	Tags                     []string               `json:"tags"`
+	AccountID                *int64                 `json:"account_id"`
+	AccountName              string                 `json:"account_name"`
+	StatementFilename        string                 `json:"statement_filename"`
+	StatementValidated       *bool                  `json:"statement_validated"`
+	StatementPeriodStart     *string                `json:"statement_period_start"`
+	StatementPeriodEnd       *string                `json:"statement_period_end"`
+	FinancialType            string                 `json:"financial_type"`
+	ClassificationRevision   int64                  `json:"classification_revision,string"`
+	DomainLocked             bool                   `json:"domain_locked"`
+	TagsLocked               bool                   `json:"tags_locked"`
+	ClassificationConfigured bool                   `json:"classification_configured"`
+	ClassificationVersion    string                 `json:"classification_version"`
+	ClassificationSource     string                 `json:"classification_source"`
+	Suggestion               *transactionSuggestion `json:"suggestion"`
 }
 type transactionSuggestion struct {
-	DomainID int64    `json:"domain_id"`
-	Tags     []string `json:"tags"`
-	Source   string   `json:"source"`
+	contextKey   string
+	baseRevision int64
+	DomainID     int64    `json:"domain_id"`
+	Tags         []string `json:"tags"`
+	Source       string   `json:"source"`
+	Identity     string   `json:"identity"`
 }
 type transactionReportSummary struct {
 	Expenses           json.Number `json:"expenses"`
@@ -331,8 +340,8 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
  COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}'),
  a.id,COALESCE(a.name,''),COALESCE(st.filename,''),CASE WHEN st.id IS NULL THEN NULL ELSE COALESCE((`+statementDocumentedSQL+`),false) END,st.period_start::text,st.period_end::text,
  CASE WHEN NOT `+financialExpenseSQLT+` THEN 'transfer' WHEN t.amount<0 THEN 'debit' WHEN t.amount>0 THEN 'credit' ELSE 'neutral' END,t.classification_source,
- sug.domain_id,COALESCE(sug.tags,'{}'),COALESCE(sug.source,''),(to_jsonb(t)->>'source_page')::integer,(to_jsonb(t)->>'source_line')::integer,to_jsonb(t)->>'value_date'
- FROM transactions t LEFT JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id
+ sug.domain_id,COALESCE(sug.tags,'{}'),COALESCE(sug.source,''),(to_jsonb(t)->>'source_page')::integer,(to_jsonb(t)->>'source_line')::integer,to_jsonb(t)->>'value_date',COALESCE(cs.revision,0),COALESCE(cs.domain_locked,false),COALESCE(cs.tags_locked,false),cs.transaction_id IS NOT NULL,COALESCE(sug.context_key,''),COALESCE(sug.base_revision,0)
+ FROM transactions t LEFT JOIN classification_state cs ON cs.transaction_id=t.id AND cs.owner_id=t.owner_id LEFT JOIN statements st ON st.id=t.statement_id AND st.owner_id=t.owner_id
  LEFT JOIN accounts a ON a.id=st.account_id AND a.owner_id=t.owner_id
  LEFT JOIN transaction_suggestions sug ON sug.transaction_id=t.id AND sug.owner_id=t.owner_id AND EXISTS(SELECT 1 FROM domains suggested_domain WHERE suggested_domain.id=sug.domain_id AND suggested_domain.owner_id=t.owner_id)
  WHERE `+f.where+fmt.Sprintf(` ORDER BY t.tx_date DESC,t.id DESC LIMIT $%d OFFSET $%d`, len(args)-1, len(args)), args...)
@@ -345,8 +354,9 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 		var amount string
 		var suggestionDomain *int64
 		var suggestionTags []string
-		var suggestionSource string
-		if err = rows.Scan(&t.ID, &t.StatementID, &t.Date, &t.Label, &t.Display, &t.Merchant, &t.Kind, &amount, &t.DomainID, pq.Array(&t.Tags), &t.AccountID, &t.AccountName, &t.StatementFilename, &t.StatementValidated, &t.StatementPeriodStart, &t.StatementPeriodEnd, &t.FinancialType, &t.ClassificationSource, &suggestionDomain, pq.Array(&suggestionTags), &suggestionSource, &t.SourcePage, &t.SourceLine, &t.ValueDate); err != nil {
+		var suggestionSource, suggestionContext string
+		var suggestionRevision int64
+		if err = rows.Scan(&t.ID, &t.StatementID, &t.Date, &t.Label, &t.Display, &t.Merchant, &t.Kind, &amount, &t.DomainID, pq.Array(&t.Tags), &t.AccountID, &t.AccountName, &t.StatementFilename, &t.StatementValidated, &t.StatementPeriodStart, &t.StatementPeriodEnd, &t.FinancialType, &t.ClassificationSource, &suggestionDomain, pq.Array(&suggestionTags), &suggestionSource, &t.SourcePage, &t.SourceLine, &t.ValueDate, &t.ClassificationRevision, &t.DomainLocked, &t.TagsLocked, &t.ClassificationConfigured, &suggestionContext, &suggestionRevision); err != nil {
 			rows.Close()
 			writeErr(w, 500, fmt.Errorf("transactions indisponibles"))
 			return
@@ -358,9 +368,10 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 			return
 		}
 		t.Amount = json.Number(t.AmountCents.String())
-		t.ClassificationVersion = classificationVersion(s.ownerID(r), t.ID, t.DomainID, t.ClassificationSource, t.Tags)
+		t.ClassificationVersion = classificationVersion(s.ownerID(r), t.ID, t.DomainID, t.ClassificationSource, t.Tags, t.ClassificationRevision)
 		if suggestionDomain != nil {
-			t.Suggestion = &transactionSuggestion{DomainID: *suggestionDomain, Tags: suggestionTags, Source: suggestionSource}
+			t.Suggestion = &transactionSuggestion{DomainID: *suggestionDomain, Tags: suggestionTags, Source: suggestionSource, contextKey: suggestionContext, baseRevision: suggestionRevision}
+			t.Suggestion.Identity, _ = ai.SuggestionIdentity(s.ownerID(r), t.ID, *suggestionDomain, suggestionTags)
 		}
 		out.Transactions = append(out.Transactions, t)
 	}
@@ -369,6 +380,41 @@ func (s *Server) writeTransactionReport(w http.ResponseWriter, r *http.Request, 
 	if err != nil {
 		writeErr(w, 500, fmt.Errorf("lecture interrompue"))
 		return
+	}
+	// Present proposals only against their captured state, using the same report snapshot.
+	for i := range out.Transactions {
+		row := &out.Transactions[i]
+		proposal := row.Suggestion
+		if proposal == nil {
+			continue
+		}
+		if proposal.Identity == "" || proposal.baseRevision != row.ClassificationRevision {
+			row.Suggestion = nil
+			continue
+		}
+		if proposal.contextKey == "" {
+			if row.ClassificationConfigured {
+				row.Suggestion = nil
+			}
+			continue
+		}
+		_, key, contextErr := classification.Context(r.Context(), tx, s.ownerID(r), row.ID)
+		if contextErr != nil {
+			writeErr(w, 500, fmt.Errorf("propositions indisponibles"))
+			return
+		}
+		if key != proposal.contextKey {
+			row.Suggestion = nil
+			continue
+		}
+		var rejected bool
+		if contextErr = tx.QueryRowContext(r.Context(), `SELECT EXISTS(SELECT 1 FROM classification_rejections WHERE owner_id=$1 AND transaction_id=$2 AND identity=$3 AND context_key=$4)`, s.ownerID(r), row.ID, proposal.Identity, key).Scan(&rejected); contextErr != nil {
+			writeErr(w, 500, fmt.Errorf("propositions indisponibles"))
+			return
+		}
+		if rejected {
+			row.Suggestion = nil
+		}
 	}
 	if err = tx.Commit(); err != nil {
 		writeErr(w, 500, fmt.Errorf("lecture interrompue"))
@@ -432,8 +478,45 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 	var addTags, removeTags []string
 	discardSuggestion := false
 	var expectedVersion string
+	var expectedRevision *int64
+	var domainLocked, tagsLocked *bool
+	var reevaluate bool
+	var expectedSuggestion string
 	for key, value := range raw {
 		switch key {
+		case "expected_revision":
+			var n json.Number
+			if json.Unmarshal(value, &n) != nil {
+				writeErr(w, 400, fmt.Errorf("révision invalide"))
+				return
+			}
+			v, e := n.Int64()
+			if e != nil || v < 0 {
+				writeErr(w, 400, fmt.Errorf("révision invalide"))
+				return
+			}
+			expectedRevision = &v
+		case "domain_locked", "tags_locked":
+			var v *bool
+			if string(value) == "null" || json.Unmarshal(value, &v) != nil || v == nil {
+				writeErr(w, 400, fmt.Errorf("protection invalide"))
+				return
+			}
+			if key == "domain_locked" {
+				domainLocked = v
+			} else {
+				tagsLocked = v
+			}
+		case "reevaluate":
+			if json.Unmarshal(value, &reevaluate) != nil || !reevaluate {
+				writeErr(w, 400, fmt.Errorf("réévaluation invalide"))
+				return
+			}
+		case "expected_suggestion_identity":
+			if json.Unmarshal(value, &expectedSuggestion) != nil || len(expectedSuggestion) != 64 {
+				writeErr(w, 400, fmt.Errorf("proposition invalide"))
+				return
+			}
 		case "expected_classification_version":
 			if json.Unmarshal(value, &expectedVersion) != nil || len(expectedVersion) != 64 {
 				writeErr(w, 400, fmt.Errorf("référence de classification invalide"))
@@ -486,6 +569,14 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, fmt.Errorf("choisir remplacement ou ajout/retrait de tags"))
 		return
 	}
+	for _, added := range addTags {
+		for _, removed := range removeTags {
+			if added == removed {
+				writeErr(w, 400, fmt.Errorf("un tag ne peut être ajouté et retiré simultanément"))
+				return
+			}
+		}
+	}
 	owner := s.ownerID(r)
 	tx, err := s.DB.BeginTx(r.Context(), nil)
 	if err != nil {
@@ -493,32 +584,51 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	var found int64
-	err = tx.QueryRowContext(r.Context(), `SELECT id FROM transactions WHERE id=$1 AND owner_id=$2 FOR UPDATE`, id, owner).Scan(&found)
-	if err == sql.ErrNoRows {
-		writeErr(w, 404, fmt.Errorf("transaction introuvable"))
-		return
-	}
+	replay, err := classification.Begin(r.Context(), tx, owner, id, "manual", r.Header.Get("Idempotency-Key"), raw, expectedRevision, expectedVersion)
 	if err != nil {
-		writeErr(w, 500, fmt.Errorf("enregistrement impossible"))
+		classificationFailure(w, err)
 		return
 	}
-	if expectedVersion != "" {
-		var currentDomain *int64
-		var currentSource string
-		var currentTags []string
-		if err = tx.QueryRowContext(r.Context(), `SELECT t.domain_id,t.classification_source,COALESCE((SELECT array_agg(tg.name ORDER BY tg.name) FROM transaction_tags tt JOIN tags tg ON tg.id=tt.tag_id AND tg.owner_id=t.owner_id WHERE tt.transaction_id=t.id),'{}') FROM transactions t WHERE t.id=$1 AND t.owner_id=$2`, id, owner).Scan(&currentDomain, &currentSource, pq.Array(&currentTags)); err != nil {
-			writeErr(w, 500, fmt.Errorf("classification indisponible"))
-			return
-		}
-		if classificationVersion(owner, id, currentDomain, currentSource, currentTags) != expectedVersion {
-			writeErr(w, 409, fmt.Errorf("la classification a changé ; recharge les opérations avant d'enregistrer"))
-			return
-		}
+	if replay {
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
-	if !setDomain && !setTags && len(addTags) == 0 && len(removeTags) == 0 && !discardSuggestion {
+
+	if !setDomain && !setTags && len(addTags) == 0 && len(removeTags) == 0 && !discardSuggestion && domainLocked == nil && tagsLocked == nil && !reevaluate {
 		writeErr(w, 400, fmt.Errorf("aucune modification demandée"))
 		return
+	}
+
+	if discardSuggestion {
+		var d int64
+		var proposedTags []string
+		var storedKey string
+		var base int64
+		e := tx.QueryRowContext(r.Context(), `SELECT domain_id,tags,COALESCE(context_key,''),base_revision FROM transaction_suggestions WHERE transaction_id=$1 AND owner_id=$2 FOR UPDATE`, id, owner).Scan(&d, pq.Array(&proposedTags), &storedKey, &base)
+		if e != nil && e != sql.ErrNoRows {
+			classificationFailure(w, e)
+			return
+		}
+		if e == nil {
+			identity, e := ai.SuggestionIdentity(owner, id, d, proposedTags)
+			if e != nil {
+				classificationFailure(w, e)
+				return
+			}
+			state, key, e := classification.Context(r.Context(), tx, owner, id)
+			if e != nil {
+				classificationFailure(w, e)
+				return
+			}
+			if (expectedSuggestion != "" && expectedSuggestion != identity) || (storedKey != "" && (storedKey != key || base != state.Revision)) {
+				classificationFailure(w, classification.ErrConflict)
+				return
+			}
+			if e = classification.Reject(r.Context(), tx, owner, id, identity, key); e != nil {
+				classificationFailure(w, e)
+				return
+			}
+		}
 	}
 
 	if setDomain {
@@ -539,7 +649,7 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if setDomain || discardSuggestion {
+	if setDomain {
 		if _, err = tx.ExecContext(r.Context(), `DELETE FROM transaction_suggestions WHERE transaction_id=$1 AND owner_id=$2`, id, owner); err != nil {
 			writeErr(w, 500, fmt.Errorf("enregistrement impossible"))
 			return
@@ -577,6 +687,43 @@ func (s *Server) updateTransaction(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, decision := range []struct {
+		names []string
+		value string
+	}{{addTags, "added"}, {removeTags, "removed"}} {
+		for _, name := range decision.names {
+			var tag int64
+			e := tx.QueryRowContext(r.Context(), `SELECT id FROM tags WHERE owner_id=$1 AND name=$2`, owner, name).Scan(&tag)
+			if e == sql.ErrNoRows {
+				continue
+			}
+			if e != nil {
+				classificationFailure(w, e)
+				return
+			}
+			if _, e = tx.ExecContext(r.Context(), `SELECT classification_tag_decide($1,$2,$3,$4)`, owner, id, tag, decision.value); e != nil {
+				classificationFailure(w, e)
+				return
+			}
+		}
+	}
+	if domainLocked != nil || tagsLocked != nil {
+		if e := classification.Locks(r.Context(), tx, owner, id, domainLocked, tagsLocked); e != nil {
+			classificationFailure(w, e)
+			return
+		}
+	}
+	if reevaluate {
+		if e := classification.Reevaluate(r.Context(), tx, owner, id); e != nil {
+			classificationFailure(w, e)
+			return
+		}
+	}
+	if e := classification.Finish(r.Context(), tx, owner, id); e != nil {
+		classificationFailure(w, e)
+		return
+	}
+
 	if err = tx.Commit(); err != nil {
 		writeErr(w, 500, fmt.Errorf("enregistrement impossible"))
 		return
@@ -603,9 +750,10 @@ func validateTransactionTags(names []string) ([]string, error) {
 	return out, nil
 }
 func replaceTransactionTags(ctx context.Context, tx *sql.Tx, id, owner int64, names []string) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM transaction_tags WHERE transaction_id=$1`, id); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM transaction_tags tt USING tags g WHERE tt.transaction_id=$1 AND g.id=tt.tag_id AND g.owner_id=$2 AND NOT(g.name=ANY($3::text[]))`, id, owner, pq.Array(names)); err != nil {
 		return err
 	}
+
 	for _, name := range names {
 		var tag int64
 		if err := tx.QueryRowContext(ctx, `INSERT INTO tags(name,owner_id) VALUES($1,$2) ON CONFLICT(owner_id,name) DO UPDATE SET name=EXCLUDED.name RETURNING id`, name, owner).Scan(&tag); err != nil {

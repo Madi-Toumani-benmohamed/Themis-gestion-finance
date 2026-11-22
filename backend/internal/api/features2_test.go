@@ -396,6 +396,16 @@ func TestEngagementExportOwnerIsolationPostgres(t *testing.T) {
 	if _, err = db.Exec(string(agentSchema)); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec(`ALTER TABLE transactions ADD COLUMN classification_source text NOT NULL DEFAULT 'unknown'; ALTER TABLE rules ADD COLUMN tags text DEFAULT ''; CREATE TABLE transaction_suggestions(transaction_id bigint PRIMARY KEY, owner_id bigint,domain_id bigint,tags text[])`); err != nil {
+		t.Fatal(err)
+	}
+	classificationSchema, err := os.ReadFile("../db/migrations/035_classification_decisions.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(string(classificationSchema)); err != nil {
+		t.Fatal(err)
+	}
 	for _, owner := range []int64{1, 2} {
 		w := engagementRequest(t, s, s.createCredit, "POST", "/api/credits", fmt.Sprintf(`{"name":"CONFIDENTIAL_OWNER_%d","monthly_amount":"33.33","months_total":3,"start_month":"2020-01","opening_paid":"0.00"}`, owner), owner, 201)
 		var c creditView

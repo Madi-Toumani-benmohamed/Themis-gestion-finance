@@ -215,10 +215,11 @@ export const api = {
   tagFolders: (month, options = {}) => scopedG('/api/tag-folders', { month }, options),
   tagFolderDetail: (name, month, options = {}) => scopedG(`/api/tag-folders/${encodeURIComponent(name)}`, { month }, options),
   setTagFolderPref: (name, state) => J(`/api/tag-folders/${encodeURIComponent(name)}/pref`, 'PUT', { state }),
-  setTransactionMeta: (id, meta) => J(`/api/transactions/${id}`, 'PATCH', meta),
+  setTransactionMeta: (id, meta, operation) => fetch(`/api/transactions/${id}`, { method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', ...(operation ? { 'Idempotency-Key': operation } : {}) }, body: JSON.stringify(meta) }).then(json),
+  classificationHistory: (id, before = '') => scopedG(`/api/transactions/${id}/classification/history`, { before_id: before }),
 
   // Graphe & simulation
-  aiEnrich: (month) => J('/api/enrich/ai', 'POST', month ? { month } : {}),
+  aiEnrich: (month, transaction_id) => J('/api/enrich/ai', 'POST', { ...(month ? { month } : {}), ...(transaction_id ? { transaction_id } : {}) }),
   categorySeries: (params = {}, options = {}) => scopedG('/api/category-series', params, options),
   simulate: (scenario) => J('/api/simulate', 'POST', scenario),
 }
