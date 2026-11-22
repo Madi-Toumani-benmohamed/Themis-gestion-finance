@@ -149,7 +149,10 @@ Les fichiers de tests spécifiques sont `api/classification_decisions_integratio
 | Transactions navigateur Chromium | Réussi : révisions, clé idempotente, conflit sans relance, brouillon conservé, verrous/historique/réévaluation ; six tailles et Axe clair/sombre |
 | Agent navigateur Chromium | Réussi : aperçus, validation explicite, action périmée, six tailles/thèmes, Axe plein écran/flottant |
 | Axe panneau avancé ouvert à six tailles et en clair | Réussi : panneau ouvert aux six tailles, puis en thème clair ; aucune violation Axe |
+| E2E réelle locale, Chromium système | 16 scénarios fonctionnels réussis ; les 4 références pixel présentent des écarts avec ce navigateur système et restent à valider dans Chromium CI |
 | CI distante du sprint 1B | À vérifier sur la PR avant fusion ; résultats et SHA consultables dans GitHub |
+
+Le premier passage CI de la PR #70 a validé backend, frontend, sécurité et toutes les suites UI simulées, mais a révélé un ancien nettoyage E2E Agent incompatible avec les protections 1B : supprimer le tag retiré renvoyait désormais 409. L'entrée conservée polluait ensuite le vocabulaire du compte des captures visuelles. Le scénario réel utilise désormais l'autre propriétaire synthétique, vérifie le refus 409 et la trace du retrait, et conserve les références visuelles existantes. Les 16 scénarios fonctionnels réels passent localement ; les captures restent soumises au navigateur déterministe de CI, sans assouplir les seuils ni régénérer les références.
 
 Les contrôles de navigateur interceptent les API avec des données synthétiques. Ils ne remplacent pas les scénarios PostgreSQL qui testent les mutations réellement exécutées. La suite HTTP bout en bout complète avec fournisseur IA réel et KG n'a pas été exécutée : ni nouveau fournisseur ni modification du KG ne fait partie de ce sprint.
 

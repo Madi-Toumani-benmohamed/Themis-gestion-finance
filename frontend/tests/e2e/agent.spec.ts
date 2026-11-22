@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { resolve } from 'node:path'
 
+// Keep durable decisions on the non-visual owner; protected vocabulary is not
+// disposable cleanup data and must not pollute the owner's screenshot fixtures.
+test.use({ storageState: resolve('test-results/.auth/other.json') })
+
 test('les missions et aperçus de l’agent persistent sans écriture implicite et restent privés', async ({
   page,
   browser,
@@ -39,7 +43,7 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
     )
   expect((await readSource()).tags || []).toEqual(originalTags)
   const other = await browser.newContext({
-    storageState: resolve('test-results/.auth/other.json'),
+    storageState: resolve('test-results/.auth/admin.json'),
   })
   try {
     expect(
@@ -98,7 +102,7 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
     ).toBe('paused')
   } finally {
     await other.close()
-    // Restore the synthetic source used by the unrelated visual contracts.
+    // Restore links through the real manual command, retaining its durable proof.
     expect(
       (
         await page.request.patch(`/api/transactions/${source.id}`, {
@@ -106,18 +110,21 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
         })
       ).ok(),
     ).toBe(true)
-    // Removing a transaction tag does not delete its vocabulary entry. Keep
-    // the global filter list identical for subsequent visual tests as well.
+    // A referenced tag cannot be erased after manual removal: its stable ID
+    // is needed by the tombstone and journal. Assert the new contract.
     expect(
       (
         await page.request.delete(
           '/api/tags/' + encodeURIComponent('agent e2e'),
         )
-      ).ok(),
-    ).toBe(true)
+      ).status(),
+    ).toBe(409)
+    expect((await readSource()).tags || []).toEqual(originalTags)
+    const classificationHistory = await (await page.request.get(`/api/transactions/${source.id}/classification/history`)).json()
+    expect(classificationHistory.events.some((event: { event_type: string; origin: string }) => event.event_type === 'tag_decision' && event.origin === 'manual')).toBe(true)
     const tagsAfter = await (await page.request.get('/api/tags')).json()
     expect(tagsAfter.map((tag: { name: string }) => tag.name).sort()).toEqual(
-      initialTagNames,
+      [...new Set([...initialTagNames, 'agent e2e'])].sort(),
     )
     expect(
       (
@@ -136,5 +143,5 @@ test('les missions et aperçus de l’agent persistent sans écriture implicite 
   ).toBeVisible()
   await expect(
     page.getByRole('combobox', { name: 'Tag', exact: true }),
-  ).toHaveCount(initialTagNames.length ? 1 : 0)
+  ).toHaveCount(1)
 })
